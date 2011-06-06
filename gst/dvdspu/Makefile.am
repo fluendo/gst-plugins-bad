@@ -3,11 +3,19 @@ plugin_LTLIBRARIES = libgstdvdspu.la
 
 libgstdvdspu_la_SOURCES = gstdvdspu.c gstdvdspu-render.c gstspu-vobsub.c gstspu-vobsub-render.c gstspu-pgs.c
 
-libgstdvdspu_la_CFLAGS = $(GST_PLUGINS_BAD_CFLAGS) $(GST_PLUGINS_BASE_CFLAGS) $(GST_CFLAGS)
+libgstdvdspu_la_CFLAGS = $(GST_PLUGINS_BAD_CFLAGS) $(GST_PLUGINS_BASE_CFLAGS) $(GST_CFLAGS) -I$(top_srcdir)/fluendo
+
 libgstdvdspu_la_LIBADD = $(GST_PLUGINS_BASE_LIBS) -lgstvideo-$(GST_MAJORMINOR) \
      $(GST_LIBS)
-libgstdvdspu_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
+libgstdvdspu_la_LDFLAGS =
 libgstdvdspu_la_LIBTOOLFLAGS = --tag=disable-static
+
+if FLUENDO_STATIC_DVDSPU
+libgstdvdspu_la_CFLAGS += -DENABLE_STATIC_PLUGIN
+libgstdvdspu_la_LDFLAGS += $(GST_LIB_LDFLAGS)
+else
+libgstdvdspu_la_LDFLAGS += $(GST_PLUGIN_LDFLAGS)
+endif
 
 noinst_HEADERS = gstdvdspu.h gstspu-pgs.h gstspu-vobsub.h gstspu-common.h
 
