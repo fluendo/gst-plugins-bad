@@ -1,0 +1,204 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<VisualStudioToolFile
+	Name="Win32Build Rules"
+	Version="8,00"
+	>
+	<Rules>
+		<CustomBuildRule
+			Name="HeaderInstallTool"
+			DisplayName="Headerfile Installation Tool"
+			CommandLine="if not exist $(OutDir)\include\[ModuleName]\NUL mkdir $(OutDir)\include\[ModuleName]&#x0D;&#x0A;copy /B /Y &quot;$(InputPath)&quot; $(OutDir)\include\[ModuleName]\"
+			Outputs="$(OutDir)\include\[ModuleName]\$(InputFileName)"
+			FileExtensions="*.insthdr"
+			ExecutionDescription="Installing $(InputFileName) to $(OutDir)\include\[ModuleName]"
+			>
+			<Properties>
+				<StringProperty
+					Name="ModuleName"
+					DisplayName="Module name"
+					Description="Module name, meaning that headerfiles get installed to $(OutDir)\include\[ModuleName]\. Leave blank to install in the toplevel include directory."
+					Switch="[value]"
+				/>
+			</Properties>
+		</CustomBuildRule>
+		<CustomBuildRule
+			Name="GObjectGenMarshalTool"
+			DisplayName="GObject Marshaller Generation Tool"
+			CommandLine="if not exist $(IntDir)\[OutputSubdir]\NUL mkdir $(IntDir)\[OutputSubdir]&#x0D;&#x0A;&#x0D;&#x0A;$(OutDir)\bin\glib-genmarshal.exe --header --skip-source [NoStdInc] [FunctionPrefix] [inputs] &gt; &quot;$(IntDir)\[OutputSubdir]\$(InputName).h.tmp&quot;&#x0D;&#x0A;if %ERRORLEVEL% neq 0 goto ERROR&#x0D;&#x0A;$(OutDir)\bin\glib-genmarshal.exe --body --skip-source [NoStdInc] [Internal] [FunctionPrefix] [inputs] &gt; &quot;$(IntDir)\[OutputSubdir]\$(InputName).c.tmp&quot;&#x0D;&#x0A;if %ERRORLEVEL% neq 0 goto ERROR&#x0D;&#x0A;&#x0D;&#x0A;if exist $(IntDir)\[OutputSubdir]\$(InputName).h del $(IntDir)\[OutputSubdir]\$(InputName).h&#x0D;&#x0A;if exist $(IntDir)\[OutputSubdir]\$(InputName).c del $(IntDir)\[OutputSubdir]\$(InputName).c&#x0D;&#x0A;&#x0D;&#x0A;ren &quot;$(IntDir)\[OutputSubdir]\$(InputName).h.tmp&quot; &quot;$(InputName).h&quot;&#x0D;&#x0A;if %ERRORLEVEL% neq 0 goto ERROR&#x0D;&#x0A;ren &quot;$(IntDir)\[OutputSubdir]\$(InputName).c.tmp&quot; &quot;$(InputName).c&quot;&#x0D;&#x0A;if %ERRORLEVEL% neq 0 goto ERROR&#x0D;&#x0A;&#x0D;&#x0A;echo badgers &gt; &quot;$(IntDir)\$(InputFileName).stamp&quot;&#x0D;&#x0A;if %ERRORLEVEL% neq 0 goto ERROR&#x0D;&#x0A;exit 0&#x0D;&#x0A;&#x0D;&#x0A;:ERROR&#x0D;&#x0A;del $(IntDir)\[OutputSubdir]\$(InputName).h.tmp 2&gt;NUL&#x0D;&#x0A;del $(IntDir)\[OutputSubdir]\$(InputName).c.tmp 2&gt;NUL&#x0D;&#x0A;del $(IntDir)\[OutputSubdir]\$(InputName).h 2&gt;NUL&#x0D;&#x0A;del $(IntDir)\[OutputSubdir]\$(InputName).c 2&gt;NUL&#x0D;&#x0A;del $(IntDir)\$(InputFileName).stamp 2&gt;NUL&#x0D;&#x0A;exit 1&#x0D;&#x0A;"
+			Outputs="$(IntDir)\$(InputFileName).stamp"
+			FileExtensions="*.list"
+			ExecutionDescription="Generating GObject marshaller code"
+			>
+			<Properties>
+				<StringProperty
+					Name="OutputSubdir"
+					DisplayName="OutputSubdir"
+					Description="Subdirectory of output directory. Files are written to $(IntDir)\[OutputSubdir]. Optional; output ends up in $(IntDir) if not set."
+					Switch="[value]"
+				/>
+				<StringProperty
+					Name="FunctionPrefix"
+					DisplayName="Prefix"
+					Category="GObject"
+					Description="Prefix for marshallers generated"
+					Switch="--prefix=[value]"
+					DefaultValue="foo_marshal"
+				/>
+				<BooleanProperty
+					Name="NoStdInc"
+					DisplayName="NoStdInc"
+					Category="GObject"
+					Description="Disable standard includes."
+					Switch="--nostdinc"
+				/>
+				<BooleanProperty
+					Name="Internal"
+					DisplayName="Internal"
+					Category="GObject"
+					Description="Mark generated functions as internal."
+					Switch="--internal"
+				/>
+			</Properties>
+		</CustomBuildRule>
+		<CustomBuildRule
+			Name="GObjectMkEnumsTool"
+			DisplayName="GObject Enum Generation Tool"
+			CommandLine="set INPUTFILES=[InputFiles]&#x0D;&#x0A;[PythonLauncher] $(GLibMkEnumsWrapper) &quot;perl $(OutDir)\bin\glib-mkenums&quot; $(InputDir) - $(IntDir)\[OutputSubdir] [OutputFilenameBase] [OutputTemplateFiles] [Define] [Namespace]&#x0D;&#x0A;if %ERRORLEVEL% neq 0 goto ERROR&#x0D;&#x0A;&#x0D;&#x0A;echo snakes &gt; &quot;$(IntDir)\$(InputFileName).stamp&quot;&#x0D;&#x0A;if %ERRORLEVEL% neq 0 goto ERROR&#x0D;&#x0A;exit 0&#x0D;&#x0A;&#x0D;&#x0A;:ERROR&#x0D;&#x0A;del $(IntDir)\[OutputSubdir]\[OutputFilenameBase].h 2&gt;NUL&#x0D;&#x0A;del $(IntDir)\[OutputSubdir]\[OutputFilenameBase].c 2&gt;NUL&#x0D;&#x0A;del $(IntDir)\$(InputFileName).stamp 2&gt;NUL&#x0D;&#x0A;exit 1&#x0D;&#x0A;"
+			Outputs="$(IntDir)\$(InputFileName).stamp"
+			AdditionalDependencies="$(GLibMkEnumsWrapper);[InputFiles]"
+			FileExtensions="*.snakes"
+			ExecutionDescription="Generating GObject enum code"
+			>
+			<Properties>
+				<StringProperty
+					Name="InputFiles"
+					DisplayName="InputFiles"
+					Description="List of absolute paths for input header files, separated by semicolon."
+					Switch="[value]"
+				/>
+				<StringProperty
+					Name="OutputSubdir"
+					DisplayName="OutputSubdir"
+					Description="Subdirectory of output directory. Files are written to $(IntDir)\[OutputSubdir]. Optional; output ends up in $(IntDir) if not set."
+					Switch="[value]"
+				/>
+				<StringProperty
+					Name="OutputFilenameBase"
+					DisplayName="OutputFilenameBase"
+					Description="Base file name of files output, which get the named [OutputFilenameBase].h and [OutputFilenameBase].c."
+					Switch="[value]"
+				/>
+				<StringProperty
+					Name="OutputTemplateFiles"
+					DisplayName="TemplateFiles"
+					Description="Absolute paths of output template files, separated by semicolon. Must be specified if Define and Namespace are not set."
+					Switch="[value]"
+				/>
+				<StringProperty
+					Name="Define"
+					DisplayName="Define"
+					Description="Include guard name used. Must be specified if OutputTemplateFiles is not set."
+					Switch="[value]"
+				/>
+				<StringProperty
+					Name="Namespace"
+					DisplayName="Namespace"
+					Description="Namespace used. Must be specified if OutputTemplateFiles is not set."
+					Switch="[value]"
+				/>
+				<StringProperty
+					Name="PythonLauncher"
+					DisplayName="PythonLauncher"
+					Description="PythonLauncher"
+					Switch="[value]"
+					DefaultValue="python.exe"
+				/>
+			</Properties>
+		</CustomBuildRule>
+		<CustomBuildRule
+			Name="GenSDKVSPropsTool"
+			DisplayName="SDK VSProps Generation Tool"
+			CommandLine="if not exist $(OutDir)\vsprops\NUL mkdir $(OutDir)\vsprops&#x0D;&#x0A;&#x0D;&#x0A;$(Sed) -e &quot;s,@GLIB_API_VERSION@,$(GLibApiVersion),g&quot; -e &quot;s,@GSTREAMER_API_VERSION@,$(GStreamerApiVersion),g&quot; &quot;$(InputPath)&quot; &gt; &quot;$(OutDir)\vsprops\[OutputFilenameBase].vsprops.tmp&quot;&#x0D;&#x0A;if %ERRORLEVEL% neq 0 goto ERROR&#x0D;&#x0A;&#x0D;&#x0A;if exist &quot;$(OutDir)\vsprops\[OutputFilenameBase].vsprops&quot; del &quot;$(OutDir)\vsprops\[OutputFilenameBase].vsprops&quot;&#x0D;&#x0A;ren &quot;$(OutDir)\vsprops\[OutputFilenameBase].vsprops.tmp&quot; &quot;[OutputFilenameBase].vsprops&quot;&#x0D;&#x0A;if %ERRORLEVEL% neq 0 goto ERROR&#x0D;&#x0A;&#x0D;&#x0A;echo mushroom &gt; &quot;$(IntDir)\$(InputFileName).stamp&quot;&#x0D;&#x0A;if %ERRORLEVEL% neq 0 goto ERROR&#x0D;&#x0A;exit 0&#x0D;&#x0A;&#x0D;&#x0A;:ERROR&#x0D;&#x0A;del &quot;$(OutDir)\vsprops\[OutputFilenameBase].vsprops.tmp&quot; 2&gt;NUL&#x0D;&#x0A;del &quot;$(OutDir)\vsprops\[OutputFilenameBase].vsprops&quot; 2&gt;NUL&#x0D;&#x0A;del &quot;$(IntDir)\$(InputFileName).stamp&quot; 2&gt;NUL&#x0D;&#x0A;exit 1&#x0D;&#x0A;"
+			Outputs="$(IntDir)\$(InputFileName).stamp"
+			FileExtensions="*.vsprops.in"
+			ExecutionDescription="Generating [OutputFilenameBase].vsprops"
+			>
+			<Properties>
+				<StringProperty
+					Name="OutputFilenameBase"
+					DisplayName="OutputFilenameBase"
+					Description="Base file name of vsprops file output, which get the named [OutputFilenameBase].vsprops."
+					Switch="[value]"
+				/>
+			</Properties>
+		</CustomBuildRule>
+		<CustomBuildRule
+			Name="NasmBuildTool"
+			DisplayName="Nasm build tool"
+			CommandLine="$(Nasm) -f win32 -d OBJ_FORMAT_win32 -i $(InputDir) [NasmIncludePaths] -o $(IntDir)\$(InputName).obj $(InputPath)&#x0D;&#x0A;"
+			Outputs="$(IntDir)\$(InputName).obj"
+			FileExtensions="*.nasm"
+			ExecutionDescription="Compiling $(InputFileName) with nasm"
+			>
+			<Properties>
+				<StringProperty
+					Name="NasmIncludePaths"
+					DisplayName="Include paths"
+					Description="Include paths"
+					Switch="-i [value]"
+					Delimited="true"
+					Inheritable="true"
+				/>
+			</Properties>
+		</CustomBuildRule>
+		<CustomBuildRule
+			Name="ValaCompiler"
+			DisplayName="Vala Compiler"
+			CommandLine="@rem Prepare command, removing &quot;;&quot;&#x0D;&#x0A;echo valac [GenC] --target-glib=2.12 [inputs] [AdditionalVapi] [AdditionalPackages] -d $(InputDir) -D OSTYPE_WINDOWS | $(sed) s/;//g &gt; tmp_KillOnSight0.bat&#x0D;&#x0A;if [HName]x equ x goto SKIP_GEN_H&#x0D;&#x0A;echo -H [HName] &gt;&gt; tmp_KillOnSight0.bat&#x0D;&#x0A;:SKIP_GEN_H&#x0D;&#x0A;if [LibName]x equ x goto SKIP_GEN_LIB&#x0D;&#x0A;echo --library &gt;&gt; tmp_KillOnSight0.bat&#x0D;&#x0A;echo [LibName] | $(sed) s/\\/\//g &gt; tmp_KillOnSight00&#x0D;&#x0A;$(basename) @tmp_KillOnSight00 .vapi &gt;&gt; tmp_KillOnSight0.bat&#x0D;&#x0A;del tmp_KillOnSight00&#x0D;&#x0A;:SKIP_GEN_LIB&#x0D;&#x0A;if &quot;[AdditionalOptions]&quot;x equ &quot;&quot;x goto SKIP_ADD_OPTS&#x0D;&#x0A;echo [AdditionalOptions] &gt;&gt; tmp_KillOnSight0.bat&#x0D;&#x0A;:SKIP_ADD_OPTS&#x0D;&#x0A;type tmp_KillOnSight0.bat | $(tr) &apos;\r\n&apos; &apos;  &apos; &gt; tmp_KillOnSight2.bat&#x0D;&#x0A;del tmp_KillOnSight0.bat&#x0D;&#x0A;&#x0D;&#x0A;@rem Call the vala compiler&#x0D;&#x0A;type tmp_KillOnSight2.bat&#x0D;&#x0A;echo.&#x0D;&#x0A;call tmp_KillOnSight2.bat&#x0D;&#x0A;if %ERRORLEVEL% equ 0 goto NEXT&#x0D;&#x0A;del tmp_KillOnSight2.bat&#x0D;&#x0A;goto ERROR&#x0D;&#x0A;&#x0D;&#x0A;:NEXT&#x0D;&#x0A;del tmp_KillOnSight2.bat&#x0D;&#x0A;@rem Touch the output, because Vala does not modify the stamp&#x0D;&#x0A;@rem First we need to convert windows paths to linux paths, because &apos;touch&apos; is a linux tool&#x0D;&#x0A;@rem and find out the name of the outputs by changing vala-&gt;c&#x0D;&#x0A;echo [inputs] | $(sed) s/\\/\//g | $(sed) s/vala/c/g &gt; tmp_KillOnSight1&#x0D;&#x0A;if [HName]x equ x goto SKIPH&#x0D;&#x0A;echo [HName] | sed s/\\/\//g &gt;&gt; tmp_KillOnSight1&#x0D;&#x0A;:SKIPH&#x0D;&#x0A;$(touch) -c @tmp_KillOnSight1&#x0D;&#x0A;del tmp_KillOnSight1&#x0D;&#x0A;&#x0D;&#x0A;exit 0&#x0D;&#x0A;&#x0D;&#x0A;:ERROR&#x0D;&#x0A;exit 1"
+			Outputs="$(InputDir)$(Inputname).c; [HName]; [LibName]"
+			AdditionalDependencies="[AdditionalVapi]"
+			FileExtensions="*.vala"
+			>
+			<Properties>
+				<BooleanProperty
+					Name="GenC"
+					DisplayName="Generate C"
+					Category="Code generation"
+					Description="Whether or not a C file is generated"
+					Switch="-C"
+					DefaultValue="true"
+				/>
+				<StringProperty
+					Name="HName"
+					DisplayName="Header file name"
+					Category="Code generation"
+					Description="Name of the generated header file (if any). Include the .h extension and a windows path relative to the project file location."
+					Switch="[value]"
+				/>
+				<StringProperty
+					Name="LibName"
+					DisplayName="Library file"
+					Category="Code generation"
+					Description="Name of the generated library file (if any). Include the .vapi extension and a windows path relative to the project file location."
+					Switch="[value]"
+				/>
+				<StringProperty
+					Name="AdditionalVapi"
+					DisplayName="Additional VAPI files"
+					Category="Additional dependencies"
+					Description="Additional package bindings (vapi files). Delimite with ; Include the .vapi extension and windows paths relative to the project file location."
+					Switch="[value]"
+				/>
+				<StringProperty
+					Name="AdditionalPackages"
+					DisplayName="Additional packages"
+					Category="Additional dependencies"
+					Description="Additional package dependencies. Delimite with spaces. No paths."
+					Switch="--pkg [value]"
+					Delimited="true"
+					Delimiters=" "
+				/>
+			</Properties>
+		</CustomBuildRule>
+	</Rules>
+</VisualStudioToolFile>
