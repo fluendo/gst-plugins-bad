@@ -19,8 +19,12 @@
 #ifndef __DSHOWVIDEOFAKESRC_H__
 #define __DSHOWVIDEOFAKESRC_H__
 
-#include <streams.h>
 #include <gst/gst.h>
+
+/* This is an ugly hack but otherwise I get an undefined symbol and I have
+ * already spent too much time on this */
+#define ASSERT(x) if (!(x)) GST_ERROR ("Assertion failure!");
+#include <streams.h>
 
 class VideoFakeSrcPin : public CDynamicOutputPin
 {

@@ -20,7 +20,7 @@
 			Name="Debug DLL|Win32"
 			ConfigurationType="2"
 			InheritedPropertySheets="$(WIN32BUILD_BASE)\build\vsprops\$(ConfigurationName)-$(PlatformName).vsprops;$(WIN32BUILD_BASE)\build\vsprops\GStreamerPlugin.vsprops"
-			CharacterSet="2"
+			CharacterSet="1"
 			>
 			<Tool
 				Name="VCPreBuildEventTool"
@@ -53,7 +53,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="strmbase.lib mfuuid.lib winmm.lib dxguid.lib libgstreamer-0.10.lib libgstbase-0.10.lib libgstinterfaces-0.10.lib libgstvideo-0.10.lib"
+				AdditionalDependencies="strmbasd.lib mfuuid.lib winmm.lib dxguid.lib libgstbase-0.10.lib libgstinterfaces-0.10.lib libgstvideo-0.10.lib"
 			/>
 			<Tool
 				Name="VCALinkTool"
@@ -81,7 +81,7 @@
 			Name="Release DLL|Win32"
 			ConfigurationType="2"
 			InheritedPropertySheets="$(WIN32BUILD_BASE)\build\vsprops\$(ConfigurationName)-$(PlatformName).vsprops;$(WIN32BUILD_BASE)\build\vsprops\GStreamerPlugin.vsprops"
-			CharacterSet="2"
+			CharacterSet="1"
 			WholeProgramOptimization="1"
 			>
 			<Tool
@@ -115,7 +115,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="strmbase.lib mfuuid.lib winmm.lib dxguid.lib libgstreamer-0.10.lib libgstbase-0.10.lib libgstinterfaces-0.10.lib libgstvideo-0.10.lib"
+				AdditionalDependencies="strmbase.lib mfuuid.lib winmm.lib dxguid.lib libgstbase-0.10.lib libgstinterfaces-0.10.lib libgstvideo-0.10.lib"
 			/>
 			<Tool
 				Name="VCALinkTool"
@@ -143,7 +143,7 @@
 			Name="Debug LIB|Win32"
 			ConfigurationType="4"
 			InheritedPropertySheets="$(WIN32BUILD_BASE)\build\vsprops\$(ConfigurationName)-$(PlatformName).vsprops;$(WIN32BUILD_BASE)\build\vsprops\GStreamerPlugin.vsprops"
-			CharacterSet="2"
+			CharacterSet="1"
 			>
 			<Tool
 				Name="VCPreBuildEventTool"
@@ -197,7 +197,7 @@
 			Name="Release LIB|Win32"
 			ConfigurationType="4"
 			InheritedPropertySheets="$(WIN32BUILD_BASE)\build\vsprops\$(ConfigurationName)-$(PlatformName).vsprops;$(WIN32BUILD_BASE)\build\vsprops\GStreamerPlugin.vsprops"
-			CharacterSet="2"
+			CharacterSet="1"
 			WholeProgramOptimization="1"
 			>
 			<Tool

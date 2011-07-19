@@ -55,7 +55,6 @@
 			<Tool
 				Name="VCLinkerTool"
 				AdditionalDependencies="libgstreamer-0.10.lib libgstbase-0.10.lib winmm.lib libgstvideo-0.10.lib"
-				OutputFile="$(OutDir)\elisa_gst_plugins\ffmpeg\$(ProjectName).dll"
 			/>
 			<Tool
 				Name="VCALinkTool"
@@ -178,7 +177,6 @@
 			<Tool
 				Name="VCLinkerTool"
 				AdditionalDependencies="libgstreamer-0.10.lib libgstbase-0.10.lib winmm.lib libgstvideo-0.10.lib"
-				OutputFile="$(OutDir)\elisa_gst_plugins\ffmpeg\$(ProjectName).dll"
 			/>
 			<Tool
 				Name="VCALinkTool"
