@@ -28,6 +28,8 @@
 #include "config.h"
 #endif
 
+#include "gst-fluendo.h"
+
 #include "gstdirectdrawsink.h"
 
 static gboolean
@@ -40,8 +42,9 @@ plugin_init (GstPlugin * plugin)
   return TRUE;
 }
 
-GST_PLUGIN_DEFINE (GST_VERSION_MAJOR,
+FLUENDO_PLUGIN_DEFINE (GST_VERSION_MAJOR,
     GST_VERSION_MINOR,
     "directdraw",
+    directdraw,
     "Direct Draw plugin library",
     plugin_init, VERSION, "LGPL", GST_PACKAGE_NAME, GST_PACKAGE_ORIGIN)
