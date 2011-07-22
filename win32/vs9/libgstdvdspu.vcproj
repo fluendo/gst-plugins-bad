@@ -284,7 +284,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				AdditionalIncludeDirectories="..\common;..\..\fluendo"
-				PreprocessorDefinitions="STATIC_LIB"
+				PreprocessorDefinitions="GST_FLUENDO_STATIC_LIB"
 				WarnAsError="false"
 				CompileAs="1"
 			/>
@@ -341,7 +341,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				AdditionalIncludeDirectories="..\common;..\..\fluendo"
-				PreprocessorDefinitions="STATIC_LIB"
+				PreprocessorDefinitions="GST_FLUENDO_STATIC_LIB"
 			/>
 			<Tool
 				Name="VCManagedResourceCompilerTool"
@@ -395,7 +395,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				AdditionalIncludeDirectories="..\common;..\..\fluendo"
-				PreprocessorDefinitions="STATIC_LIB"
+				PreprocessorDefinitions="GST_FLUENDO_STATIC_LIB"
 			/>
 			<Tool
 				Name="VCManagedResourceCompilerTool"
@@ -450,7 +450,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				AdditionalIncludeDirectories="..\common;..\..\fluendo"
-				PreprocessorDefinitions="STATIC_LIB"
+				PreprocessorDefinitions="GST_FLUENDO_STATIC_LIB"
 			/>
 			<Tool
 				Name="VCManagedResourceCompilerTool"

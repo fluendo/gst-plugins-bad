@@ -289,7 +289,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				AdditionalIncludeDirectories="..\common;..\..\fluendo"
-				PreprocessorDefinitions="LIBGSTDIRECTDRAW_EXPORTS;STATIC_LIB"
+				PreprocessorDefinitions="LIBGSTDIRECTDRAW_EXPORTS;GST_FLUENDO_STATIC_LIB"
 			/>
 			<Tool
 				Name="VCManagedResourceCompilerTool"
@@ -344,7 +344,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				AdditionalIncludeDirectories="..\common;..\..\fluendo"
-				PreprocessorDefinitions="LIBGSTDIRECTDRAW_EXPORTS;STATIC_LIB"
+				PreprocessorDefinitions="LIBGSTDIRECTDRAW_EXPORTS;GST_FLUENDO_STATIC_LIB"
 			/>
 			<Tool
 				Name="VCManagedResourceCompilerTool"
@@ -399,7 +399,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				AdditionalIncludeDirectories="..\common;..\..\fluendo"
-				PreprocessorDefinitions="LIBGSTDIRECTDRAW_EXPORTS;STATIC_LIB"
+				PreprocessorDefinitions="LIBGSTDIRECTDRAW_EXPORTS;GST_FLUENDO_STATIC_LIB"
 			/>
 			<Tool
 				Name="VCManagedResourceCompilerTool"
@@ -455,7 +455,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				AdditionalIncludeDirectories="..\common;..\..\fluendo"
-				PreprocessorDefinitions="LIBGSTDIRECTDRAW_EXPORTS;STATIC_LIB"
+				PreprocessorDefinitions="LIBGSTDIRECTDRAW_EXPORTS;GST_FLUENDO_STATIC_LIB"
 			/>
 			<Tool
 				Name="VCManagedResourceCompilerTool"
