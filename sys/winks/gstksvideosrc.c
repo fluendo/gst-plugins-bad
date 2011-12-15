@@ -120,6 +120,9 @@ struct _GstKsVideoSrcPrivate
   GstClockTime last_sampling;
   guint count;
   guint fps;
+
+  /* misc states */
+  gboolean read_timeout;
 };
 
 #define GST_KS_VIDEO_SRC_GET_PRIVATE(o) ((o)->priv)
@@ -260,6 +263,7 @@ gst_ks_video_src_init (GstKsVideoSrc * self, GstKsVideoSrcClass * gclass)
   priv->device_index = DEFAULT_DEVICE_INDEX;
   priv->do_stats = DEFAULT_DO_STATS;
   priv->enable_quirks = DEFAULT_ENABLE_QUIRKS;
+  priv->read_timeout = TRUE;
 }
 
 static void
@@ -1044,8 +1048,24 @@ gst_ks_video_src_create (GstPushSrc * pushsrc, GstBuffer ** buf)
       *buf = NULL;
     }
 
-    result = gst_ks_video_device_read_frame (priv->device, buf,
-        &presentation_time, &error_code, &error_str);
+    if (priv->read_timeout) {
+      /* post a message if we had a previous timeout or start it for the first time */
+      GstMessage *msg = gst_message_new_stream_status (GST_OBJECT_CAST (self),
+          GST_STREAM_STATUS_TYPE_START, GST_ELEMENT_CAST (self));
+      gst_bus_post (GST_ELEMENT_BUS (self), msg);
+    }
+    priv->read_timeout = FALSE;
+    do {
+      result = gst_ks_video_device_read_frame (priv->device,
+          buf, &presentation_time, &error_code, &error_str);
+      if (G_UNLIKELY (result == GST_FLOW_UNEXPECTED && !priv->read_timeout)) {
+        GstMessage *msg = gst_message_new_stream_status (GST_OBJECT_CAST (self),
+            GST_STREAM_STATUS_TYPE_PAUSE, GST_ELEMENT_CAST (self));
+        gst_bus_post (GST_ELEMENT_BUS (self), msg);
+        priv->read_timeout = TRUE;
+      }
+    } while (G_UNLIKELY (result == GST_FLOW_UNEXPECTED));
+
     if (G_UNLIKELY (result != GST_FLOW_OK))
       goto error_read_frame;
   }
