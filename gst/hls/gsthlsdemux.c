@@ -1564,18 +1564,23 @@ gst_hls_demux_updates_loop (GstHLSDemux * demux)
             demux->updates_timed_lock, &demux->next_update)) {
       goto quit;
     }
-    /* update the playlist for live sources */
-    if (gst_m3u8_client_is_live (demux->client)) {
-      if (!gst_hls_demux_update_playlist (demux, TRUE)) {
-        demux->client->update_failed_count++;
-        if (demux->client->update_failed_count < DEFAULT_FAILED_COUNT) {
-          GST_WARNING_OBJECT (demux, "Could not update the playlist");
-          continue;
-        } else {
-          GST_ELEMENT_ERROR (demux, RESOURCE, NOT_FOUND,
-              ("Could not update the playlist"), (NULL));
-          goto quit;
-        }
+
+    if (demux->cancelled)
+      goto quit;
+
+    /* update the playlist for live sources. For VOD the client will only
+     * update the playlists that were not downloaded before */
+    if (!gst_hls_demux_update_playlist (demux, TRUE)) {
+      if (demux->cancelled)
+        goto quit;
+      demux->client->update_failed_count++;
+      if (demux->client->update_failed_count < DEFAULT_FAILED_COUNT) {
+        GST_WARNING_OBJECT (demux, "Could not update the playlist");
+        continue;
+      } else {
+        GST_ELEMENT_ERROR (demux, RESOURCE, NOT_FOUND,
+            ("Could not update the playlist"), (NULL));
+        goto error;
       }
     }
 
@@ -1591,26 +1596,28 @@ gst_hls_demux_updates_loop (GstHLSDemux * demux)
     }
 
     /* fetch the next fragment */
-    /* FIXME: why is this check needed ?¿ */
-    if (g_queue_is_empty (demux->video_queue)) {
-      if (!gst_hls_demux_get_next_fragment (demux, FALSE)) {
-        if (!demux->end_of_playlist && !demux->cancelled) {
-          demux->client->update_failed_count++;
-          if (demux->client->update_failed_count < DEFAULT_FAILED_COUNT) {
-            GST_WARNING_OBJECT (demux, "Could not fetch the next fragment");
-            continue;
-          } else {
-            GST_ELEMENT_ERROR (demux, RESOURCE, NOT_FOUND,
-                ("Could not fetch the next fragment"), (NULL));
-            goto quit;
-          }
+    if (!gst_hls_demux_get_next_fragment (demux, FALSE)) {
+      if (demux->cancelled) {
+        goto quit;
+      } else if (!demux->end_of_playlist && !demux->cancelled) {
+        demux->client->update_failed_count++;
+        if (demux->client->update_failed_count < DEFAULT_FAILED_COUNT) {
+          GST_WARNING_OBJECT (demux, "Could not fetch the next fragment");
+          continue;
+        } else {
+          GST_ELEMENT_ERROR (demux, RESOURCE, NOT_FOUND,
+              ("Could not fetch the next fragment"), (NULL));
+          goto error;
         }
-      } else {
-        demux->client->update_failed_count = 0;
-
-        /* try to switch to another bitrate if needed */
-        gst_hls_demux_switch_playlist (demux);
       }
+    } else {
+      demux->client->update_failed_count = 0;
+
+      if (demux->cancelled)
+        goto quit;
+
+      /* try to switch to another bitrate if needed */
+      gst_hls_demux_switch_playlist (demux);
     }
   }
 
