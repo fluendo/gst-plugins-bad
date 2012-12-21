@@ -1457,7 +1457,7 @@ gst_hls_demux_push_audio_fragment (GstHLSDemux * demux)
 static void
 gst_hls_demux_push_subtt_fragment (GstHLSDemux * demux)
 {
-  //gst_hls_demux_push_fragment (demux, GST_M3U8_MEDIA_TYPE_SUBTITLES);
+  gst_hls_demux_push_fragment (demux, GST_M3U8_MEDIA_TYPE_SUBTITLES);
 }
 
 static void
