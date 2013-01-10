@@ -44,6 +44,8 @@ struct _GstUriDownloaderPrivate
   GMutex *usage_lock;
   GMutex *lock;
   GCond *cond;
+  gboolean setting_uri;
+  gboolean support_location_changes;
 };
 
 static void gst_uri_downloader_finalize (GObject * object);
@@ -98,6 +100,8 @@ gst_uri_downloader_init (GstUriDownloader * downloader)
 
   /* Create a bus to handle error and warning message from the source element */
   downloader->priv->bus = gst_bus_new ();
+  downloader->priv->urisrc = NULL;
+  downloader->priv->setting_uri = FALSE;
 
   downloader->priv->usage_lock = g_mutex_new ();
   downloader->priv->lock = g_mutex_new ();
@@ -160,9 +164,14 @@ gst_uri_downloader_sink_event (GstPad * pad, GstEvent * event)
 
   switch (event->type) {
     case GST_EVENT_EOS:{
-      GST_OBJECT_LOCK (downloader);
       GST_DEBUG_OBJECT (downloader, "Got EOS on the fetcher pad");
-      if (downloader->priv->download != NULL) {
+      GST_OBJECT_LOCK (downloader);
+      if (downloader->priv->setting_uri) {
+        /* Ignore this EOS, which comes from changing the location in the source
+         * element */
+        GST_DEBUG_OBJECT (downloader, "Ignoring  EOS while changing URI's");
+        GST_OBJECT_UNLOCK (downloader);
+      } else if (downloader->priv->download != NULL) {
         /* signal we have fetched the URI */
         downloader->priv->download->completed = TRUE;
         downloader->priv->download->download_stop_time =
@@ -234,6 +243,11 @@ gst_uri_downloader_chain (GstPad * pad, GstBuffer * buf)
     goto done;
   }
 
+  if (downloader->priv->setting_uri) {
+    /* Ignore buffers while setting up things */
+    GST_OBJECT_UNLOCK (downloader);
+    goto done;
+  }
   if (downloader->priv->download->download_start_time == GST_CLOCK_TIME_NONE)
     downloader->priv->download->download_start_time = gst_util_get_timestamp ();
 
@@ -281,19 +295,27 @@ gst_uri_downloader_stop (GstUriDownloader * downloader)
 
   GST_DEBUG_OBJECT (downloader, "Stopping source element");
 
-  /* set the element state to NULL */
-  gst_element_set_state (downloader->priv->urisrc, GST_STATE_NULL);
-  gst_element_get_state (downloader->priv->urisrc, NULL, NULL,
-      GST_CLOCK_TIME_NONE);
+  if (!downloader->priv->support_location_changes) {
+    /* set the element state to NULL */
+    gst_element_set_state (downloader->priv->urisrc, GST_STATE_NULL);
+    gst_element_get_state (downloader->priv->urisrc, NULL, NULL,
+        GST_CLOCK_TIME_NONE);
 
-  /* remove the bus' sync handler */
-  gst_bus_set_sync_handler (downloader->priv->bus, NULL, NULL);
+    /* remove the bus' sync handler */
+    gst_bus_set_sync_handler (downloader->priv->bus, NULL, NULL);
 
-  /* unlink the source element from the internal pad */
-  pad = gst_pad_get_peer (downloader->priv->pad);
-  if (pad) {
-    gst_pad_unlink (pad, downloader->priv->pad);
-    gst_object_unref (pad);
+    /* unlink the source element from the internal pad */
+    pad = gst_pad_get_peer (downloader->priv->pad);
+    if (pad) {
+      gst_pad_unlink (pad, downloader->priv->pad);
+      gst_object_unref (pad);
+    }
+    gst_object_unref (downloader->priv->urisrc);
+    downloader->priv->urisrc = NULL;
+  } else {
+    gst_element_set_state (downloader->priv->urisrc, GST_STATE_PAUSED);
+    gst_element_get_state (downloader->priv->urisrc, NULL, NULL,
+        GST_CLOCK_TIME_NONE);
   }
 }
 
@@ -315,30 +337,87 @@ gst_uri_downloader_cancel (GstUriDownloader * downloader)
   }
 }
 
+static void
+gst_uri_downloader_apply_range (GstUriDownloader * downloader)
+{
+  if (downloader->priv->offset != -1 && downloader->priv->length != -1) {
+    GST_INFO_OBJECT (downloader, "range request offset:%" G_GUINT64_FORMAT
+        " length:%" G_GUINT64_FORMAT, downloader->priv->offset,
+        downloader->priv->length);
+    if (!gst_element_seek (downloader->priv->urisrc, 1, GST_FORMAT_BYTES,
+            GST_SEEK_FLAG_ACCURATE, GST_SEEK_TYPE_SET, downloader->priv->offset,
+            GST_SEEK_TYPE_SET,
+            downloader->priv->offset + downloader->priv->length)) {
+      GST_INFO_OBJECT (downloader->priv->urisrc,
+          "This server does not support range requests");
+    }
+  }
+}
+
 static gboolean
 gst_uri_downloader_set_uri (GstUriDownloader * downloader, const gchar * uri)
 {
   GstPad *pad;
+  GstElement *source;
 
   if (!gst_uri_is_valid (uri))
     return FALSE;
 
-  GST_DEBUG_OBJECT (downloader, "Creating source element for the URI:%s", uri);
-  downloader->priv->urisrc = gst_element_make_from_uri (GST_URI_SRC, uri, NULL);
-  if (!downloader->priv->urisrc)
-    return FALSE;
+  source = gst_element_make_from_uri (GST_URI_SRC, uri, NULL);
 
-  /* add a sync handler for the bus messages to detect errors in the download */
-  gst_element_set_bus (GST_ELEMENT (downloader->priv->urisrc),
-      downloader->priv->bus);
-  gst_bus_set_sync_handler (downloader->priv->bus,
-      gst_uri_downloader_bus_handler, downloader);
+  /* Make sure we can reuse the same source element for this new URI */
+  if (downloader->priv->urisrc == NULL &&
+      downloader->priv->support_location_changes) {
+    if (gst_element_get_factory (source) !=
+        gst_element_get_factory (downloader->priv->urisrc)) {
+      gst_object_unref (downloader->priv->urisrc);
+      downloader->priv->urisrc = NULL;
+    } else {
+      gst_object_unref (source);
+    }
+  }
 
-  pad = gst_element_get_static_pad (downloader->priv->urisrc, "src");
-  if (!pad)
-    return FALSE;
-  gst_pad_link (pad, downloader->priv->pad);
-  gst_object_unref (pad);
+  if (downloader->priv->urisrc == NULL) {
+    GstElementFactory *factory;
+
+    GST_DEBUG_OBJECT (downloader, "Creating source element for the URI:%s",
+        uri);
+    downloader->priv->urisrc = source;
+
+    if (!downloader->priv->urisrc)
+      return FALSE;
+
+    downloader->priv->support_location_changes = FALSE;
+    factory = gst_element_get_factory (downloader->priv->urisrc);
+    if (!g_strcmp0 ("souphttpsrc", GST_PLUGIN_FEATURE_NAME (factory))) {
+      downloader->priv->support_location_changes = TRUE;
+      GST_DEBUG_OBJECT (downloader, "The element %s supports location changes",
+          GST_PLUGIN_FEATURE_NAME (factory));
+    } else {
+      GST_DEBUG_OBJECT (downloader,
+          "The element %s doesn't support location changes");
+    }
+
+    /* add a sync handler for the bus messages to detect errors in the download */
+    gst_element_set_bus (GST_ELEMENT (downloader->priv->urisrc),
+        downloader->priv->bus);
+    gst_bus_set_sync_handler (downloader->priv->bus,
+        gst_uri_downloader_bus_handler, downloader);
+
+    pad = gst_element_get_static_pad (downloader->priv->urisrc, "src");
+    if (!pad)
+      return FALSE;
+    gst_pad_link (pad, downloader->priv->pad);
+    gst_object_unref (pad);
+  } else {
+    GST_DEBUG_OBJECT (downloader, "Setting URI:%s", uri);
+    gst_uri_handler_set_uri (GST_URI_HANDLER (downloader->priv->urisrc), uri);
+    if (downloader->priv->offset == -1 && downloader->priv->length == -1)
+      gst_element_seek_simple (downloader->priv->urisrc, GST_FORMAT_BYTES,
+          GST_SEEK_FLAG_FLUSH, 0);
+    gst_uri_downloader_apply_range (downloader);
+  }
+
   return TRUE;
 }
 
@@ -351,16 +430,23 @@ gst_uri_downloader_fetch_uri_range (GstUriDownloader * downloader,
 
   g_mutex_lock (downloader->priv->usage_lock);
 
+  GST_DEBUG_OBJECT (downloader, "Fetching new URI %s", uri);
   downloader->priv->download = gst_fragment_new ();
   downloader->priv->download->download_start_time = GST_CLOCK_TIME_NONE;
   downloader->priv->length = length;
   downloader->priv->offset = offset;
+  downloader->priv->setting_uri = TRUE;
 
   if (!gst_uri_downloader_set_uri (downloader, uri)) {
     goto quit;
   }
+  downloader->priv->setting_uri = FALSE;
 
   ret = gst_element_set_state (downloader->priv->urisrc, GST_STATE_PAUSED);
+
+  if (!downloader->priv->support_location_changes) {
+    gst_uri_downloader_apply_range (downloader);
+  }
 
   if (ret == GST_STATE_CHANGE_FAILURE) {
     if (downloader->priv->download != NULL)
@@ -377,16 +463,6 @@ gst_uri_downloader_fetch_uri_range (GstUriDownloader * downloader,
     goto quit;
   }
 
-  if (offset != -1 && length != -1) {
-    GST_INFO_OBJECT (downloader, "range request offset:%" G_GUINT64_FORMAT
-        " length:%" G_GUINT64_FORMAT, offset, length);
-    if (!gst_element_seek (downloader->priv->urisrc, 1, GST_FORMAT_BYTES,
-            GST_SEEK_FLAG_ACCURATE, GST_SEEK_TYPE_SET, offset,
-            GST_SEEK_TYPE_SET, offset + length)) {
-      GST_INFO_OBJECT (downloader->priv->urisrc,
-          "This server does not support range requests");
-    }
-  }
 
   ret = gst_element_set_state (downloader->priv->urisrc, GST_STATE_PLAYING);
   if (ret == GST_STATE_CHANGE_FAILURE) {
