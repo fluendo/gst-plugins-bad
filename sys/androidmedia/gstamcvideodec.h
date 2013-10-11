@@ -81,6 +81,8 @@ struct _GstAmcVideoDec
   /* TRUE if upstream is EOS */
   gboolean eos;
 
+  guint8 *surface;
+
   GstFlowReturn downstream_flow_ret;
 };
 
@@ -89,6 +91,7 @@ struct _GstAmcVideoDecClass
   GstVideoDecoderClass parent_class;
 
   const GstAmcCodecInfo *codec_info;
+  gboolean direct_rendering;
 };
 
 GType gst_amc_video_dec_get_type (void);

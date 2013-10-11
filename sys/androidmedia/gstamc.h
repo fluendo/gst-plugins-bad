@@ -34,6 +34,7 @@ typedef struct _GstAmcCodec GstAmcCodec;
 typedef struct _GstAmcBufferInfo GstAmcBufferInfo;
 typedef struct _GstAmcFormat GstAmcFormat;
 typedef struct _GstAmcBuffer GstAmcBuffer;
+typedef struct _GstAmcDRBuffer GstAmcDRBuffer;
 
 struct _GstAmcCodecType {
   gchar *mime;
@@ -61,6 +62,12 @@ struct _GstAmcBuffer {
   gsize size;
 };
 
+struct _GstAmcDRBuffer {
+  GstAmcCodec *codec;
+  guint idx;
+  gboolean released;
+};
+
 struct _GstAmcFormat {
   /* < private > */
   jobject object; /* global reference */
@@ -83,7 +90,7 @@ extern GQuark gst_amc_codec_info_quark;
 GstAmcCodec * gst_amc_codec_new (const gchar *name);
 void gst_amc_codec_free (GstAmcCodec * codec);
 
-gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format, gint flags);
+gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format, guint8 *surface, gint flags);
 GstAmcFormat * gst_amc_codec_get_output_format (GstAmcCodec * codec);
 
 gboolean gst_amc_codec_start (GstAmcCodec * codec);
@@ -100,6 +107,7 @@ gint gst_amc_codec_dequeue_output_buffer (GstAmcCodec * codec, GstAmcBufferInfo 
 
 gboolean gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index, const GstAmcBufferInfo *info);
 gboolean gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index);
+gboolean gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index);
 
 
 GstAmcFormat * gst_amc_format_new_audio (const gchar *mime, gint sample_rate, gint channels);
@@ -139,6 +147,17 @@ gint gst_amc_aac_profile_from_string (const gchar *profile);
 
 GstAudioChannelPosition* gst_amc_audio_channel_mask_to_positions (guint32 channel_mask, gint channels);
 guint32 gst_amc_audio_channel_mask_from_positions (GstAudioChannelPosition *positions, gint channels);
+
+GstAmcDRBuffer * gst_amc_dr_buffer_new (GstAmcCodec *codec, guint idx);
+void gst_amc_dr_buffer_free (GstAmcDRBuffer *buf);
+gboolean gst_amc_dr_buffer_render (GstAmcDRBuffer *buf);
+
+GstQuery * gst_amc_query_new_surface (void);
+gpointer gst_amc_query_parse_surface (GstQuery *query);
+gboolean gst_amc_query_set_surface (GstQuery *query, gpointer surface);
+GstEvent * gst_amc_event_new_surface (gpointer surface);
+gpointer gst_amc_event_parse_surface (GstEvent *event);
+gboolean gst_amc_event_is_surface (GstEvent *event);
 
 G_END_DECLS
 

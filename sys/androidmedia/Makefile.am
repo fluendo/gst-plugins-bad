@@ -4,6 +4,7 @@ libgstandroidmedia_la_SOURCES = \
 	gstamc.c \
 	gstamcaudiodec.c \
 	gstamcvideodec.c \
+	gstamcvideosink.c \
 	video/video.c \
 	video/gstvideodecoder.c \
 	video/gstvideoencoder.c \
@@ -14,6 +15,7 @@ noinst_HEADERS = \
 	gstamc-constants.h \
 	gstamcaudiodec.h \
 	gstamcvideodec.h \
+	gstamcvideosink.h \
 	video/video.h \
 	video/gstvideodecoder.h \
 	video/gstvideoencoder.h \

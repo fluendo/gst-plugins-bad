@@ -41,8 +41,10 @@
 #include "gstamcvideodec.h"
 #include "gstamc-constants.h"
 
+
 GST_DEBUG_CATEGORY_STATIC (gst_amc_video_dec_debug_category);
 #define GST_CAT_DEFAULT gst_amc_video_dec_debug_category
+#define DEFAULT_DIRECT_RENDERING TRUE
 
 typedef struct _BufferIdentification BufferIdentification;
 struct _BufferIdentification
@@ -84,6 +86,8 @@ static gboolean gst_amc_video_dec_reset (GstVideoDecoder * decoder,
 static GstFlowReturn gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     GstVideoCodecFrame * frame);
 static GstFlowReturn gst_amc_video_dec_finish (GstVideoDecoder * decoder);
+static gboolean gst_amc_video_dec_src_event (GstVideoDecoder * decoder,
+    GstEvent * event);
 
 static GstFlowReturn gst_amc_video_dec_drain (GstAmcVideoDec * self);
 
@@ -386,12 +390,18 @@ caps_to_mime (GstCaps * caps)
 }
 
 static GstCaps *
-create_src_caps (const GstAmcCodecInfo * codec_info)
+create_src_caps (const GstAmcCodecInfo * codec_info, gboolean direct_rendering)
 {
-  GstCaps *ret;
+  GstCaps *ret, *amc;
   gint i;
 
   ret = gst_caps_new_empty ();
+
+  if (direct_rendering) {
+    amc = gst_caps_new_simple ("video/x-amc", NULL);
+    gst_caps_merge (ret, amc);
+    return ret;
+  }
 
   for (i = 0; i < codec_info->n_supported_types; i++) {
     const GstAmcCodecType *type = &codec_info->supported_types[i];
@@ -431,6 +441,7 @@ gst_amc_video_dec_base_init (gpointer g_class)
     return;
 
   videodec_class->codec_info = codec_info;
+  videodec_class->direct_rendering = DEFAULT_DIRECT_RENDERING;
 
   /* Add pad templates */
   caps = create_sink_caps (codec_info);
@@ -438,7 +449,7 @@ gst_amc_video_dec_base_init (gpointer g_class)
   gst_element_class_add_pad_template (element_class, templ);
   gst_object_unref (templ);
 
-  caps = create_src_caps (codec_info);
+  caps = create_src_caps (codec_info, videodec_class->direct_rendering);
   templ = gst_pad_template_new ("src", GST_PAD_SRC, GST_PAD_ALWAYS, caps);
   gst_element_class_add_pad_template (element_class, templ);
   gst_object_unref (templ);
@@ -472,6 +483,7 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
   videodec_class->handle_frame =
       GST_DEBUG_FUNCPTR (gst_amc_video_dec_handle_frame);
   videodec_class->finish = GST_DEBUG_FUNCPTR (gst_amc_video_dec_finish);
+  videodec_class->src_event = GST_DEBUG_FUNCPTR (gst_amc_video_dec_src_event);
 }
 
 static void
@@ -481,6 +493,7 @@ gst_amc_video_dec_init (GstAmcVideoDec * self, GstAmcVideoDecClass * klass)
 
   self->drain_lock = g_mutex_new ();
   self->drain_cond = g_cond_new ();
+  self->surface = NULL;
 }
 
 static gboolean
@@ -1058,6 +1071,7 @@ done:
 static void
 gst_amc_video_dec_loop (GstAmcVideoDec * self)
 {
+  GstAmcVideoDecClass *klass;
   GstVideoCodecFrame *frame;
   GstFlowReturn flow_ret = GST_FLOW_OK;
   GstClockTimeDiff deadline;
@@ -1066,6 +1080,7 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
   gint idx;
 
   GST_VIDEO_DECODER_STREAM_LOCK (self);
+  klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
 
 retry:
   /*if (self->input_state_changed) {
@@ -1163,6 +1178,9 @@ retry:
         "Frame is too late, dropping (deadline %" GST_TIME_FORMAT ")",
         GST_TIME_ARGS (-deadline));
     flow_ret = gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
+    if (klass->direct_rendering && idx >= 0) {
+      gst_amc_codec_release_output_buffer (self->codec, idx);
+    }
   } else if (!frame && buffer_info.size > 0) {
     GstBuffer *outbuf;
 
@@ -1186,6 +1204,18 @@ retry:
         gst_util_uint64_scale (buffer_info.presentation_time_us, GST_USECOND,
         1);
     flow_ret = gst_pad_push (GST_VIDEO_DECODER_SRC_PAD (self), outbuf);
+  } else if (klass->direct_rendering) {
+    GstAmcDRBuffer *b;
+
+    b = gst_amc_dr_buffer_new (self->codec, idx);
+
+    frame->output_buffer = gst_buffer_new ();
+    GST_BUFFER_DATA (frame->output_buffer) = (guint8 *) b;
+    GST_BUFFER_SIZE (frame->output_buffer) = sizeof (GstAmcDRBuffer *);
+    GST_BUFFER_MALLOCDATA (frame->output_buffer) = (guint8 *) b;
+    GST_BUFFER_FREE_FUNC (frame->output_buffer) =
+        (GFreeFunc) gst_amc_dr_buffer_free;
+    flow_ret = gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
   } else if (buffer_info.size > 0) {
     if ((flow_ret = gst_video_decoder_alloc_output_frame (GST_VIDEO_DECODER
                 (self), frame)) != GST_FLOW_OK) {
@@ -1202,14 +1232,15 @@ retry:
             idx);
       goto invalid_buffer;
     }
-
     flow_ret = gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
   } else if (frame != NULL) {
     flow_ret = gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
   }
 
-  if (!gst_amc_codec_release_output_buffer (self->codec, idx))
-    goto failed_release;
+  if (!klass->direct_rendering) {
+    if (!gst_amc_codec_release_output_buffer (self->codec, idx))
+      goto failed_release;
+  }
 
   if (is_eos || flow_ret == GST_FLOW_UNEXPECTED) {
     GST_VIDEO_DECODER_STREAM_UNLOCK (self);
@@ -1375,6 +1406,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     GstVideoCodecState * state)
 {
   GstAmcVideoDec *self;
+  GstAmcVideoDecClass *klass;
   GstAmcFormat *format;
   const gchar *mime;
   gboolean is_format_change = FALSE;
@@ -1382,6 +1414,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   gchar *format_string;
 
   self = GST_AMC_VIDEO_DEC (decoder);
+  klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
 
   GST_DEBUG_OBJECT (self, "Setting new caps %" GST_PTR_FORMAT, state->caps);
 
@@ -1449,10 +1482,33 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     gst_amc_format_set_buffer (format, "csd-0", self->codec_data);
 
   format_string = gst_amc_format_to_string (format);
-  GST_DEBUG_OBJECT (self, "Configuring codec with format: %s", format_string);
+  GST_DEBUG_OBJECT (self, "Configuring codec with format: %s surface: %p",
+      format_string, self->surface);
   g_free (format_string);
 
-  if (!gst_amc_codec_configure (self->codec, format, 0)) {
+  if (klass->direct_rendering) {
+    /* Exposes pads with decodebin with a dummy buffer to link with the sink
+     * and get the surface */
+    GstBuffer *buf = gst_buffer_new ();
+    GstCaps *caps = gst_caps_new_simple ("video/x-amc", NULL);
+
+    gst_pad_set_caps (decoder->srcpad, caps);
+    gst_buffer_set_caps (buf, caps);
+    GST_BUFFER_DATA (buf) = NULL;
+    gst_pad_push (decoder->srcpad, buf);
+  }
+
+  if (self->surface == NULL) {
+    GstQuery *query = gst_amc_query_new_surface ();
+
+    if (gst_pad_peer_query (decoder->srcpad, query)) {
+      self->surface = gst_amc_query_parse_surface (query);
+    }
+    gst_query_unref (query);
+  }
+
+
+  if (!gst_amc_codec_configure (self->codec, format, self->surface, 0)) {
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }
@@ -1687,6 +1743,19 @@ flushing:
     gst_video_codec_frame_unref (frame);
     return GST_FLOW_WRONG_STATE;
   }
+}
+
+static gboolean
+gst_amc_video_dec_src_event (GstVideoDecoder * decoder, GstEvent * event)
+{
+  GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
+
+  if (gst_amc_event_is_surface (event)) {
+    self->surface = gst_amc_event_parse_surface (event);
+    gst_event_unref (event);
+    return TRUE;
+  }
+  return FALSE;
 }
 
 static GstFlowReturn

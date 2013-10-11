@@ -27,6 +27,7 @@
 
 #include "gstamcvideodec.h"
 #include "gstamcaudiodec.h"
+#include "gstamcvideosink.h"
 
 #include <gst/gst.h>
 #include <gst/video/video.h>
@@ -286,7 +287,8 @@ gst_amc_codec_free (GstAmcCodec * codec)
 }
 
 gboolean
-gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format, gint flags)
+gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
+    guint8 * surface, gint flags)
 {
   JNIEnv *env;
   gboolean ret = TRUE;
@@ -297,7 +299,7 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format, gint flags)
   env = gst_amc_get_jni_env ();
 
   (*env)->CallVoidMethod (env, codec->object, media_codec.configure,
-      format->object, NULL, NULL, flags);
+      format->object, surface, NULL, flags);
   if ((*env)->ExceptionCheck (env)) {
     GST_ERROR ("Failed to call Java method");
     (*env)->ExceptionClear (env);
@@ -743,8 +745,9 @@ done:
   return ret;
 }
 
-gboolean
-gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index)
+static gboolean
+gst_amc_codec_release_output_buffer_full (GstAmcCodec * codec, gint index,
+    gboolean render)
 {
   JNIEnv *env;
   gboolean ret = TRUE;
@@ -754,7 +757,7 @@ gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index)
   env = gst_amc_get_jni_env ();
 
   (*env)->CallVoidMethod (env, codec->object, media_codec.release_output_buffer,
-      index, JNI_FALSE);
+      index, render ? JNI_TRUE : JNI_FALSE);
   if ((*env)->ExceptionCheck (env)) {
     GST_ERROR ("Failed to call Java method");
     (*env)->ExceptionClear (env);
@@ -765,6 +768,18 @@ gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index)
 done:
 
   return ret;
+}
+
+gboolean
+gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index)
+{
+  return gst_amc_codec_release_output_buffer_full (codec, index, FALSE);
+}
+
+gboolean
+gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index)
+{
+  return gst_amc_codec_release_output_buffer_full (codec, index, TRUE);
 }
 
 GstAmcFormat *
@@ -2115,6 +2130,7 @@ static const struct
   GstVideoFormat video_format;
 } color_format_mapping_table[] = {
   {
+  COLOR_FormatSurface, GST_VIDEO_FORMAT_ENCODED}, {
   COLOR_FormatYUV420Planar, GST_VIDEO_FORMAT_I420}, {
   COLOR_FormatYUV420SemiPlanar, GST_VIDEO_FORMAT_NV12}, {
   COLOR_TI_FormatYUV420PackedSemiPlanar, GST_VIDEO_FORMAT_NV12}, {
@@ -2817,7 +2833,123 @@ plugin_init (GstPlugin * plugin)
   if (!register_codecs (plugin))
     return FALSE;
 
+  return gst_element_register (plugin, "amcvideosink", GST_RANK_PRIMARY,
+      GST_TYPE_AMC_VIDEO_SINK);
+
   return TRUE;
+}
+
+GstAmcDRBuffer *
+gst_amc_dr_buffer_new (GstAmcCodec * codec, guint idx)
+{
+  GstAmcDRBuffer *buf;
+
+  buf = g_new0 (GstAmcDRBuffer, 1);
+  buf->codec = codec;
+  buf->idx = idx;
+  buf->released = FALSE;
+
+  return buf;
+}
+
+gboolean
+gst_amc_dr_buffer_render (GstAmcDRBuffer * buf)
+{
+  gboolean ret = FALSE;
+
+  if (!buf->released) {
+    ret = gst_amc_codec_render_output_buffer (buf->codec, buf->idx);
+    buf->released = TRUE;
+  }
+
+  return ret;
+}
+
+void
+gst_amc_dr_buffer_free (GstAmcDRBuffer * buf)
+{
+  if (!buf->released) {
+    gst_amc_codec_release_output_buffer (buf->codec, buf->idx);
+  }
+  g_free (buf);
+}
+
+GstQuery *
+gst_amc_query_new_surface (void)
+{
+  GstQuery *query;
+  GstQueryType qtype;
+  GstStructure *structure;
+
+  query = (GstQuery *) gst_mini_object_new (GST_TYPE_QUERY);
+
+  qtype = gst_query_type_get_by_nick (GST_AMC_SURFACE);
+  if (qtype == GST_QUERY_NONE) {
+    qtype = gst_query_type_register (GST_AMC_SURFACE,
+        "Queries for a surface to render");
+  }
+  query->type = qtype;
+  GST_DEBUG ("creating new query %p %s", query,
+      gst_query_type_get_name (qtype));
+
+  structure = gst_structure_id_new (GST_QUARK (GST_AMC_SURFACE),
+      GST_QUARK (GST_AMC_SURFACE_POINTER), G_TYPE_POINTER, NULL, NULL);
+  query->structure = structure;
+  gst_structure_set_parent_refcount (query->structure,
+      &query->mini_object.refcount);
+
+  return query;
+}
+
+gpointer
+gst_amc_query_parse_surface (GstQuery * query)
+{
+  GstQueryType qtype = gst_query_type_get_by_nick (GST_AMC_SURFACE);
+
+  if (GST_QUERY_TYPE (query) != qtype)
+    return NULL;
+
+  return g_value_get_pointer (gst_structure_id_get_value (query->structure,
+          GST_QUARK (GST_AMC_SURFACE_POINTER)));
+}
+
+gboolean
+gst_amc_query_set_surface (GstQuery * query, gpointer surface)
+{
+  GstQueryType qtype;
+
+  qtype = gst_query_type_get_by_nick (GST_AMC_SURFACE);
+  if (GST_QUERY_TYPE (query) != qtype)
+    return FALSE;
+
+  gst_structure_id_set (query->structure,
+      GST_QUARK (GST_AMC_SURFACE_POINTER), G_TYPE_POINTER, surface, NULL);
+  return TRUE;
+}
+
+gboolean
+gst_amc_event_is_surface (GstEvent * event)
+{
+  return gst_event_has_name (event, GST_AMC_SURFACE_EVENT);
+}
+
+GstEvent *
+gst_amc_event_new_surface (gpointer surface)
+{
+  GstEvent *event;
+
+  event = gst_event_new_custom (GST_EVENT_CUSTOM_UPSTREAM,
+      gst_structure_id_new (GST_QUARK (GST_AMC_SURFACE),
+          GST_QUARK (GST_AMC_SURFACE_POINTER), G_TYPE_POINTER, surface, NULL));
+  return event;
+}
+
+gpointer
+gst_amc_event_parse_surface (GstEvent * event)
+{
+  return
+      g_value_get_pointer (gst_structure_id_get_value (gst_event_get_structure
+          (event), GST_QUARK (GST_AMC_SURFACE_POINTER)));
 }
 
 #ifdef GST_PLUGIN_DEFINE2
