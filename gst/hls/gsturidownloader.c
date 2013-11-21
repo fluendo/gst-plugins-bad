@@ -398,9 +398,9 @@ gst_uri_downloader_fetch_fragment (GstUriDownloader * downloader,
   downloader->priv->length = length = fragment->length;
   downloader->priv->offset = offset = fragment->offset;
 
- 	/* Have to lock it *before* setting the URI in case the result  
-   * is returned before we're ready to wait on it.  
-  */  
+  /* Have to lock it *before* setting the URI in case the result
+   * is returned before we're ready to wait on it.
+  */
   g_mutex_lock (downloader->priv->lock);
 
   if (!gst_uri_downloader_set_uri (downloader, fragment->name)) {
