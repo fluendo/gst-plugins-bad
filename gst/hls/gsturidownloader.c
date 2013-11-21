@@ -388,8 +388,14 @@ gst_uri_downloader_fetch_fragment (GstUriDownloader * downloader,
   downloader->priv->length = length = fragment->length;
   downloader->priv->offset = offset = fragment->offset;
 
+ 	/* Have to lock it *before* setting the URI in case the result  
+   * is returned before we're ready to wait on it.  
+  */  
+  g_mutex_lock (downloader->priv->lock);
+
   if (!gst_uri_downloader_set_uri (downloader, fragment->name)) {
     GST_OBJECT_UNLOCK (downloader);
+    g_mutex_unlock (downloader->priv->lock);
     goto quit;
   }
   GST_OBJECT_UNLOCK (downloader);
@@ -400,10 +406,9 @@ gst_uri_downloader_fetch_fragment (GstUriDownloader * downloader,
     if (downloader->priv->download != NULL)
       g_object_unref (downloader->priv->download);
     downloader->priv->download = NULL;
+    g_mutex_unlock (downloader->priv->lock);
     goto quit;
   }
-
-  g_mutex_lock (downloader->priv->lock);
 
   /* Check if we were cancelled while setting the URI */
   if (downloader->priv->download == NULL) {
