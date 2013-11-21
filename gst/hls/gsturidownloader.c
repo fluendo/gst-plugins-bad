@@ -281,10 +281,20 @@ done:
 static void
 gst_uri_downloader_stop (GstUriDownloader * downloader)
 {
+  GstPad *pad;
+
   GST_DEBUG_OBJECT (downloader, "Stopping source element");
 
+  /* remove the bus' sync handler */
+  gst_bus_set_sync_handler (downloader->priv->bus, NULL, NULL);
+  /* unlink the source element from the internal pad */
+  pad = gst_pad_get_peer (downloader->priv->pad);
+  if (pad) {
+    gst_pad_unlink (pad, downloader->priv->pad);
+    gst_object_unref (pad);
+  }
   /* set the element state to NULL */
-  gst_element_set_state (downloader->priv->urisrc, GST_STATE_READY);
+  gst_element_set_state (downloader->priv->urisrc, GST_STATE_NULL);
   gst_element_get_state (downloader->priv->urisrc, NULL, NULL,
       GST_CLOCK_TIME_NONE);
 }
