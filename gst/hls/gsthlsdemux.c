@@ -1008,15 +1008,15 @@ gst_hls_demux_push_event (GstHLSDemux * demux, GstEvent * event)
 
   if (demux->video_srcpad->pad != NULL) {
     gst_event_ref (event);
-    ret &= gst_pad_push_event (demux->video_srcpad->in_pad, event);
+    ret &= gst_pad_push_event (demux->video_srcpad->pad, event);
   }
   if (demux->audio_srcpad->pad != NULL) {
     gst_event_ref (event);
-    ret &= gst_pad_push_event (demux->audio_srcpad->in_pad, event);
+    ret &= gst_pad_push_event (demux->audio_srcpad->pad, event);
   }
   if (demux->subtt_srcpad->pad != NULL) {
     gst_event_ref (event);
-    ret &= gst_pad_push_event (demux->subtt_srcpad->in_pad, event);
+    ret &= gst_pad_push_event (demux->subtt_srcpad->pad, event);
   }
   gst_event_unref (event);
 
