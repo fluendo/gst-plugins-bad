@@ -2801,7 +2801,7 @@ error:
   {
     if (!demux->cancelled) {
       GST_ERROR_OBJECT (demux, "Error fetching fragment");
-      gst_hls_demux_stop (demux);
+      gst_hls_demux_push_event (demux, gst_event_new_eos ());
     }
     ret = FALSE;
     goto exit;
