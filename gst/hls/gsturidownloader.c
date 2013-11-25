@@ -361,13 +361,14 @@ gst_uri_downloader_set_uri (GstUriDownloader * downloader, const gchar * uri)
     /* add a sync handler for the bus messages to detect errors in the download */
     gst_element_set_bus (GST_ELEMENT (downloader->priv->urisrc),
         downloader->priv->bus);
-
-    pad = gst_element_get_static_pad (downloader->priv->urisrc, "src");
-    if (!pad)
-      return FALSE;
-    gst_pad_link (pad, downloader->priv->pad);
-    gst_object_unref (pad);
   }
+
+  pad = gst_element_get_static_pad (downloader->priv->urisrc, "src");
+  if (!pad)
+    return FALSE;
+  gst_pad_link (pad, downloader->priv->pad);
+  gst_object_unref (pad);
+
   gst_bus_set_sync_handler (downloader->priv->bus,
       gst_uri_downloader_bus_handler, downloader);
   gst_uri_handler_set_uri (GST_URI_HANDLER (downloader->priv->urisrc), uri);
