@@ -83,6 +83,7 @@ gst_dshow_new_pin_mediatype_from_enum_mediatypes (IPin * pin, IEnumMediaTypes *e
 {
   GstCapturePinMediaType *pin_mediatype = gst_dshow_new_pin_mediatype (pin);
   VIDEOINFOHEADER *video_info = NULL;
+  RPC_STATUS st;
 
   HRESULT hres = enum_mediatypes->Next (1, &pin_mediatype->mediatype, NULL);
   if (hres != S_OK || !pin_mediatype->mediatype) {
@@ -90,12 +91,18 @@ gst_dshow_new_pin_mediatype_from_enum_mediatypes (IPin * pin, IEnumMediaTypes *e
     return NULL;
   }
 
-  video_info = (VIDEOINFOHEADER *) pin_mediatype->mediatype->pbFormat;
+  if (UuidCompare (&pin_mediatype->mediatype->formattype,
+      (UUID *) & FORMAT_VideoInfo, &st) == 0 && st == RPC_S_OK) {
+    video_info = (VIDEOINFOHEADER *) pin_mediatype->mediatype->pbFormat;
 
-  pin_mediatype->defaultWidth = video_info->bmiHeader.biWidth;
-  pin_mediatype->defaultHeight = video_info->bmiHeader.biHeight;
-  pin_mediatype->defaultFPS = (gint) (10000000 / video_info->AvgTimePerFrame);
-  pin_mediatype->avgTimePerFrame = video_info->AvgTimePerFrame;
+    pin_mediatype->defaultWidth = video_info->bmiHeader.biWidth;
+    pin_mediatype->defaultHeight = video_info->bmiHeader.biHeight;
+    if (video_info->AvgTimePerFrame != 0) {
+      pin_mediatype->defaultFPS = (gint) (10000000 / video_info->AvgTimePerFrame);
+    } else {
+      pin_mediatype->defaultFPS = 25;
+    }
+  }
   pin_mediatype->granularityWidth = 1;
   pin_mediatype->granularityHeight = 1;
 
@@ -107,6 +114,7 @@ gst_dshow_new_pin_mediatype_from_streamcaps (IPin * pin, gint id, IAMStreamConfi
 {
   GstCapturePinMediaType *pin_mediatype = gst_dshow_new_pin_mediatype (pin);
   VIDEOINFOHEADER *video_info = NULL;
+  RPC_STATUS st;
 
   HRESULT hres = streamcaps->GetStreamCaps (id, &pin_mediatype->mediatype,
       (BYTE *) & pin_mediatype->vscc);
@@ -114,13 +122,18 @@ gst_dshow_new_pin_mediatype_from_streamcaps (IPin * pin, gint id, IAMStreamConfi
     gst_dshow_free_pin_mediatype (pin_mediatype);
     return NULL;
   }
+  if (UuidCompare (&pin_mediatype->mediatype->formattype,
+      (UUID *) & FORMAT_VideoInfo, &st) == 0 && st == RPC_S_OK) {
 
-  video_info = (VIDEOINFOHEADER *) pin_mediatype->mediatype->pbFormat;
-
-  pin_mediatype->defaultWidth = video_info->bmiHeader.biWidth;
-  pin_mediatype->defaultHeight = video_info->bmiHeader.biHeight;
-  pin_mediatype->defaultFPS = (gint) (10000000 / video_info->AvgTimePerFrame);
-  pin_mediatype->avgTimePerFrame = video_info->AvgTimePerFrame;
+    video_info = (VIDEOINFOHEADER *) pin_mediatype->mediatype->pbFormat;
+    pin_mediatype->defaultWidth = video_info->bmiHeader.biWidth;
+    pin_mediatype->defaultHeight = video_info->bmiHeader.biHeight;
+    if (video_info->AvgTimePerFrame != 0) {
+      pin_mediatype->defaultFPS = (gint) (10000000 / video_info->AvgTimePerFrame);
+    } else {
+      pin_mediatype->defaultFPS = 25;
+    }
+  }
   pin_mediatype->granularityWidth = pin_mediatype->vscc.OutputGranularityX;
   pin_mediatype->granularityHeight = pin_mediatype->vscc.OutputGranularityY;
 
