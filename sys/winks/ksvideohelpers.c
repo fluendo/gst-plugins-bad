@@ -243,10 +243,9 @@ ks_video_format_to_structure (GUID subtype_guid, GUID format_guid)
   }
 
   if (!structure) {
-    GST_DEBUG ("Unknown DirectShow Video GUID %08x-%04x-%04x-%04x-%08x%04x",
-        subtype_guid.Data1, subtype_guid.Data2, subtype_guid.Data3,
-        *(WORD *) subtype_guid.Data4, *(DWORD *) & subtype_guid.Data4[2],
-        *(WORD *) & subtype_guid.Data4[6]);
+    gchar *guid_str = ks_guid_to_string (&subtype_guid);
+    GST_DEBUG ("Unknown DirectShow Video GUID %s", guid_str);
+    g_free (guid_str);
   }
 
   return structure;
@@ -507,7 +506,8 @@ ks_video_probe_filter_for_caps (HANDLE filter_handle)
         guint i;
 
         for (i = 0; i < items->Count; i++) {
-          if (IsEqualGUID (&range->MajorFormat, &KSDATAFORMAT_TYPE_VIDEO)) {
+          if (IsEqualGUID (&range->MajorFormat, &MEDIATYPE_Video)
+              || IsEqualGUID (&range->MajorFormat, &MEDIATYPE_Interleaved)) {
             KsVideoMediaType *entry;
             gpointer src_vscc, src_format;
             GstStructure *media_structure;
@@ -546,16 +546,22 @@ ks_video_probe_filter_for_caps (HANDLE filter_handle)
               entry->sample_size =
                   vr->VideoInfoHeader.hdr.bmiHeader.biSizeImage;
             } else if (IsEqualGUID (&range->Specifier, &FORMAT_MPEG2Video)) {
-              /* Untested and probably wrong... */
               KS_DATARANGE_MPEG2_VIDEO *vr =
                   (KS_DATARANGE_MPEG2_VIDEO *) entry->range;
-
               src_vscc = &vr->ConfigCaps;
               src_format = &vr->VideoInfoHeader;
 
               entry->format_size = sizeof (vr->VideoInfoHeader);
               entry->sample_size =
                   vr->VideoInfoHeader.hdr.bmiHeader.biSizeImage;
+            } else if (IsEqualGUID (&range->Specifier, &FORMAT_DvInfo)) {
+              KS_DATARANGE_DVVIDEO *vr = (KS_DATARANGE_DVVIDEO *) entry->range;
+
+              src_vscc = NULL;
+              src_format = &vr->DVVideoInfo;
+
+              entry->format_size = sizeof (vr->DVVideoInfo);
+              entry->sample_size = vr->DataRange.SampleSize;
             } else {
               gchar *guid_str;
 
@@ -571,19 +577,25 @@ ks_video_probe_filter_for_caps (HANDLE filter_handle)
             if (entry != NULL) {
               g_assert (entry->sample_size != 0);
 
-              memcpy ((gpointer) & entry->vscc, src_vscc, sizeof (entry->vscc));
+              if (src_vscc != NULL) {
+                memcpy ((gpointer) & entry->vscc, src_vscc, sizeof (entry->vscc));
+              }
 
               entry->format = g_malloc (entry->format_size);
               memcpy (entry->format, src_format, entry->format_size);
 
               media_structure =
                   ks_video_format_to_structure (range->SubFormat,
-                  range->MajorFormat);
+                  range->Specifier);
 
               if (media_structure == NULL) {
                 g_warning ("ks_video_format_to_structure returned NULL");
                 ks_video_media_type_free (entry);
                 entry = NULL;
+              } else if (src_vscc == NULL) {
+                entry->translated_caps = gst_caps_new_empty ();
+                gst_caps_append_structure (entry->translated_caps,
+                    media_structure);
               } else if (ks_video_append_video_stream_cfg_fields
                   (media_structure, &entry->vscc)) {
                 entry->translated_caps = gst_caps_new_empty ();
