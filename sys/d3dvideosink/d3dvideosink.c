@@ -1906,6 +1906,21 @@ gst_d3dvideosink_refresh_all (GstD3DVideoSink * sink)
 static void
 gst_d3dvideosink_stretch (GstD3DVideoSink * sink, LPDIRECT3DSURFACE9 backBuffer)
 {
+  RECT *rroi_ptr = NULL;
+
+#ifdef GST_VIDEO_SINK_HAS_ROI
+  GstVideoSink *bsink = GST_VIDEO_SINK (sink);
+  RECT rroi;
+
+  if (bsink->roi.w != 0 && bsink->roi.h != 0) {
+    rroi.left = bsink->roi.x;
+    rroi.top = bsink->roi.y;
+    rroi.right = bsink->roi.x + bsink->roi.w;
+    rroi.bottom = bsink->roi.y + bsink->roi.h;
+    rroi_ptr = &rroi;
+  }
+#endif
+
   if (sink->keep_aspect_ratio) {
     gint window_width, window_height;
     RECT r;
@@ -1931,13 +1946,13 @@ gst_d3dvideosink_stretch (GstD3DVideoSink * sink, LPDIRECT3DSURFACE9 backBuffer)
     r.bottom = result.y + result.h;
 
     if (FAILED (IDirect3DDevice9_StretchRect (sink->d3ddev,
-                sink->d3d_offscreen_surface, NULL, backBuffer, &r,
+                sink->d3d_offscreen_surface, rroi_ptr, backBuffer, &r,
                 sink->d3dfiltertype))) {
       GST_ERROR_OBJECT (sink, "StretchRect failed");
     }
   } else {
     IDirect3DDevice9_StretchRect (sink->d3ddev, sink->d3d_offscreen_surface,
-        NULL, backBuffer, NULL, sink->d3dfiltertype);
+        rroi_ptr, backBuffer, NULL, sink->d3dfiltertype);
   }
 }
 
