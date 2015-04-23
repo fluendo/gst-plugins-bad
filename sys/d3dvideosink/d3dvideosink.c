@@ -514,12 +514,12 @@ gst_d3dvideosink_close_window (GstD3DVideoSink * sink)
 
 /* Call this function with the D3D_DEVICE lock */
 static gboolean
-gst_d3dvideosink_resize (GstD3DVideoSink *sink)
+gst_d3dvideosink_resize (GstD3DVideoSink * sink)
 {
   gint width, height;
   gboolean resized = FALSE;
 
-  gst_d3dvideosink_window_size(sink, &width, &height);
+  gst_d3dvideosink_window_size (sink, &width, &height);
   if (sink->d3dpp.BackBufferWidth == 0 && sink->d3dpp.BackBufferHeight == 0) {
     return FALSE;
   }
@@ -661,7 +661,7 @@ SharedHiddenWndProc (HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
       shared.device_lost_sink = NULL;
       GST_DEBUG ("Initializing Direct3D");
       if (!gst_d3dvideosink_initialize_d3d_device (sink))
-        gst_d3dvideosink_notify_device_lost(sink);
+        gst_d3dvideosink_notify_device_lost (sink);
       else
         GST_DEBUG ("Direct3D initialization complete");
       break;
@@ -1378,17 +1378,17 @@ gst_d3dvideosink_prepare_window (GstD3DVideoSink * sink)
    * and create (and use) our own window, if we didn't create
    * one before */
   if (sink->window_handle && sink->is_new_window) {
-    GST_D3DVIDEOSINK_D3D_DEVICE_LOCK(sink);
-    gst_d3dvideosink_release_d3d_device(sink);
-    GST_D3DVIDEOSINK_D3D_DEVICE_UNLOCK(sink);
+    GST_D3DVIDEOSINK_D3D_DEVICE_LOCK (sink);
+    gst_d3dvideosink_release_d3d_device (sink);
+    GST_D3DVIDEOSINK_D3D_DEVICE_UNLOCK (sink);
   } else if (sink->window_handle) {
-      gst_d3dvideosink_set_window_for_renderer (sink);
+    gst_d3dvideosink_set_window_for_renderer (sink);
   } else {
     gst_d3dvideosink_create_default_window (sink);
   }
-  GST_D3DVIDEOSINK_D3D_DEVICE_LOCK(sink);
+  GST_D3DVIDEOSINK_D3D_DEVICE_LOCK (sink);
   gst_d3dvideosink_notify_device_init (sink);
-  GST_D3DVIDEOSINK_D3D_DEVICE_UNLOCK(sink);
+  GST_D3DVIDEOSINK_D3D_DEVICE_UNLOCK (sink);
 }
 
 static GstStateChangeReturn
@@ -2158,8 +2158,8 @@ gst_d3dvideosink_initialize_d3d_device (GstD3DVideoSink * sink)
   sink->d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;
   sink->d3dpp.BackBufferCount = 1;
   //sink->d3dpp.BackBufferFormat = d3dformat;
-  sink->d3dpp.BackBufferWidth = GST_VIDEO_SINK_WIDTH(sink);
-  sink->d3dpp.BackBufferHeight = GST_VIDEO_SINK_HEIGHT(sink);
+  sink->d3dpp.BackBufferWidth = GST_VIDEO_SINK_WIDTH (sink);
+  sink->d3dpp.BackBufferHeight = GST_VIDEO_SINK_HEIGHT (sink);
   sink->d3dpp.MultiSampleType = D3DMULTISAMPLE_NONE;
   sink->d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
 
@@ -2256,7 +2256,7 @@ gst_d3dvideosink_notify_device_resize (GstD3DVideoSink * sink)
 }
 
 static gboolean
-gst_d3dvideosink_resize_device (GstD3DVideoSink *sink)
+gst_d3dvideosink_resize_device (GstD3DVideoSink * sink)
 {
   /* Release all resources allocated in the current device's pool */
   GST_LOG_OBJECT (sink, "Reset device and recreate offscreen surface");
