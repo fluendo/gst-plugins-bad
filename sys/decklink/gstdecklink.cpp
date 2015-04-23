@@ -672,6 +672,25 @@ init_devices (gpointer data)
   return NULL;
 }
 
+GList *
+gst_decklink_get_input_device_list ()
+{
+  GstDecklinkInput *input;
+  GList *list = NULL;
+  int i;
+
+  g_once (&devices_once, init_devices, NULL);
+
+  for (i = 0; i < n_devices; i++) {
+    input = &devices[i].input;
+    if (input->input) {
+      list = g_list_append (list, GINT_TO_POINTER (i));
+    }
+  }
+
+  return list;
+}
+
 GstDecklinkOutput *
 gst_decklink_acquire_nth_output (gint n, GstElement * sink, gboolean is_audio)
 {

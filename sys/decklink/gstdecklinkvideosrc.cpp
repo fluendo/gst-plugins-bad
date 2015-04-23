@@ -23,6 +23,7 @@
 #include "config.h"
 #endif
 
+#include <gst/interfaces/propertyprobe.h>
 #include "gstdecklinkvideosrc.h"
 #include <string.h>
 
@@ -74,6 +75,9 @@ video_frame_free (void *data)
   g_free (frame);
 }
 
+static void gst_decklink_video_src_init_interfaces (GType type);
+static void gst_decklink_video_src_add_device_property_probe_interface (GType type);
+
 static void gst_decklink_video_src_set_property (GObject * object,
     guint property_id, const GValue * value, GParamSpec * pspec);
 static void gst_decklink_video_src_get_property (GObject * object,
@@ -107,7 +111,38 @@ static void gst_decklink_video_src_start_streams (GstElement * element);
       "debug category for decklinksrc element");
 
 GST_BOILERPLATE_FULL (GstDecklinkVideoSrc, gst_decklink_video_src, GstPushSrc,
-    GST_TYPE_PUSH_SRC, DEBUG_INIT);
+    GST_TYPE_PUSH_SRC, gst_decklink_video_src_init_interfaces);
+
+static gboolean
+gst_decklink_video_src_iface_supported (GstImplementsInterface * iface,
+    GType iface_type)
+{
+  return (iface_type == GST_TYPE_PROPERTY_PROBE);
+}
+
+static void
+gst_decklink_video_src_interface_init (GstImplementsInterfaceClass * klass)
+{
+  /* default virtual functions */
+  klass->supported = gst_decklink_video_src_iface_supported;
+}
+
+static void
+gst_decklink_video_src_init_interfaces (GType type)
+{
+  static const GInterfaceInfo implements_iface_info = {
+    (GInterfaceInitFunc) gst_decklink_video_src_interface_init,
+    NULL,
+    NULL,
+  };
+
+  DEBUG_INIT();
+
+  g_type_add_interface_static (type, GST_TYPE_IMPLEMENTS_INTERFACE,
+      &implements_iface_info);
+
+  gst_decklink_video_src_add_device_property_probe_interface (type);
+}
 
 static void
 gst_decklink_video_src_base_init (gpointer g_class)
@@ -823,4 +858,106 @@ gst_decklink_video_src_provide_clock (GstElement * element)
     return NULL;
 
   return GST_CLOCK_CAST (gst_object_ref (self->input->clock));
+}
+
+static const GList *
+probe_get_properties (GstPropertyProbe * probe)
+{
+  GObjectClass *klass = G_OBJECT_GET_CLASS (probe);
+  static GList *list = NULL;
+
+  // ###: from gstalsadeviceprobe.c
+  /* well, not perfect, but better than no locking at all.
+   * In the worst case we leak a list node, so who cares? */
+  GST_CLASS_LOCK (GST_OBJECT_CLASS (klass));
+
+  if (!list) {
+    GParamSpec *pspec;
+
+    pspec = g_object_class_find_property (klass, "device-number");
+    list = g_list_append (NULL, pspec);
+  }
+
+  GST_CLASS_UNLOCK (GST_OBJECT_CLASS (klass));
+
+  return list;
+}
+
+static void
+probe_probe_property (GstPropertyProbe * probe, guint prop_id,
+    const GParamSpec * pspec)
+{
+  /* we do nothing in here.  the actual "probe" occurs in get_values(),
+   * which is a common practice when not caching responses.
+   */
+
+  if (!g_str_equal (pspec->name, "device-number")) {
+    G_OBJECT_WARN_INVALID_PROPERTY_ID (probe, prop_id, pspec);
+  }
+}
+
+static gboolean
+probe_needs_probe (GstPropertyProbe * probe, guint prop_id,
+    const GParamSpec * pspec)
+{
+  /* don't cache probed data */
+  return TRUE;
+}
+
+static GValueArray *
+probe_get_values (GstPropertyProbe * probe, guint prop_id,
+    const GParamSpec * pspec)
+{
+  GValueArray *array;
+  GValue value = { 0, };
+  GList *l, *list;
+
+  if (!g_str_equal (pspec->name, "device-number")) {
+    G_OBJECT_WARN_INVALID_PROPERTY_ID (probe, prop_id, pspec);
+    return NULL;
+  }
+
+  list = gst_decklink_get_input_device_list();
+
+  if (list == NULL) {
+    GST_LOG_OBJECT (probe, "No devices found");
+    return NULL;
+  }
+
+  array = g_value_array_new (g_list_length (list));
+  g_value_init (&value, G_TYPE_INT);
+  for (l = list; l != NULL; l = l->next) {
+    gint dev = GPOINTER_TO_INT (l->data);
+    GST_LOG_OBJECT (probe, "Found device: %d", dev);
+    g_value_set_int (&value, dev);
+    l->data = NULL;
+    g_value_array_append (array, &value);
+  }
+  g_value_unset (&value);
+  g_list_free (list);
+
+  return array;
+}
+
+static void
+gst_decklink_video_src_property_probe_interface_init (GstPropertyProbeInterface *
+    iface)
+{
+  iface->get_properties = probe_get_properties;
+  iface->probe_property = probe_probe_property;
+  iface->needs_probe = probe_needs_probe;
+  iface->get_values = probe_get_values;
+}
+
+void
+gst_decklink_video_src_add_device_property_probe_interface (GType type)
+{
+  static const GInterfaceInfo probe_iface_info = {
+    (GInterfaceInitFunc) gst_decklink_video_src_property_probe_interface_init,
+    NULL,
+    NULL,
+  };
+
+  g_type_add_interface_static (type, GST_TYPE_PROPERTY_PROBE,
+      &probe_iface_info);
 }

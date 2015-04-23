@@ -183,6 +183,7 @@ struct _GstDecklinkInput {
   void (*start_streams) (GstElement *videosrc);
 };
 
+GList *             gst_decklink_get_input_device_list ();
 GstDecklinkOutput * gst_decklink_acquire_nth_output (gint n, GstElement * sink, gboolean is_audio);
 void                gst_decklink_release_nth_output (gint n, GstElement * sink, gboolean is_audio);
 
