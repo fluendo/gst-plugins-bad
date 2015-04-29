@@ -872,6 +872,13 @@ gst_ks_video_src_timestamp_buffer (GstKsVideoSrc * self, GstBuffer * buf,
   GstClock *clock;
   GstClockTime timestamp;
 
+  /* Don't timestamp muxed strams */
+  if (!gst_ks_video_device_stream_is_muxed (priv->device)) {
+    duration = timestamp = GST_CLOCK_TIME_NONE;
+    priv->offset ++;
+    goto timestamp;
+  }
+
   duration = gst_ks_video_device_get_duration (priv->device);
 
   GST_OBJECT_LOCK (self);
@@ -957,12 +964,14 @@ gst_ks_video_src_timestamp_buffer (GstKsVideoSrc * self, GstBuffer * buf,
     priv->prev_ts = timestamp;
   }
 
-  GST_BUFFER_OFFSET (buf) = priv->offset;
-  GST_BUFFER_OFFSET_END (buf) = GST_BUFFER_OFFSET (buf) + 1;
-  GST_BUFFER_TIMESTAMP (buf) = timestamp;
-  GST_BUFFER_DURATION (buf) = duration;
-
-  return TRUE;
+timestamp:
+  {
+    GST_BUFFER_OFFSET (buf) = priv->offset;
+    GST_BUFFER_OFFSET_END (buf) = GST_BUFFER_OFFSET (buf) + 1;
+    GST_BUFFER_TIMESTAMP (buf) = timestamp;
+    GST_BUFFER_DURATION (buf) = duration;
+    return TRUE;
+  }
 }
 
 static void
