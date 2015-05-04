@@ -1906,6 +1906,7 @@ gst_d3dvideosink_refresh_all (GstD3DVideoSink * sink)
 static void
 gst_d3dvideosink_stretch (GstD3DVideoSink * sink, LPDIRECT3DSURFACE9 backBuffer)
 {
+  RECT dstrect, *dstrect_ptr = NULL;
   RECT *rroi_ptr = NULL;
 
 #ifdef GST_VIDEO_SINK_HAS_ROI
@@ -1913,17 +1914,16 @@ gst_d3dvideosink_stretch (GstD3DVideoSink * sink, LPDIRECT3DSURFACE9 backBuffer)
   RECT rroi;
 
   if (bsink->roi.w != 0 && bsink->roi.h != 0) {
-    rroi.left = bsink->roi.x;
-    rroi.top = bsink->roi.y;
-    rroi.right = bsink->roi.x + bsink->roi.w;
-    rroi.bottom = bsink->roi.y + bsink->roi.h;
+    rroi.left = bsink->roi.x & ~1;
+    rroi.top = bsink->roi.y & ~1;
+    rroi.right = (bsink->roi.x + bsink->roi.w) & ~1;
+    rroi.bottom = (bsink->roi.y + bsink->roi.h) & ~1;
     rroi_ptr = &rroi;
   }
 #endif
 
   if (sink->keep_aspect_ratio) {
     gint window_width, window_height;
-    RECT r;
     GstVideoRectangle src, dst, result;
 
     gst_d3dvideosink_window_size (sink, &window_width, &window_height);
@@ -1940,19 +1940,18 @@ gst_d3dvideosink_stretch (GstD3DVideoSink * sink, LPDIRECT3DSURFACE9 backBuffer)
 
     gst_video_sink_center_rect (src, dst, &result, TRUE);
 
-    r.left = result.x;
-    r.top = result.y;
-    r.right = result.x + result.w;
-    r.bottom = result.y + result.h;
+    dstrect.left = result.x;
+    dstrect.top = result.y;
+    dstrect.right = result.x + result.w;
+    dstrect.bottom = result.y + result.h;
 
-    if (FAILED (IDirect3DDevice9_StretchRect (sink->d3ddev,
-                sink->d3d_offscreen_surface, rroi_ptr, backBuffer, &r,
-                sink->d3dfiltertype))) {
-      GST_ERROR_OBJECT (sink, "StretchRect failed");
-    }
-  } else {
-    IDirect3DDevice9_StretchRect (sink->d3ddev, sink->d3d_offscreen_surface,
-        rroi_ptr, backBuffer, NULL, sink->d3dfiltertype);
+    dstrect_ptr = &dstrect;
+  }
+
+  if (FAILED (IDirect3DDevice9_StretchRect (sink->d3ddev,
+              sink->d3d_offscreen_surface, rroi_ptr, backBuffer, dstrect_ptr,
+              sink->d3dfiltertype))) {
+    GST_ERROR_OBJECT (sink, "StretchRect failed");
   }
 }
 
