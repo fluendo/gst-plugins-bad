@@ -458,7 +458,13 @@ gst_h264_parse_process_nal (GstH264Parse * h264parse, GstH264NalUnit * nalu)
 
   /* we have a peek as well */
   nal_type = nalu->type;
-  h264parse->keyframe |= NAL_TYPE_IS_KEY (nal_type);
+  if ((h264parse->format != GST_H264_PARSE_FORMAT_AVC &&
+        NAL_TYPE_IS_KEY (nal_type)) ||
+      nal_type == GST_H264_NAL_SLICE_IDR) {
+    h264parse->keyframe = TRUE;
+  } else {
+    h264parse->keyframe = FALSE;
+  }
 
   GST_DEBUG_OBJECT (h264parse, "processing nal of type %u, size %u",
       nal_type, nalu->size);
