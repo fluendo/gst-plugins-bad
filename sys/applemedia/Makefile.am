@@ -47,7 +47,6 @@ noinst_HEADERS =				\
 	dynapi-internal.h			\
 	dynapi.h				\
 	coremediactx.h				\
-	qtkitvideosrc.h				\
 	avfvideosrc.h				\
 	corevideobuffer.h			\
 	coremediabuffer.h			\
@@ -72,12 +71,8 @@ libgstapplemedia_la_LDFLAGS +=			\
 
 else
 
-libgstapplemedia_la_SOURCES +=			\
-	qtkitvideosrc.m
-
 libgstapplemedia_la_LDFLAGS +=			\
-	-Wl,-framework -Wl,Cocoa		\
-	-Wl,-framework -Wl,QTKit
+	-Wl,-framework -Wl,Cocoa
 
 endif
 

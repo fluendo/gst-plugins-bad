@@ -25,7 +25,6 @@
 #include "iosassetsrc.h"
 #include "iosavassetsrc.h"
 #else
-#include "qtkitvideosrc.h"
 #include <Foundation/Foundation.h>
 #endif
 #include "avfvideosrc.h"
@@ -58,8 +57,6 @@ plugin_init (GstPlugin * plugin)
 #else
   enable_mt_mode ();
 
-  res = gst_element_register (plugin, "qtkitvideosrc", GST_RANK_PRIMARY,
-      GST_TYPE_QTKIT_VIDEO_SRC);
 #endif
 
   res = gst_element_register (plugin, "avfvideosrc", GST_RANK_NONE,
