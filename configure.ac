@@ -2041,8 +2041,8 @@ AG_GST_CHECK_FEATURE(ZBAR, [ZBar barcode detector], zbar, [
 ])
 
 dnl *** vp8 ***
-translit(dnm, m, l) AM_CONDITIONAL(USE_VP8, vp8)
-AG_GST_CHECK_FEATURE(VP8, [VP8 decoder], vp8, [
+translit(dnm, m, l) AM_CONDITIONAL(USE_VPX, vp8)
+AG_GST_CHECK_FEATURE(VPX, [VPX decoder], vpx, [
   PKG_CHECK_MODULES(VPX, vpx, [HAVE_VPX="yes"], [HAVE_VPX="no"])
 
   if test $HAVE_VPX = "yes"; then
@@ -2082,7 +2082,20 @@ return 0;
       HAVE_VP8=yes
       AC_DEFINE(HAVE_VP8_DECODER, 1, [Defined if the VP8 decoder is available])
     ])
+
+    PKG_CHECK_MODULES(VPX_130, vpx >= 1.3.0, [
+      AC_CHECK_LIB(vpx, vpx_codec_vp9_dx_algo, [
+        HAVE_VP9=yes
+        AC_DEFINE(HAVE_VP9_DECODER, 1, [Defined if the VP9 decoder is available])
+      ])
+    ], [true])
+
+    PKG_CHECK_MODULES(VPX_140, vpx >= 1.4.0, [
+      AC_DEFINE(HAVE_VPX_1_4, 1, [Defined if the VPX library version is 1.4 or bigger])
+    ], [true])
+
     LIBS="$OLD_LIBS"
+    CFLAGS="$OLD_CFLAGS"
   fi
   AC_SUBST(VPX_LIBS)
   AC_SUBST(VPX_CFLAGS)
@@ -2181,7 +2194,7 @@ AM_CONDITIONAL(USE_ACM, false)
 AM_CONDITIONAL(USE_VDPAU, false)
 AM_CONDITIONAL(USE_SCHRO, false)
 AM_CONDITIONAL(USE_ZBAR, false)
-AM_CONDITIONAL(USE_VP8, false)
+AM_CONDITIONAL(USE_VPX, false)
 AM_CONDITIONAL(USE_RTMP, false)
 AM_CONDITIONAL(USE_TELETEXTDEC, false)
 
@@ -2441,6 +2454,7 @@ ext/spc/Makefile
 ext/swfdec/Makefile
 ext/timidity/Makefile
 ext/vp8/Makefile
+ext/vp9/Makefile
 ext/xvid/Makefile
 ext/zbar/Makefile
 po/Makefile.in
