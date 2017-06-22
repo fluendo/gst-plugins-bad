@@ -360,10 +360,12 @@ else
 TELETEXTDEC_DIR=
 endif
 
-if USE_VP8
+if USE_VPX
 VP8_DIR=vp8
+VP9_DIR=vp9
 else
 VP8_DIR=
+VP9_DIR=
 endif
 
 if USE_GSETTINGS
@@ -453,6 +455,7 @@ SUBDIRS=\
 	$(TELETEXTDEC_DIR) \
 	$(TIMIDITY_DIR) \
 	$(VP8_DIR) \
+	$(VP9_DIR) \
 	$(XVID_DIR) \
 	$(ZBAR_DIR) \
 	$(RTMP_DIR)
@@ -509,6 +512,7 @@ DIST_SUBDIRS = \
 	voaacenc \
 	voamrwbenc \
 	vp8 \
+	vp9 \
 	xvid \
 	zbar \
 	rtmp

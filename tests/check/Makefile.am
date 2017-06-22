@@ -123,7 +123,7 @@ else
 check_mimic=
 endif
 
-if USE_VP8
+if USE_VPX
 check_vp8=elements/vp8enc elements/vp8dec
 else
 check_vp8=
