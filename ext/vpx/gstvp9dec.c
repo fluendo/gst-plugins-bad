@@ -52,7 +52,7 @@
 #include <string.h>
 
 #include "gstvp9dec.h"
-#include "gstvp9utils.h"
+#include "gstvpxutils.h"
 
 GST_DEBUG_CATEGORY_STATIC (gst_vp9dec_debug);
 #define GST_CAT_DEFAULT gst_vp9dec_debug

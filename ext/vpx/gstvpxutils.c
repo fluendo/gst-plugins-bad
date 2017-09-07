@@ -1,4 +1,4 @@
-/* VP9
+/* VP8
  * Copyright (C) 2006 David Schleef <ds@schleef.org>
  * Copyright (C) 2010 Entropy Wave Inc
  * Copyright (C) 2010 Sebastian Dröge <sebastian.droege@collabora.co.uk>
@@ -20,24 +20,45 @@
  *
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <gst/gst.h>
+
+/* FIXME: Undef HAVE_CONFIG_H because vpx_codec.h uses it,
+ * which causes compilation failures */
+#ifdef HAVE_CONFIG_H
+#undef HAVE_CONFIG_H
+#endif
+
 #include <vpx/vpx_codec.h>
 
-G_BEGIN_DECLS
+#include "gstvpxutils.h"
 
-/* Some compatibility defines for older libvpx versions */
-#ifndef VPX_PLANE_Y
-#define VPX_PLANE_Y PLANE_Y
-#endif
-
-#ifndef VPX_PLANE_U
-#define VPX_PLANE_U PLANE_U
-#endif
-
-#ifndef VPX_PLANE_V
-#define VPX_PLANE_V PLANE_V
-#endif
-
-const char * gst_vpx_error_name (vpx_codec_err_t status);
-
-G_END_DECLS
+const char *
+gst_vpx_error_name (vpx_codec_err_t status)
+{
+  switch (status) {
+    case VPX_CODEC_OK:
+      return "OK";
+    case VPX_CODEC_ERROR:
+      return "error";
+    case VPX_CODEC_MEM_ERROR:
+      return "mem error";
+    case VPX_CODEC_ABI_MISMATCH:
+      return "abi mismatch";
+    case VPX_CODEC_INCAPABLE:
+      return "incapable";
+    case VPX_CODEC_UNSUP_BITSTREAM:
+      return "unsupported bitstream";
+    case VPX_CODEC_UNSUP_FEATURE:
+      return "unsupported feature";
+    case VPX_CODEC_CORRUPT_FRAME:
+      return "corrupt frame";
+    case VPX_CODEC_INVALID_PARAM:
+      return "invalid parameter";
+    default:
+      return "unknown";
+  }
+}

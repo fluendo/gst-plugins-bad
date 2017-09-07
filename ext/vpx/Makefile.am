@@ -1,29 +1,31 @@
 plugin_LTLIBRARIES = \
-	libgstvp8.la
+	libgstvpx.la
 
-libgstvp8_la_SOURCES = \
+libgstvpx_la_SOURCES = \
 	gstvp8dec.c \
 	gstvp8enc.c \
-	gstvp8utils.c \
+	gstvp9dec.c \
+	gstvpxutils.c \
 	plugin.c
 
-libgstvp8_la_CFLAGS = \
+libgstvpx_la_CFLAGS = \
 	$(GST_PLUGINS_BAD_CFLAGS) \
 	$(GST_PLUGINS_BASE_CFLAGS) \
 	$(GST_BASE_CFLAGS) \
 	$(GST_CFLAGS) \
 	$(VPX_CFLAGS) \
 	-DGST_USE_UNSTABLE_API
-libgstvp8_la_LIBADD = \
+libgstvpx_la_LIBADD = \
 	$(top_builddir)/gst-libs/gst/video/libgstbasevideo-@GST_MAJORMINOR@.la \
 	$(GST_PLUGINS_BASE_LIBS) -lgsttag-@GST_MAJORMINOR@ -lgstvideo-@GST_MAJORMINOR@ \
 	$(GST_BASE_LIBS) $(GST_LIBS) $(VPX_LIBS)
-libgstvp8_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
+libgstvpx_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
 if !GST_PLUGIN_BUILD_STATIC
-libgstvp8_la_LIBTOOLFLAGS = --tag=disable-static
+libgstvpx_la_LIBTOOLFLAGS = --tag=disable-static
 endif
 
 noinst_HEADERS = \
 	gstvp8dec.h \
 	gstvp8enc.h \
-	gstvp8utils.h
+	gstvp9dec.h \
+	gstvpxutils.h

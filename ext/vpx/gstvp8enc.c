@@ -53,7 +53,7 @@
 #include <gst/tag/tag.h>
 #include <string.h>
 
-#include "gstvp8utils.h"
+#include "gstvpxutils.h"
 #include "gstvp8enc.h"
 
 GST_DEBUG_CATEGORY_STATIC (gst_vp8enc_debug);

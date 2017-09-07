@@ -46,7 +46,7 @@
 #include <string.h>
 
 #include "gstvp8dec.h"
-#include "gstvp8utils.h"
+#include "gstvpxutils.h"
 
 GST_DEBUG_CATEGORY_STATIC (gst_vp8dec_debug);
 #define GST_CAT_DEFAULT gst_vp8dec_debug
