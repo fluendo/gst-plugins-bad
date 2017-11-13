@@ -591,7 +591,7 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
       GstVideoFormat gst_format = [self getGstVideoFormat:pixel_format];
       if (gst_format != GST_VIDEO_FORMAT_UNKNOWN)
         gst_caps_append (result, gst_video_format_new_caps (gst_format,
-            rect.size.width, rect.size.height, DEVICE_FPS_N, DEVICE_FPS_N, 1, 1));
+            rect.size.width, rect.size.height, DEVICE_FPS_N, DEVICE_FPS_D, 1, 1));
     }
 #else
     GST_WARNING ("Screen capture is not supported by iOS");
