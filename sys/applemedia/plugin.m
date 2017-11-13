@@ -56,7 +56,6 @@ plugin_init (GstPlugin * plugin)
       GST_TYPE_AVASSET_SRC);
 #else
   enable_mt_mode ();
-
 #endif
 
   res = gst_element_register (plugin, "avfvideosrc", GST_RANK_NONE,
