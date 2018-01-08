@@ -268,6 +268,12 @@ else
 OPENCV_DIR=
 endif
 
+if USE_OPENH264
+OPENH264_DIR=openh264
+else
+OPENH264_DIR=
+endif
+
 if USE_OPUS
 OPUS_DIR=opus
 else
@@ -441,6 +447,7 @@ SUBDIRS=\
 	$(OPENAL_DIR) \
 	$(OPENCV_DIR) \
 	$(OPUS_DIR) \
+	$(OPENH264_DIR) \
 	$(RSVG_DIR) \
 	$(SCHRO_DIR) \
 	$(SDL_DIR) \
@@ -496,6 +503,7 @@ DIST_SUBDIRS = \
 	ofa \
 	openal \
 	opencv \
+	openh264 \
 	opus \
 	rsvg \
 	resindvd \

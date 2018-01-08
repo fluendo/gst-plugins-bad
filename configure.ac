@@ -1610,6 +1610,12 @@ AG_GST_CHECK_FEATURE(OPENCV, [opencv plugins], opencv, [
   AC_SUBST(OPENCV_LIBS)
 ])
 
+dnl *** openh264 ***
+translit(dnm, m, l) AM_CONDITIONAL(USE_OPENH264, true)
+AG_GST_CHECK_FEATURE(OPENH264, [openh264 library], openh264, [
+  AG_GST_PKG_CHECK_MODULES(OPENH264, openh264 >= 1.3.0)
+])
+
 dnl *** Opus ***
 translit(dnm, m, l) AM_CONDITIONAL(USE_OPUS, true)
 AG_GST_CHECK_FEATURE(OPUS, [opus], opus, [
@@ -2174,6 +2180,7 @@ AM_CONDITIONAL(USE_NEON, false)
 AM_CONDITIONAL(USE_OFA, false)
 AM_CONDITIONAL(USE_OPENAL, false)
 AM_CONDITIONAL(USE_OPENCV, false)
+AM_CONDITIONAL(USE_OPENH264, false)
 AM_CONDITIONAL(USE_OPUS, false)
 AM_CONDITIONAL(USE_PVR, false)
 AM_CONDITIONAL(USE_RSVG, false)
@@ -2437,6 +2444,7 @@ ext/neon/Makefile
 ext/ofa/Makefile
 ext/openal/Makefile
 ext/opencv/Makefile
+ext/openh264/Makefile
 ext/opus/Makefile
 ext/rsvg/Makefile
 ext/resindvd/Makefile
