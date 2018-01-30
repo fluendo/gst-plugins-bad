@@ -28,6 +28,7 @@
 #include <Foundation/Foundation.h>
 #endif
 #include "avfvideosrc.h"
+#include "osxscreencapsrc.h"
 #include "vth264decbin.h"
 #include "vth264encbin.h"
 #include "vtenc.h"
@@ -60,6 +61,8 @@ plugin_init (GstPlugin * plugin)
 
   res = gst_element_register (plugin, "avfvideosrc", GST_RANK_NONE,
       GST_TYPE_AVF_VIDEO_SRC);
+  res = gst_element_register (plugin, "osxscreencapsrc", GST_RANK_NONE,
+      GST_TYPE_OSX_SCREEN_CAP_SRC);
   res &= gst_element_register (plugin, "vth264decbin", GST_RANK_NONE,
       GST_TYPE_VT_H264_DEC_BIN);
   res &= gst_element_register (plugin, "vth264encbin", GST_RANK_NONE,

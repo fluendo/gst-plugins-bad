@@ -1,27 +1,28 @@
 plugin_LTLIBRARIES = libgstapplemedia.la
 
-libgstapplemedia_la_SOURCES =			\
-	plugin.m				\
-	corevideobuffer.c			\
-	coremediabuffer.c			\
-	coremediactx.c				\
-	dynapi.c				\
-	vtapi.c					\
-	vtdec.c					\
-	vtenc.c					\
-	vth264decbin.c				\
-	vth264encbin.c				\
-	avfvideosrc.m \
+libgstapplemedia_la_SOURCES =	\
+	plugin.m		\
+	corevideobuffer.c	\
+	coremediabuffer.c	\
+	coremediactx.c		\
+	dynapi.c		\
+	vtapi.c			\
+	vtdec.c			\
+	vtenc.c			\
+	vth264decbin.c		\
+	vth264encbin.c		\
+	avfvideosrc.m 		\
+	osxscreencapsrc.m 	\
 	vtutil.c
 
-libgstapplemedia_la_CFLAGS =			\
+libgstapplemedia_la_CFLAGS =		\
 	$(GST_CFLAGS)			\
-	$(GST_BASE_CFLAGS)			\
+	$(GST_BASE_CFLAGS)		\
 	$(GST_PLUGINS_BASE_CFLAGS)
 
-libgstapplemedia_la_OBJCFLAGS =			\
-	$(GST_OBJCFLAGS)			\
-	$(GST_BASE_CFLAGS)			\
+libgstapplemedia_la_OBJCFLAGS =		\
+	$(GST_OBJCFLAGS)		\
+	$(GST_BASE_CFLAGS)		\
 	$(GST_PLUGINS_BASE_CFLAGS)
 
 libgstapplemedia_la_LIBADD =			\
@@ -43,11 +44,13 @@ libgstapplemedia_la_LDFLAGS =			\
 	-Wl,-framework -Wl,AVFoundation		\
 	-Wl,-framework -Wl,CoreVideo
 
+
 noinst_HEADERS =				\
 	dynapi-internal.h			\
 	dynapi.h				\
 	coremediactx.h				\
 	avfvideosrc.h				\
+	osxscreencapsrc.h			\
 	corevideobuffer.h			\
 	coremediabuffer.h			\
 	iosassetsrc.h				\
@@ -61,18 +64,18 @@ noinst_HEADERS =				\
 
 if HAVE_IOS
 
-libgstapplemedia_la_SOURCES +=			\
-	iosassetsrc.m \
+libgstapplemedia_la_SOURCES +=	\
+	iosassetsrc.m 	\
 	iosavassetsrc.m
 
-libgstapplemedia_la_LDFLAGS +=			\
-	-Wl,-framework -Wl,Foundation		\
+libgstapplemedia_la_LDFLAGS +=		\
+	-Wl,-framework -Wl,Foundation	\
 	-Wl,-framework -Wl,AssetsLibrary
 
 else
 
-libgstapplemedia_la_LDFLAGS +=			\
-	-Wl,-framework -Wl,Cocoa
-
+libgstapplemedia_la_LDFLAGS +=		\
+	-Wl,-framework -Wl,Cocoa	\
+	-Wl,-framework -Wl,IOKit
 endif
 

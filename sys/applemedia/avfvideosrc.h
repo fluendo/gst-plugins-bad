@@ -31,7 +31,8 @@ G_BEGIN_DECLS
 #define GST_AVF_VIDEO_SRC_CAST(obj) \
   ((GstAVFVideoSrc *) (obj))
 #define GST_AVF_VIDEO_SRC_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_CAST ((klass), GST_TYPE_AVF_VIDEO_SRC, GstAVFVideoSrcClass))
+  (G_TYPE_CHECK_CLASS_CAST ((klass), GST_TYPE_AVF_VIDEO_SRC, \
+  GstAVFVideoSrcClass))
 #define GST_AVF_VIDEO_SRC_IMPL(obj) \
   ((GstAVFVideoSrcImpl *) GST_AVF_VIDEO_SRC_CAST (obj)->impl)
 #define GST_IS_AVF_VIDEO_SRC(obj) \
@@ -39,8 +40,8 @@ G_BEGIN_DECLS
 #define GST_IS_AVF_VIDEO_SRC_CLASS(klass) \
   (G_TYPE_CHECK_CLASS_TYPE ((klass), GST_TYPE_AVF_VIDEO_SRC))
 
-typedef struct _GstAVFVideoSrc         GstAVFVideoSrc;
-typedef struct _GstAVFVideoSrcClass    GstAVFVideoSrcClass;
+typedef struct _GstAVFVideoSrc GstAVFVideoSrc;
+typedef struct _GstAVFVideoSrcClass GstAVFVideoSrcClass;
 
 struct _GstAVFVideoSrc
 {
