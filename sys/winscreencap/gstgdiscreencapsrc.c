@@ -48,6 +48,7 @@
 
 #include "gstgdiscreencapsrc.h"
 #include <gst/video/video.h>
+#include <gst/interfaces/propertyprobe.h>
 
 GST_DEBUG_CATEGORY_STATIC (gdiscreencapsrc_debug);
 
@@ -55,8 +56,12 @@ static GstStaticPadTemplate src_template =
 GST_STATIC_PAD_TEMPLATE ("src", GST_PAD_SRC, GST_PAD_ALWAYS,
     GST_STATIC_CAPS (GST_VIDEO_CAPS_BGR));
 
-GST_BOILERPLATE (GstGDIScreenCapSrc, gst_gdiscreencapsrc,
-    GstPushSrc, GST_TYPE_PUSH_SRC);
+static void gst_gdiscreencapsrc_src_init_interfaces (GType type);
+static void
+gst_gdiscreencapsrc_src_type_add_device_property_probe_interface (GType type);
+
+GST_BOILERPLATE_FULL (GstGDIScreenCapSrc, gst_gdiscreencapsrc,
+    GstPushSrc, GST_TYPE_PUSH_SRC, gst_gdiscreencapsrc_src_init_interfaces);
 
 enum
 {
@@ -90,6 +95,35 @@ static GstFlowReturn gst_gdiscreencapsrc_create (GstPushSrc * src,
 
 static gboolean gst_gdiscreencapsrc_screen_capture (GstGDIScreenCapSrc * src,
     GstBuffer * buf);
+
+static gboolean
+gst_gdiscreencapsrc_src_iface_supported (GstImplementsInterface*iface,
+    GType iface_type)
+{
+  return FALSE;
+}
+
+static void
+gst_gdiscreencapsrc_src_interface_init (GstImplementsInterfaceClass*klass)
+{
+  /* default virtual functions */
+  klass->supported=gst_gdiscreencapsrc_src_iface_supported;
+}
+
+static void
+gst_gdiscreencapsrc_src_init_interfaces (GType type)
+{
+  static const GInterfaceInfo implements_iface_info={
+    (GInterfaceInitFunc)gst_gdiscreencapsrc_src_interface_init,
+    NULL,
+    NULL,
+  };
+
+  g_type_add_interface_static (type,GST_TYPE_IMPLEMENTS_INTERFACE,
+      &implements_iface_info);
+
+  gst_gdiscreencapsrc_src_type_add_device_property_probe_interface (type);
+}
 
 /* Implementation. */
 static void
@@ -558,4 +592,87 @@ gst_gdiscreencapsrc_screen_capture (GstGDIScreenCapSrc * src, GstBuffer * buf)
   memcpy (GST_BUFFER_DATA (buf), src->dibMem, GST_BUFFER_SIZE (buf));
 
   return TRUE;
+}
+
+static const GList*
+probe_get_properties (GstPropertyProbe*probe)
+{
+  GObjectClass*klass=G_OBJECT_GET_CLASS (probe);
+  static GList*list=NULL;
+  GST_CLASS_LOCK (GST_OBJECT_CLASS (klass) );
+  if(!list) {
+    GParamSpec*pspec;
+    pspec=g_object_class_find_property (klass,"monitor");
+    list=g_list_append (NULL,pspec);
+  }
+  GST_CLASS_UNLOCK (GST_OBJECT_CLASS (klass) );
+  return list;
+}
+
+static void
+probe_probe_property (GstPropertyProbe*probe,guint prop_id,
+    const GParamSpec*pspec)
+{
+  /* we do nothing in here.  the actual "probe" occurs in get_values(),
+   * which is a common practice when not caching responses.
+   */
+
+  if(!g_str_equal (pspec->name,"monitor") ) {
+    G_OBJECT_WARN_INVALID_PROPERTY_ID (probe,prop_id,pspec);
+  }
+}
+
+static gboolean
+probe_needs_probe (GstPropertyProbe*probe,guint prop_id,
+    const GParamSpec*pspec)
+{
+  /* don't cache probed data */
+  return TRUE;
+}
+
+static GValueArray*
+probe_get_values (GstPropertyProbe*probe,guint prop_id,
+    const GParamSpec*pspec)
+{
+  GValueArray *array;
+  GValue value = {0,};
+  gint monitors_count;
+
+  if(!g_str_equal (pspec->name,"monitor") ) {
+    G_OBJECT_WARN_INVALID_PROPERTY_ID (probe,prop_id,pspec);
+    return NULL;
+  }
+
+  monitors_count = GetSystemMetrics (SM_CMONITORS);
+  array = g_value_array_new (monitors_count);
+  g_value_init (&value,G_TYPE_INT);
+  for(gint i = 0; i < monitors_count; i++) {
+    g_value_set_int (&value, i);
+    g_value_array_append (array,&value);
+  }
+  g_value_unset (&value);
+  return array;
+}
+
+static void
+gst_gdiscreencapsrc_src_property_probe_interface_init (GstPropertyProbeInterface
+    *iface)
+{
+  iface->get_properties=probe_get_properties;
+  iface->probe_property=probe_probe_property;
+  iface->needs_probe=probe_needs_probe;
+  iface->get_values=probe_get_values;
+}
+
+void
+gst_gdiscreencapsrc_src_type_add_device_property_probe_interface (GType type)
+{
+  static const GInterfaceInfo probe_iface_info={
+    (GInterfaceInitFunc)gst_gdiscreencapsrc_src_property_probe_interface_init,
+    NULL,
+    NULL,
+  };
+
+  g_type_add_interface_static (type,GST_TYPE_PROPERTY_PROBE,
+      &probe_iface_info);
 }
