@@ -2771,7 +2771,7 @@ plugin_init (GstPlugin * plugin)
 
   GST_DEBUG_CATEGORY_INIT (gst_amc_debug, "amc", 0, "android-media-codec");
 
-  if (!gst_jni_initialize ())
+  if (!gst_jni_initialize (NULL))
     return FALSE;
 
   gst_plugin_add_dependency_simple (plugin, NULL, "/etc", "media_codecs.xml",
