@@ -38,7 +38,7 @@ _cache_java_class (GstJniSurfaceTextureClass * klass)
 {
   JNIEnv *env;
 
-  gst_jni_initialize ();
+  gst_jni_initialize (NULL);
   env = gst_jni_get_env ();
 
   klass->jklass = gst_jni_get_class (env, "android/graphics/SurfaceTexture");

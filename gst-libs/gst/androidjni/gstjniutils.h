@@ -53,7 +53,7 @@ gchar *gst_jni_string_to_gchar (JNIEnv * env, jstring string, gboolean release);
 
 jstring gst_jni_string_from_gchar (JNIEnv * env, const gchar * string);
 
-gboolean gst_jni_initialize (void);
+gboolean gst_jni_initialize (JavaVM * java_vm);
 
 gboolean gst_jni_is_vm_started (void);
 

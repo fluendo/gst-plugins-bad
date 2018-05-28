@@ -375,11 +375,16 @@ create_failed:
 }
 
 gboolean
-gst_jni_initialize (void)
+gst_jni_initialize (JavaVM * java_vm)
 {
   if (!__initialized) {
     pthread_key_create (&__current_jni_env, gst_jni_detach_current_thread);
-    __initialized = gst_jni_initialize_java_vm ();
+    if (!java_vm)
+      __initialized = gst_jni_initialize_java_vm ();
+    else {
+      __initialized = TRUE;
+      __java_vm = java_vm;
+    }
   }
   return __initialized;
 }

@@ -35,7 +35,7 @@ _cache_java_class (GstJniSurfaceClass * klass)
 {
   JNIEnv *env;
 
-  gst_jni_initialize ();
+  gst_jni_initialize (NULL);
 
   env = gst_jni_get_env ();
 
