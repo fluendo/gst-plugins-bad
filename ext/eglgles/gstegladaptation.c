@@ -111,6 +111,17 @@ static const char *frag_COPY_prog = {
       "}"
 };
 
+static const char *frag_COPY_full_prog = {
+  "precision mediump float;"
+      "varying vec2 opos;"
+      "uniform sampler2D tex;"
+      "void main(void)"
+      "{"
+      " vec4 t = texture2D(tex, opos);"
+      " gl_FragColor = vec4(t.rgba);"
+      "}"
+};
+
 /* Android OES texture */
 static const char *frag_OES_prog = {
   "#extension GL_OES_EGL_image_external : require\n"
@@ -132,6 +143,17 @@ static const char *frag_REORDER_prog = {
       "{"
       " vec4 t = texture2D(tex, opos);"
       " gl_FragColor = vec4(t.%c, t.%c, t.%c, 1.0);"
+      "}"
+};
+
+static const char *frag_REORDER_full_prog = {
+  "precision mediump float;"
+      "varying vec2 opos;"
+      "uniform sampler2D tex;"
+      "void main(void)"
+      "{"
+      " vec4 t = texture2D(tex, opos);"
+      " gl_FragColor = vec4(t.%c, t.%c, t.%c, t.%c);"
       "}"
 };
 
@@ -584,31 +606,51 @@ gst_egl_adaptation_init_egl_surface (GstEglAdaptationContext * ctx,
       break;
     case GST_VIDEO_FORMAT_BGR:
     case GST_VIDEO_FORMAT_BGRx:
-    case GST_VIDEO_FORMAT_BGRA:
       frag_prog = g_strdup_printf (frag_REORDER_prog, 'b', 'g', 'r');
       free_frag_prog = TRUE;
       ctx->n_textures = 1;
       texnames[0] = "tex";
       break;
+    case GST_VIDEO_FORMAT_BGRA:
+      frag_prog = g_strdup_printf (frag_REORDER_full_prog, 'b', 'g', 'r', 'a');
+      free_frag_prog = TRUE;
+      ctx->n_textures = 1;
+      texnames[0] = "tex";
+      break;
     case GST_VIDEO_FORMAT_xRGB:
-    case GST_VIDEO_FORMAT_ARGB:
       frag_prog = g_strdup_printf (frag_REORDER_prog, 'g', 'b', 'a');
       free_frag_prog = TRUE;
       ctx->n_textures = 1;
       texnames[0] = "tex";
       break;
+    case GST_VIDEO_FORMAT_ARGB:
+      frag_prog = g_strdup_printf (frag_REORDER_full_prog, 'g', 'b', 'a', 'r');
+      free_frag_prog = TRUE;
+      ctx->n_textures = 1;
+      texnames[0] = "tex";
+      break;
     case GST_VIDEO_FORMAT_xBGR:
-    case GST_VIDEO_FORMAT_ABGR:
       frag_prog = g_strdup_printf (frag_REORDER_prog, 'a', 'b', 'g');
+      free_frag_prog = TRUE;
+      ctx->n_textures = 1;
+      texnames[0] = "tex";
+      break;
+    case GST_VIDEO_FORMAT_ABGR:
+      frag_prog = g_strdup_printf (frag_REORDER_full_prog, 'a', 'b', 'g', 'r');
       free_frag_prog = TRUE;
       ctx->n_textures = 1;
       texnames[0] = "tex";
       break;
     case GST_VIDEO_FORMAT_RGB:
     case GST_VIDEO_FORMAT_RGBx:
-    case GST_VIDEO_FORMAT_RGBA:
     case GST_VIDEO_FORMAT_RGB16:
       frag_prog = (gchar *) frag_COPY_prog;
+      free_frag_prog = FALSE;
+      ctx->n_textures = 1;
+      texnames[0] = "tex";
+      break;
+    case GST_VIDEO_FORMAT_RGBA:
+      frag_prog = (gchar *) frag_COPY_full_prog;
       free_frag_prog = FALSE;
       ctx->n_textures = 1;
       texnames[0] = "tex";
