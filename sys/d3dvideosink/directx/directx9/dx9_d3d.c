@@ -29,7 +29,8 @@ dx9_d3d_init (DirectXAPIComponent * component, gpointer data)
   DIRECTX_OPEN_COMPONENT_MODULE (component, "d3d9");
 
   DIRECTX_DEBUG ("Setting Direct3D dispatch table");
-  DIRECTX_OPEN_COMPONENT_SYMBOL (component, D3D9DispatchTable, Direct3DCreate9);
+  DIRECTX_OPEN_COMPONENT_SYMBOL (component, D3D9DispatchTable,
+      Direct3DCreate9Ex);
 
   //{
   //  IDirect3D9* blah;

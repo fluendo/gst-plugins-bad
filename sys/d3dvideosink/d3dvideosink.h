@@ -85,7 +85,7 @@ struct _GstD3DVideoSink
 
   GMutex *d3d_device_lock;
   LPDIRECT3DSURFACE9 d3d_offscreen_surface;
-  LPDIRECT3DDEVICE9 d3ddev;
+  LPDIRECT3DDEVICE9EX d3ddev;
   D3DPRESENT_PARAMETERS d3dpp;
 
   D3DFORMAT d3dformat;

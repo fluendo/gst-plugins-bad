@@ -35,7 +35,11 @@
 typedef struct _GstD3DVideoSinkShared GstD3DVideoSinkShared;
 struct _GstD3DVideoSinkShared
 {
-  LPDIRECT3D9 d3d;
+  /* Note: API updated to DirectX9Ex due to poor fullscreen support 
+   * of legacy DX9 in multidisplay configurations. 
+   * Minimum DirectX9Ex support is Windows Vista
+   */
+  LPDIRECT3D9EX d3d;
   D3DCAPS9 d3dcaps;
 
   GList *element_list;
@@ -1998,6 +2002,7 @@ gst_d3dvideosink_initialize_direct3d (GstD3DVideoSink * sink)
 {
   DirectXAPI *api;
   GstD3DVideoSinkClass *klass;
+  HRESULT hr;
 
   /* Let's hope this is never a problem (they have millions of d3d elements going at the same time) */
   if (shared.element_count >= G_MAXINT32) {
@@ -2037,11 +2042,11 @@ gst_d3dvideosink_initialize_direct3d (GstD3DVideoSink * sink)
     goto error;
   }
 
-  shared.d3d =
-      (LPDIRECT3D9) DX9_D3D_COMPONENT_CALL_FUNC (DIRECTX_D3D (api),
-      Direct3DCreate9, D3D_SDK_VERSION);
-  if (!shared.d3d) {
-    GST_ERROR ("Unable to create Direct3D interface");
+  shared.d3d = NULL;
+  hr = DX9_D3D_COMPONENT_CALL_FUNC (DIRECTX_D3D (api),
+      Direct3DCreate9Ex, D3D_SDK_VERSION, &shared.d3d);
+  if (FAILED (hr)) {
+    GST_ERROR ("(Direct9Ex) Unable to create Direct3D interface");
     goto error;
   }
 
@@ -2181,9 +2186,10 @@ gst_d3dvideosink_initialize_d3d_device (GstD3DVideoSink * sink)
 
   sink->d3ddev = NULL;
 
-  if (FAILED (hr = IDirect3D9_CreateDevice (shared.d3d,
+  if (FAILED (hr = IDirect3D9Ex_CreateDeviceEx (shared.d3d,
               D3DADAPTER_DEFAULT,
-              D3DDEVTYPE_HAL, hwnd, d3dcreate, &sink->d3dpp, &sink->d3ddev))) {
+              D3DDEVTYPE_HAL, hwnd, d3dcreate, &sink->d3dpp, NULL,
+              &sink->d3ddev))) {
     GST_WARNING ("Unable to create Direct3D device. Result: %ld (0x%lx)", hr,
         hr);
     goto error;

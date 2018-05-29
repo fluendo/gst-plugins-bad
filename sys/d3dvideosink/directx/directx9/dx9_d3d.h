@@ -32,11 +32,11 @@ typedef struct _D3D9 D3D9;
 typedef struct _D3D9DispatchTable D3D9DispatchTable;
 
 /* Functions */
-typedef gpointer /* IDirect3D9* */ (WINAPI *LPDIRECT3DCREATE9) (UINT);
+typedef HRESULT  /* IDirect3D9Ex* */ (WINAPI *LPDIRECT3DCREATE9EX) (UINT,void  **);
 
 struct _D3D9DispatchTable 
 {
-  LPDIRECT3DCREATE9 Direct3DCreate9;
+  LPDIRECT3DCREATE9EX Direct3DCreate9Ex;
 };
 
 /* Global data */
