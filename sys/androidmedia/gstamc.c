@@ -2094,7 +2094,9 @@ static const struct
   {
   COLOR_FormatSurface, GST_VIDEO_FORMAT_ENCODED}, {
   COLOR_FormatYUV420Planar, GST_VIDEO_FORMAT_I420}, {
+  COLOR_FormatYUV420Flexible, GST_VIDEO_FORMAT_I420}, {
   COLOR_FormatYUV420SemiPlanar, GST_VIDEO_FORMAT_NV12}, {
+  COLOR_FormatYUV411PackedPlanar, GST_VIDEO_FORMAT_IYU1,}, {
   COLOR_TI_FormatYUV420PackedSemiPlanar, GST_VIDEO_FORMAT_NV12}, {
   COLOR_TI_FormatYUV420PackedSemiPlanarInterlaced, GST_VIDEO_FORMAT_NV12}, {
   COLOR_QCOM_FormatYUV420SemiPlanar, GST_VIDEO_FORMAT_NV12}, {
@@ -2110,8 +2112,11 @@ accepted_color_formats (GstAmcCodecType * type, gboolean is_encoder)
 
   for (i = 0; i < type->n_color_formats; i++) {
     gboolean found = FALSE;
+
     /* We ignore this one */
     if (type->color_formats[i] == COLOR_FormatAndroidOpaque)
+      all--;
+    if (type->color_formats[i] == COLOR_FormatAndroidUndocumented1)
       all--;
 
     for (j = 0; j < G_N_ELEMENTS (color_format_mapping_table); j++) {
