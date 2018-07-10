@@ -45,7 +45,7 @@
 
 GST_DEBUG_CATEGORY_STATIC (gst_amc_video_dec_debug_category);
 #define GST_CAT_DEFAULT gst_amc_video_dec_debug_category
-#define DEFAULT_DIRECT_RENDERING TRUE
+#define DEFAULT_DIRECT_RENDERING FALSE
 
 typedef struct _BufferIdentification BufferIdentification;
 struct _BufferIdentification
