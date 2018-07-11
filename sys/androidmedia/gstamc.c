@@ -1570,6 +1570,64 @@ save_codecs (GstPlugin * plugin, GstStructure * cache_data)
 #endif
 }
 
+
+static const struct {
+  const char * uuid;
+  const char * name;
+} known_cryptos[] = {
+  { "69f908af-4816-46ea-910c-cd5dcccb0a3a", "PSSH" },
+  { "e2719d58-a985-b3c9-781a-b030af78d30e", "CLEARKEY" },
+  { "5e629af5-38da-4063-8977-97ffbd9902d4", "MPD" }
+};
+
+
+static const gchar *
+detect_known_protection_name (const gchar * uuid_utf8)
+{
+  for (i = 0; i < G_N_ELEMENTS (known_cryptos); i++)
+    if (!g_ascii_strncasecmp (uuid_utf8, known_cryptos[i].uuid))
+      return known_cryptos[i].name;
+  return "(unknown)";
+}
+
+static gboolean
+is_protection_system_id_supported (const gchar * uuid_utf8)
+{
+  jstring juuid_string = NULL;
+  jobject juuid = NULL;
+  jboolean jis_supported = 0;
+
+  GST_INFO ("Checking if protection scheme %s [%s] is supported..",
+            detect_known_protection_name (uuid_utf8) , uuid_utf8);
+  
+  name_str = (*env)->NewStringUTF (env, uuid_utf8);
+  // TODO: check errs
+  juuid = (*env)->CallStaticBooleanMethod(env, uuid.class, uuid.from_string, juuid_string);
+  // TODO: check errs
+  jis_supported = (*env)->CallStaticBooleanMethod
+    (env, media_crypto.klass, media_crypto.is_crypto_scheme_supported, juuid);
+  // TODO: check errs
+
+  if (jis_supported) {
+    GST_INFO (".. %s is supported", uuid_utf8);
+    return TRUE;
+  }
+
+  GST_INFO (".. %s is not supported", uuid_utf8);
+  return FALSE;
+}
+
+
+static void
+log_known_supported_protection_schemes (void)
+{
+  gint i;
+  GST_DEBUG ("Scanning device for known decryptors:");
+  for (i = 0; i < G_N_ELEMENTS (known_cryptos); i++)
+    GST_DEBUG ("%s is %s supported by device", known_cryptos[i].name,
+               is_protection_system_id_supported (known_cryptos[i].uuid) ? "" : "not");
+}
+
 static gboolean
 scan_codecs (GstPlugin * plugin)
 {
