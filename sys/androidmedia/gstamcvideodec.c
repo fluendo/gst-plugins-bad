@@ -1795,8 +1795,16 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
         "Queueing buffer %d: size %d time %" G_GINT64_FORMAT " flags 0x%08x",
         idx, buffer_info.size, buffer_info.presentation_time_us,
         buffer_info.flags);
-    if (!gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info))
-      goto queue_error;
+
+
+    if (self->encrypted) {
+      if (!gst_amc_codec_queue_secure_input_buffer (self->codec, idx, &buffer_info,
+                                                    frame->input_buffer))
+        goto queue_error;
+    }
+    else
+      if (!gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info))
+        goto queue_error;
   }
 
   gst_video_codec_frame_unref (frame);
