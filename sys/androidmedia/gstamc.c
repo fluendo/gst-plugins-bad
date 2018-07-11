@@ -106,6 +106,61 @@ static struct
   jmethodID constructor;
   jmethodID set;
 } media_codec_crypto_info;
+static struct
+{
+  jclass klass;
+  jmethodID is_crypto_scheme_supported;
+} media_crypto;
+static struct
+{
+  jclass klass;
+  jmethodID from_string;
+} uuid;   
+
+#define J_EXCEPTION_CHECK(method) G_STMT_START {        \
+    if (G_UNLIKELY((*env)->ExceptionCheck (env))) {     \
+      GST_ERROR ("Caught exception on call " #method);  \
+      (*env)->ExceptionClear (env);                     \
+      /* ret = error */                                 \
+      goto error;                                       \
+    }                                                   \
+  } G_STMT_END
+
+#define J_CALL(envfunc, class, method, ...)  G_STMT_START {             \
+    (*env)->envfunc(env, class.klass, class.method, __VA_ARGS__);       \
+    J_EXCEPTION_CHECK (class.method);                                   \
+  } G_STMT_END
+
+#define J_CALL_STATIC_BOOLEAN(...) J_CALL(CallStaticBooleanMethod, __VA_ARGS__)
+#define J_CALL_BOOLEAN(...) J_CALL(CallBooleanMethod, __VA_ARGS__)
+
+#define AMC_CHK(statement) G_STMT_START {               \
+    if (G_UNLIKELY(!(statement))) {                     \
+      GST_DEBUG ("check for ("#statement ") failed")    \
+        (*env)->ExceptionClear (env)                    \
+        goto error;                                     \
+    }                                                   \
+  } G_STMT_END
+    
+#define J_DELETE_LOCAL_REF(ref) G_STMT_START {  \
+    if (G_LIKELY(ref)) {                        \
+      (*env)->DeleteLocalRef (env, ref);        \
+      ref = NULL;                               \
+    }                                           \
+  } G_STMT_END
+
+#define J_INIT_METHOD_ID(class, method, name, desc)             \
+  J_INIT_METHOD_ID_GEN(GetMethodID, class, method, name, desc)
+
+#define J_INIT_STATIC_METHOD_ID(class, method, name, desc)              \
+  J_INIT_METHOD_ID_GEN(GetStaticMethodID, class, method, name, desc)
+
+#define J_INIT_METHOD_ID_GEN(calltype, class, method, name, desc)       \
+  G_STMT_START {                                                        \
+    class.method = (*env)->calltype (env, class.klass, name, desc);     \
+    AMC_CHK (class.method);                                             \
+  } G_STMT_END
+
 
 static jobject gst_amc_get_crypto_info (const GstStructure * s)
 {
@@ -1262,6 +1317,21 @@ done:
     (*env)->DeleteLocalRef (env, v);
 }
 
+
+static jclass j_find_class (JNIenv * env, const gchar * desc)
+{
+  jclass ret = NULL;
+  jclass tmp = (*env)->FindClass (env, "android/media/MediaCodec$CryptoInfo");
+  AMC_CHK (tmp);
+    
+  ret = (*env)->NewGlobalRef (env, tmp);
+  AMC_CHK (ret);    
+error:
+  J_DELETE_LOCAL_REF (tmp);
+  return ret;
+}
+
+
 static gboolean
 get_java_classes (void)
 {
@@ -1474,38 +1544,33 @@ get_java_classes (void)
     goto done;
   }
 
-  tmp = (*env)->FindClass (env, "android/media/MediaCodec$CryptoInfo");
-  if (!tmp) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get format class");
-    goto done;
-  }
-  media_codec_crypto_info.klass = (*env)->NewGlobalRef (env, tmp);
-  if (!media_codec_crypto_info.klass) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get format class global reference");
-    goto done;
-  }
-  media_codec_crypto_info.constructor =
-      (*env)->GetMethodID (env, media_codec_crypto_info.klass, "<init>", "()V");
-  media_codec_crypto_info.set =
-      (*env)->GetMethodID (env, media_codec_crypto_info.klass, "set", "(I[I[I[B[BI)V");
+  /* ==================================== CryptoInfo       */
   
-  if (!media_codec_crypto_info.constructor || !media_codec_crypto_info.set) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get format methods");
+  media_codec_crypto_info.klass = j_find_class (env, "android/media/MediaCodec$CryptoInfo");
+  if (!media_codec_crypto_info.klass)
     goto done;
-  }
+  J_INIT_METHOD_ID(media_codec_crypto_info, constructor, "<init>", "()V");
+  J_INIT_METHOD_ID(media_codec_crypto_info, set, "set", "(I[I[I[B[BI)V");
+    
+  /* ==================================== Media Crypto     */
+  media_crypto.klass = j_find_class (env, "android/media/MediaCrypto");
+  if (!media_crypto.klass)
+    goto done;
+  J_INIT_STATIC_METHOD_ID(media_crypto, is_crypto_scheme_supported, "isCryptoSchemeSupported",
+                          "(Ljava/util/UUID)Z");
+  /* ====================================== UUID          */
+  uuid.klass = j_find_class (env, "java/util/UUID");
+  if (!uuid.klass)
+    goto done;
+  J_INIT_STATIC_METHOD_ID(uuid, from_string, "fromString", "(Ljava/lang/String)Ljava/util/UUID");
+  /* ======================================               */
   
 done:
-  if (tmp)
-    (*env)->DeleteLocalRef (env, tmp);
-  tmp = NULL;
-
+  J_DELETE_LOCAL_REF (tmp);
   return ret;
+error:
+  ret = FALSE;
+  goto done;
 }
 
 #ifdef GST_PLUGIN_BUILD_STATIC
@@ -1596,18 +1661,22 @@ is_protection_system_id_supported (const gchar * uuid_utf8)
   jstring juuid_string = NULL;
   jobject juuid = NULL;
   jboolean jis_supported = 0;
-
+  JNIEnv *env = gst_jni_get_env ();
   GST_INFO ("Checking if protection scheme %s [%s] is supported..",
             detect_known_protection_name (uuid_utf8) , uuid_utf8);
   
-  name_str = (*env)->NewStringUTF (env, uuid_utf8);
-  // TODO: check errs
-  juuid = (*env)->CallStaticBooleanMethod(env, uuid.class, uuid.from_string, juuid_string);
-  // TODO: check errs
-  jis_supported = (*env)->CallStaticBooleanMethod
-    (env, media_crypto.klass, media_crypto.is_crypto_scheme_supported, juuid);
-  // TODO: check errs
+  juuid_string = (*env)->NewStringUTF (env, uuid_utf8);
+  AMC_CHK (juuid_string);
+  
+  juuid = J_CALL_STATIC_BOOLEAN (uuid, from_string, juuid_string);
+  AMC_CHK (juuid);
+  
+  jis_supported = J_CALL_STATIC_BOOLEAN (media_crypto, is_crypto_scheme_supported, juuid);
 
+error:
+  J_DELETE_LOCAL_REF (juuid_string);
+  J_DELETE_LOCAL_REF (juuid);
+  
   if (jis_supported) {
     GST_INFO (".. %s is supported", uuid_utf8);
     return TRUE;
@@ -2991,9 +3060,10 @@ plugin_init (GstPlugin * plugin)
 
   gst_amc_codec_info_quark = g_quark_from_static_string ("gst-amc-codec-info");
 
+  log_known_supported_protection_schemes ();
+  
   if (!register_codecs (plugin))
     return FALSE;
-
 
   return TRUE;
 }
