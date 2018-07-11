@@ -33,6 +33,7 @@ typedef struct _GstAmcCodecType GstAmcCodecType;
 typedef struct _GstAmcCodec GstAmcCodec;
 typedef struct _GstAmcBufferInfo GstAmcBufferInfo;
 typedef struct _GstAmcFormat GstAmcFormat;
+typedef struct _GstAmcCrypto GstAmcCrypto;
 typedef struct _GstAmcBuffer GstAmcBuffer;
 
 struct _GstAmcCodecType {
@@ -66,6 +67,11 @@ struct _GstAmcFormat {
   jobject object; /* global reference */
 };
 
+struct _GstAmcCrypto {
+  /* < private > */
+  jobject object; /* global reference */
+};
+
 struct _GstAmcCodec {
   /* < private > */
   jobject object; /* global reference */
@@ -84,7 +90,8 @@ GstAmcCodec * gst_amc_codec_new (const gchar *name);
 void gst_amc_codec_free (GstAmcCodec * codec);
 
 jmethodID gst_amc_codec_get_release_method_id (GstAmcCodec * codec);
-gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format, guint8 *surface, gint flags);
+gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
+                                  guint8 *surface, GstAmcCrypto * crypto_ctx, gint flags);
 GstAmcFormat * gst_amc_codec_get_output_format (GstAmcCodec * codec);
 
 gboolean gst_amc_codec_start (GstAmcCodec * codec);

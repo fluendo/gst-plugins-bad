@@ -64,7 +64,8 @@ static GstFlowReturn gst_amc_audio_dec_drain (GstAmcAudioDec * self);
 
 enum
 {
-  PROP_0
+  PROP_0,
+  PROP_DRM_AGENT_HANDLE
 };
 
 /* class initialization */
@@ -149,6 +150,9 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
         gst_structure_set (tmp2, "profile", G_TYPE_STRING, profile, NULL);
         gst_caps_merge_structure (ret, tmp2);
 
+        tmp2 = gst_structure_new ("application/x-cenc",
+                                 "real-caps", G_TYPE_STRING, "audio/mpeg");
+        gst_caps_merge_structure (ret, tmp2);
         have_profile = TRUE;
       }
 
@@ -301,6 +305,36 @@ gst_amc_audio_dec_base_init (gpointer g_class)
 }
 
 static void
+gst_amc_audio_dec_get_property (GObject * object, guint prop_id, GValue * value,
+                               GParamSpec * pspec) {
+  GstAmcAudioDec *thiz = GST_AMC_AUDIO_DEC (object);
+  switch (prop_id) {
+    case PROP_DRM_AGENT_HANDLE:
+      g_value_set_pointer (value, thiz->drm_agent_handle);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+
+static void
+gst_amc_audio_dec_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec)
+{
+  GstAmcAudioDec *thiz = GST_AMC_AUDIO_DEC (object);
+  switch (prop_id) {
+    case PROP_DRM_AGENT_HANDLE:
+      thiz->drm_agent_handle = g_value_get_pointer (value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+static void
 gst_amc_audio_dec_class_init (GstAmcAudioDecClass * klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
@@ -322,6 +356,23 @@ gst_amc_audio_dec_class_init (GstAmcAudioDecClass * klass)
   audiodec_class->set_format = GST_DEBUG_FUNCPTR (gst_amc_audio_dec_set_format);
   audiodec_class->handle_frame =
       GST_DEBUG_FUNCPTR (gst_amc_audio_dec_handle_frame);
+
+  /* FIXME this will be handled differently in the future.
+   * 1. We need an interface that OPE will call, similar to xoverlay
+   * 2. We need to not export this as a property, but an interface method
+   * 3. All elements that decrypt must implement this interface, mainly:
+   *    fludrmdecrypt
+   *    flumtksink
+   */
+  g_object_class_install_property (gobject_class, PROP_DRM_AGENT_HANDLE,
+      g_param_spec_pointer ("drm-agent-handle", "DRM Agent handle",
+          "The DRM Agent handle to use for decrypting",
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  gobject_class->set_property =
+    GST_DEBUG_FUNCPTR (gst_amc_audio_dec_set_property);
+  gobject_class->get_property =
+    GST_DEBUG_FUNCPTR (gst_amc_audio_dec_get_property);
 }
 
 static void
@@ -923,7 +974,7 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
   g_free (format_string);
 
   self->n_buffers = 0;
-  if (!gst_amc_codec_configure (self->codec, format, NULL, 0)) {
+  if (!gst_amc_codec_configure (self->codec, format, NULL, mediacrypto, 0)) { // <-- mediacrypto
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }

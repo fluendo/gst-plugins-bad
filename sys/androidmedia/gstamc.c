@@ -73,6 +73,7 @@ static struct
   jmethodID release_output_buffer;
   jmethodID start;
   jmethodID stop;
+  jfieldID CRYPTO_MODE_AES_CTR;
 } media_codec;
 static struct
 {
@@ -99,6 +100,112 @@ static struct
   jmethodID get_byte_buffer;
   jmethodID set_byte_buffer;
 } media_format;
+static struct
+{
+  jclass klass;
+  jmethodID constructor;
+  jmethodID set;
+} media_codec_crypto_info;
+
+static jobject gst_amc_get_crypto_info (const GstStructure * s)
+{
+  /* TODO: check for exceptions */
+  JNIEnv *env;
+  env = gst_jni_get_env ();
+  gint n_subsamples = 0;
+  jint j_n_subsamples = 0;
+  jobject crypto_info = NULL;
+  
+  gboolean ok = gst_structure_get_int (s, "subsample_count", &n_subsamples);
+  if (!ok) {
+    GST_WARNING ("Subsamples field in DRMBuffer is not set");
+    goto error;
+  }
+
+  if (!n_subsamples)
+    GST_WARNING ("Number of subsamples field in DRMBuffer is 0");
+  
+  jintArray
+    j_n_bytes_of_clear_data = NULL,
+    j_n_bytes_of_encrypted_data = NULL;
+  jbyteArray
+    j_key = NULL,
+    j_iv = NULL;
+  j_n_subsamples = n_subsamples;
+
+  if (n_subsamples) {
+    // Performing subsample arrays
+    {
+      jint * n_bytes_of_clear_data = g_new (jint, n_subsamples);
+      jint * n_bytes_of_encrypted_data = g_new (jint, n_subsamples);
+      GstBuffer * subsamples_buf;
+
+      if (!gst_structure_get_buffer (s, "subsamples", &subsamples_buf))
+        goto error;
+    
+      FlucDrmCencSencEntry * subsamples_buf_mem =
+        (FlucDrmCencSencEntry *)GST_BUFFER_DATA (subsamples_buf);
+      gint i;
+      for (i = 0; i < n_subsamples; i++ ) {
+        n_bytes_of_clear_data[i] = subsamples_buf_mem[i].clear;
+        n_bytes_of_encrypted_data[i] = subsamples_buf_mem[i].encrypted;
+      }
+  
+      j_n_bytes_of_clear_data = (*env)->NewIntArray(env, j_n_subsamples);
+      j_n_bytes_of_encrypted_data = (*env)->NewIntArray(env, j_n_subsamples);
+
+      (*env)->SetIntArrayRegion(env, 0, j_n_bytes_of_clear_data, 0, n_subsamples, n_bytes_of_clear_data);
+      (*env)->SetIntArrayRegion(env, 0, j_n_bytes_of_encrypted_data, 0, n_subsamples,
+                                n_bytes_of_encrypted_data);
+
+      g_free (n_bytes_of_clear_data);
+      g_free ( n_bytes_of_encrypted_data);
+    }
+
+    // Performing key and iv
+    {
+      gchar * kid; 
+      gchar * iv;
+      GstBuffer * kid_buf;
+      GstBuffer * iv_buf;
+
+      if (!gst_structure_get_buffer (s, "kid", &kid_buf))
+        goto error;
+      if (!gst_structure_get_buffer (s, "iv", &iv_buf))
+        goto error;
+    
+      kid = GST_BUFFER_DATA (kid_buf);
+      iv = GST_BUFFER_DATA (iv_buf);
+      j_kid = (*env)->NewByteArray (env, 16);
+      j_iv =  (*env)->NewByteArray (env, 16);
+      (*env)->SetByteArrayRegion(env, j_kid, 0, 16, kid);
+      (*env)->SetByteArrayRegion(env, j_iv, 0, 16, iv);
+    }
+  }
+  
+  // new MediaCodec.CryptoInfo
+  jobject crypto_info = (*env)->NewObject (env, media_codec_crypto_info.klass,
+      media_codec_crypto_info.constructor);
+  if (!crypto_info) {
+    GST_ERROR ("Failed to call Java method");
+    (*env)->ExceptionClear (env);
+    goto done;
+  }
+
+  (*env)->CallVoidMethod (env, crypto_info, media_codec_crypto_info.set,
+                          j_n_subsamples, // int newNumSubSamples
+                          j_n_bytes_of_clear_data, // int[] newNumBytesOfClearData
+                          j_n_bytes_of_encrypted_data, // int[] newNumBytesOfEncryptedData
+                          j_key, // byte[] newKey
+                          j_iv, // byte[] newIV
+                          media_codec.CRYPTO_MODE_AES_CTR // int newMode
+    );
+                          
+
+  crypto_info_ret = crypto_info;
+error:
+  return crypto_info_ret;
+}
 
 GstAmcCodec *
 gst_amc_codec_new (const gchar * name)
@@ -170,10 +277,11 @@ gst_amc_codec_get_release_method_id (GstAmcCodec * codec)
 
 gboolean
 gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
-    guint8 * surface, gint flags)
+                         guint8 * surface, GstAmcCrypto * crypto_ctx, gint flags)
 {
   JNIEnv *env;
   gboolean ret = TRUE;
+  jobject crypto = crypto_ctx ? crypto_ctx->object : NULL;
 
   g_return_val_if_fail (codec != NULL, FALSE);
   g_return_val_if_fail (format != NULL, FALSE);
@@ -181,7 +289,7 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
   env = gst_jni_get_env ();
 
   (*env)->CallVoidMethod (env, codec->object, media_codec.configure,
-      format->object, surface, NULL, flags);
+                          format->object, surface, crypto, flags);
   if ((*env)->ExceptionCheck (env)) {
     GST_ERROR ("Failed to call Java method");
     (*env)->ExceptionClear (env);
@@ -1208,6 +1316,8 @@ get_java_classes (void)
   (*env)->DeleteLocalRef (env, tmp);
   tmp = NULL;
 
+  media_codec.CRYPTO_MODE_AES_CTR =
+    (*env)->GetStaticFieldID(env, media_codec.klass, "CRYPTO_MODE_AES_CTR", "I");
   media_codec.create_by_codec_name =
       (*env)->GetStaticMethodID (env, media_codec.klass, "createByCodecName",
       "(Ljava/lang/String;)Landroid/media/MediaCodec;");
@@ -1244,7 +1354,8 @@ get_java_classes (void)
   media_codec.stop =
       (*env)->GetMethodID (env, media_codec.klass, "stop", "()V");
 
-  if (!media_codec.configure ||
+  if (!media_codec.CRYPTO_MODE_AES_CTR ||
+      !media_codec.configure ||
       !media_codec.create_by_codec_name ||
       !media_codec.dequeue_input_buffer ||
       !media_codec.dequeue_output_buffer ||
@@ -1314,8 +1425,6 @@ get_java_classes (void)
     GST_ERROR ("Failed to get format class global reference");
     goto done;
   }
-  (*env)->DeleteLocalRef (env, tmp);
-  tmp = NULL;
 
   media_format.create_audio_format =
       (*env)->GetStaticMethodID (env, media_format.klass, "createAudioFormat",
@@ -1365,6 +1474,32 @@ get_java_classes (void)
     goto done;
   }
 
+  tmp = (*env)->FindClass (env, "android/media/MediaCodec$CryptoInfo");
+  if (!tmp) {
+    ret = FALSE;
+    (*env)->ExceptionClear (env);
+    GST_ERROR ("Failed to get format class");
+    goto done;
+  }
+  media_codec_crypto_info.klass = (*env)->NewGlobalRef (env, tmp);
+  if (!media_codec_crypto_info.klass) {
+    ret = FALSE;
+    (*env)->ExceptionClear (env);
+    GST_ERROR ("Failed to get format class global reference");
+    goto done;
+  }
+  media_codec_crypto_info.constructor =
+      (*env)->GetMethodID (env, media_codec_crypto_info.klass, "<init>", "()V");
+  media_codec_crypto_info.set =
+      (*env)->GetMethodID (env, media_codec_crypto_info.klass, "set", "(I[I[I[B[BI)V");
+  
+  if (!media_codec_crypto_info.constructor || !media_codec_crypto_info.set) {
+    ret = FALSE;
+    (*env)->ExceptionClear (env);
+    GST_ERROR ("Failed to get format methods");
+    goto done;
+  }
+  
 done:
   if (tmp)
     (*env)->DeleteLocalRef (env, tmp);

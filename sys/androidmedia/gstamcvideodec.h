@@ -89,6 +89,11 @@ struct _GstAmcVideoDec
   GstJniSurface *surface;
 
   GstFlowReturn downstream_flow_ret;
+
+  /* the drm agent handle provided by the application */
+  gpointer drm_agent_handle;
+
+  GstAmcCrypto mediacrypto;
 };
 
 struct _GstAmcVideoDecClass

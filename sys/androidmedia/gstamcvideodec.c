@@ -92,7 +92,8 @@ static GstFlowReturn gst_amc_video_dec_drain (GstAmcVideoDec * self);
 
 enum
 {
-  PROP_0
+  PROP_0,
+  PROP_DRM_AGENT_HANDLE
 };
 
 /* class initialization */
@@ -316,6 +317,10 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
 
       if (!have_profile_level) {
         gst_caps_merge_structure (ret, tmp);
+
+        tmp = gst_structure_new ("application/x-cenc",
+                                 "real-caps", G_TYPE_STRING, "video/x-h264");
+        gst_caps_merge_structure (ret, tmp);
       } else {
         gst_structure_free (tmp);
       }
@@ -461,6 +466,38 @@ gst_amc_video_dec_base_init (gpointer g_class)
   g_free (longname);
 }
 
+
+static void
+gst_amc_video_dec_get_property (GObject * object, guint prop_id, GValue * value,
+                               GParamSpec * pspec) {
+  GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
+  switch (prop_id) {
+    case PROP_DRM_AGENT_HANDLE:
+      g_value_set_pointer (value, thiz->drm_agent_handle);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+
+static void
+gst_amc_video_dec_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec)
+{
+  GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
+  switch (prop_id) {
+    case PROP_DRM_AGENT_HANDLE:
+      thiz->drm_agent_handle = g_value_get_pointer (value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+
 static void
 gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
 {
@@ -482,6 +519,24 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
   videodec_class->handle_frame =
       GST_DEBUG_FUNCPTR (gst_amc_video_dec_handle_frame);
   videodec_class->finish = GST_DEBUG_FUNCPTR (gst_amc_video_dec_finish);
+
+  
+  /* FIXME this will be handled differently in the future.
+   * 1. We need an interface that OPE will call, similar to xoverlay
+   * 2. We need to not export this as a property, but an interface method
+   * 3. All elements that decrypt must implement this interface, mainly:
+   *    fludrmdecrypt
+   *    flumtksink
+   */
+  g_object_class_install_property (gobject_class, PROP_DRM_AGENT_HANDLE,
+      g_param_spec_pointer ("drm-agent-handle", "DRM Agent handle",
+          "The DRM Agent handle to use for decrypting",
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  gobject_class->set_property =
+    GST_DEBUG_FUNCPTR (gst_amc_video_dec_set_property);
+  gobject_class->get_property =
+    GST_DEBUG_FUNCPTR (gst_amc_video_dec_get_property);
 }
 
 static void
@@ -1538,7 +1593,16 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
       format_string, self->surface);
   g_free (format_string);
 
-  if (!gst_amc_codec_configure (self->codec, format, jsurface, 0)) {
+
+  /* TODO: We have to create an configure MediaCrypto by ourself if DRM context is
+           not provided by the user. Also DRM context from user has priority.
+  */
+  if (self->drm_agent_handle) {
+    /* FIXME: global ref ?? */
+    self->mediacrypto.object = (jobject)self->drm_agent_handle;
+  }
+  
+  if (!gst_amc_codec_configure (self->codec, format, jsurface, self->mediacrypto, 0)) {
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }
