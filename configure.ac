@@ -450,15 +450,6 @@ if test "x$HAVE_PTHREAD_H" != "xyes"; then
 fi
 
 dnl HLS demuxer
-dnl link to -lm in android for isfinite() in HLS
-case "$host" in
-  *-*android*)
-    HLS_LIBS="$HLS_LIBS -lm"
-    AC_SUBST(HLS_LIBS)
-    ;;
-  *)
-    ;;
-esac
 dnl check for libcrypto (HLS encrypted streams)
 AC_MSG_CHECKING([for libcrypto support in hlsdemux])
 PKG_CHECK_MODULES(HLS, [libcrypto ], [
@@ -469,6 +460,16 @@ PKG_CHECK_MODULES(HLS, [libcrypto ], [
   [
     AC_MSG_WARN([hlsdemux will not support encrypted streams])
   ])
+
+dnl link to -lm in android for isfinite() in HLS
+case "$host" in
+  *-*android*)
+    HLS_LIBS="$HLS_LIBS -lm"
+    AC_SUBST(HLS_LIBS)
+    ;;
+  *)
+    ;;
+esac
 
 dnl *** sys plug-ins ***
 
