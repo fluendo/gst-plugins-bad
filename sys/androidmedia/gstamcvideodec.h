@@ -94,6 +94,8 @@ struct _GstAmcVideoDec
   gpointer drm_agent_handle;
 
   GstAmcCrypto mediacrypto;
+
+  gboolean is_encrypted
 };
 
 struct _GstAmcVideoDecClass

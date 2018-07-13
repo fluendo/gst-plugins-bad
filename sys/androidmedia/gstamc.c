@@ -74,6 +74,7 @@ static struct
   jmethodID start;
   jmethodID stop;
   jint CRYPTO_MODE_AES_CTR;
+  jmethodID queue_secure_input_buffer;
 } media_codec;
 static struct
 {
@@ -1435,6 +1436,9 @@ get_java_classes (void)
   tmp = NULL;
 
   media_codec.CRYPTO_MODE_AES_CTR = 1; // this constant is taken from Android docs webpage
+  media_codec.queue_secure_input_buffer =
+    (*env)->GetStaticMethodID (env, media_codec.klass, "queueSecureInputBuffer",
+                               "(IILandroid/media/MediaCodec$CryptoInfo;JI)V");
   media_codec.create_by_codec_name =
       (*env)->GetStaticMethodID (env, media_codec.klass, "createByCodecName",
       "(Ljava/lang/String;)Landroid/media/MediaCodec;");
@@ -1471,25 +1475,20 @@ get_java_classes (void)
   media_codec.stop =
       (*env)->GetMethodID (env, media_codec.klass, "stop", "()V");
 
-  if (!media_codec.CRYPTO_MODE_AES_CTR ||
-      !media_codec.configure ||
-      !media_codec.create_by_codec_name ||
-      !media_codec.dequeue_input_buffer ||
-      !media_codec.dequeue_output_buffer ||
-      !media_codec.flush ||
-      !media_codec.get_input_buffers ||
-      !media_codec.get_output_buffers ||
-      !media_codec.get_output_format ||
-      !media_codec.queue_input_buffer ||
-      !media_codec.release ||
-      !media_codec.release_output_buffer ||
-      !media_codec.start || !media_codec.stop) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get codec methods");
-    goto done;
-  }
-
+  AMC_CHK (media_codec.queue_secure_input_buffer &&
+           media_codec.configure &&
+           media_codec.create_by_codec_name &&
+           media_codec.dequeue_input_buffer &&
+           media_codec.dequeue_output_buffer &&
+           media_codec.flush &&
+           media_codec.get_input_buffers &&
+           media_codec.get_output_buffers &&
+           media_codec.get_output_format &&
+           media_codec.queue_input_buffer &&
+           media_codec.release &&
+           media_codec.release_output_buffer &&
+           media_codec.start && media_codec.stop);
+  
   tmp = (*env)->FindClass (env, "android/media/MediaCodec$BufferInfo");
   if (!tmp) {
     ret = FALSE;

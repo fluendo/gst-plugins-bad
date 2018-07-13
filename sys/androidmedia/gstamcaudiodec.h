@@ -86,6 +86,8 @@ struct _GstAmcAudioDec
 
   /* the drm agent handle provided by the application */
   gpointer drm_agent_handle;
+
+  gboolean is_encrypted;
 };
 
 struct _GstAmcAudioDecClass
