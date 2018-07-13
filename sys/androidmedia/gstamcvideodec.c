@@ -498,6 +498,36 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
 }
 
 
+gboolean gst_amc_video_dec_sink_event (GstVideoDecoder *decoder, GstEvent *event)
+{
+  
+  switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_CUSTOM_DOWNSTREAM:
+      /* We need to handle the protection event. On such events we receive
+       * the payload required to initialize the protection system.
+       * We can receive as many events but before the flow, otherwise
+       * it is an error
+       */
+      if (fluc_drm_is_event (event)) {
+        // parse drm event here
+        fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
+
+        // read MediaDrm
+        
+        handled = TRUE;
+      }
+      break;
+      
+    default:
+      break;
+  }
+
+  if (handled)
+    gst_event_unref (event);
+
+  return handled;
+}
+
 static void
 gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
 {
@@ -519,6 +549,9 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
   videodec_class->handle_frame =
       GST_DEBUG_FUNCPTR (gst_amc_video_dec_handle_frame);
   videodec_class->finish = GST_DEBUG_FUNCPTR (gst_amc_video_dec_finish);
+
+  videodec_class->sink_event =
+    GST_DEBUG_FUNCPTR (gst_amc_video_dec_sink_event);
 
   
   /* FIXME this will be handled differently in the future.
