@@ -974,7 +974,7 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
   g_free (format_string);
 
   self->n_buffers = 0;
-  if (!gst_amc_codec_configure (self->codec, format, NULL, mediacrypto, 0)) { // <-- mediacrypto
+  if (!gst_amc_codec_configure (self->codec, format, NULL, &self->mediacrypto, 0)) { // <-- mediacrypto
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }
@@ -1167,9 +1167,8 @@ gst_amc_audio_dec_handle_frame (GstAudioDecoder * decoder, GstBuffer * inbuf)
         idx, buffer_info.size, buffer_info.presentation_time_us,
         buffer_info.flags);
 
-    if (self->encrypted) {
-      if (!gst_amc_codec_queue_secure_input_buffer (self->codec, idx, &buffer_info,
-                                                    frame->input_buffer))
+    if (self->is_encrypted) {
+      if (!gst_amc_codec_queue_secure_input_buffer (self->codec, idx, &buffer_info, inbuf))
         goto queue_error;
     }
     else

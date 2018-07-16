@@ -141,6 +141,12 @@ dnl check for libm, for sin() etc.
 AC_CHECK_LIBM
 AC_SUBST(LIBM)
 
+dnl check for flu-codec-sdk
+AG_GST_PKG_CHECK_MODULES(FLUC, flu-codec-sdk)
+if test "x$HAVE_FLUC" = "xno"; then
+  AC_MSG_ERROR(you do not have the fluc library installed)
+fi
+
 AC_FUNC_MMAP
 
 dnl *** checks for header files ***

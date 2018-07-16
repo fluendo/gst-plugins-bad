@@ -500,7 +500,8 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
 
 gboolean gst_amc_video_dec_sink_event (GstVideoDecoder *decoder, GstEvent *event)
 {
-  
+  gboolean handled = FALSE;
+
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_CUSTOM_DOWNSTREAM:
       /* We need to handle the protection event. On such events we receive
@@ -509,11 +510,13 @@ gboolean gst_amc_video_dec_sink_event (GstVideoDecoder *decoder, GstEvent *event
        * it is an error
        */
       if (fluc_drm_is_event (event)) {
-        // parse drm event here
+        gchar * system_id = NULL;
+        GstBuffer * data_buf = NULL;
+        gchar * origin = NULL;
         fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
+        // TODO: Initialize Content Protection
 
         // read MediaDrm
-        
         handled = TRUE;
       }
       break;
@@ -1635,7 +1638,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     self->mediacrypto.object = (jobject)self->drm_agent_handle;
   }
   
-  if (!gst_amc_codec_configure (self->codec, format, jsurface, self->mediacrypto, 0)) {
+  if (!gst_amc_codec_configure (self->codec, format, jsurface, &self->mediacrypto, 0)) {
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }
@@ -1830,7 +1833,7 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
         buffer_info.flags);
 
 
-    if (self->encrypted) {
+    if (self->is_encrypted) {
       if (!gst_amc_codec_queue_secure_input_buffer (self->codec, idx, &buffer_info,
                                                     frame->input_buffer))
         goto queue_error;
