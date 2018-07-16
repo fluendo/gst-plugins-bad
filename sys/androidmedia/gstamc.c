@@ -36,6 +36,8 @@
 #include <string.h>
 #include <jni.h>
 
+#include <fluc/drm/flucdrm.h>
+
 GST_DEBUG_CATEGORY (gst_amc_debug);
 #define GST_CAT_DEFAULT gst_amc_debug
 
@@ -142,9 +144,9 @@ static struct
 
 #define AMC_CHK(statement) G_STMT_START {               \
     if (G_UNLIKELY(!(statement))) {                     \
-      GST_DEBUG ("check for ("#statement ") failed")    \
-        (*env)->ExceptionClear (env)                    \
-        goto error;                                     \
+      GST_DEBUG ("check for ("#statement ") failed");   \
+      (*env)->ExceptionClear (env);                     \
+      goto error;                                       \
     }                                                   \
   } G_STMT_END
     
@@ -172,41 +174,42 @@ static jobject gst_amc_get_crypto_info (const GstStructure * s)
 {
   /* TODO: check for exceptions */
   JNIEnv *env;
-  env = gst_jni_get_env ();
   gint n_subsamples = 0;
   jint j_n_subsamples = 0;
-  jobject crypto_info = NULL;
-  
-  gboolean ok = gst_structure_get_int (s, "subsample_count", &n_subsamples);
+  gboolean ok = FALSE;
+  j_n_subsamples = n_subsamples;
+  FlucDrmCencSencEntry *subsamples_buf_mem = NULL;
+  jintArray j_n_bytes_of_clear_data = NULL, j_n_bytes_of_encrypted_data = NULL;
+  jbyteArray j_key = NULL, j_kid = NULL, j_iv = NULL;
+  jobject crypto_info = NULL, crypto_info_ret = NULL;
+
+  ok = gst_structure_get_int (s, "subsample_count", &n_subsamples);
   if (!ok) {
     GST_WARNING ("Subsamples field in DRMBuffer is not set");
     goto error;
   }
-
   if (!n_subsamples)
     GST_WARNING ("Number of subsamples field in DRMBuffer is 0");
-  
-  jintArray
-    j_n_bytes_of_clear_data = NULL,
-    j_n_bytes_of_encrypted_data = NULL;
-  jbyteArray
-    j_key = NULL,
-    j_iv = NULL;
-  j_n_subsamples = n_subsamples;
+
+  env = gst_jni_get_env ();
 
   if (n_subsamples) {
     // Performing subsample arrays
     {
       jint * n_bytes_of_clear_data = g_new (jint, n_subsamples);
       jint * n_bytes_of_encrypted_data = g_new (jint, n_subsamples);
+      const GValue *subsamples_val;
       GstBuffer * subsamples_buf;
+      gint i;
 
-      if (!gst_structure_get_buffer (s, "subsamples", &subsamples_buf))
+      subsamples_val = gst_structure_get_value (s, "subsamples");
+      if (!subsamples_val)
+        goto error;
+      subsamples_buf = gst_value_get_buffer (subsamples_val);
+      if (!subsamples_buf)
         goto error;
     
-      FlucDrmCencSencEntry * subsamples_buf_mem =
-        (FlucDrmCencSencEntry *)GST_BUFFER_DATA (subsamples_buf);
-      gint i;
+      subsamples_buf_mem = (FlucDrmCencSencEntry *)GST_BUFFER_DATA (subsamples_buf);
       for (i = 0; i < n_subsamples; i++ ) {
         n_bytes_of_clear_data[i] = subsamples_buf_mem[i].clear;
         n_bytes_of_encrypted_data[i] = subsamples_buf_mem[i].encrypted;
@@ -216,9 +219,9 @@ static jobject gst_amc_get_crypto_info (const GstStructure * s)
       j_n_bytes_of_encrypted_data = (*env)->NewIntArray(env, j_n_subsamples);
       AMC_CHK (j_n_bytes_of_clear_data && j_n_bytes_of_encrypted_data);
       
-      (*env)->SetIntArrayRegion(env, 0, j_n_bytes_of_clear_data, 0,
+      (*env)->SetIntArrayRegion(env, j_n_bytes_of_clear_data, 0,
                                 n_subsamples, n_bytes_of_clear_data);
-      (*env)->SetIntArrayRegion(env, 0, j_n_bytes_of_encrypted_data, 0, n_subsamples,
+      (*env)->SetIntArrayRegion(env, j_n_bytes_of_encrypted_data, 0, n_subsamples,
                                 n_bytes_of_encrypted_data);
       J_EXCEPTION_CHECK("SetIntArrayRegion");
       
@@ -228,18 +231,28 @@ static jobject gst_amc_get_crypto_info (const GstStructure * s)
 
     // Performing key and iv
     {
-      gchar * kid; 
-      gchar * iv;
+      jbyte * kid;
+      jbyte * iv;
+      const GValue *kid_val;
+      const GValue *iv_val;
       GstBuffer * kid_buf;
       GstBuffer * iv_buf;
 
-      if (!gst_structure_get_buffer (s, "kid", &kid_buf))
+      kid_val = gst_structure_get_value (s, "kid");
+      if (!kid_val)
         goto error;
-      if (!gst_structure_get_buffer (s, "iv", &iv_buf))
+      kid_buf = gst_value_get_buffer (kid_val);
+      if (!kid_buf)
+        goto error;
+      iv_val = gst_structure_get_value (s, "iv");
+      if (!iv_val)
+        goto error;
+      iv_buf = gst_value_get_buffer (iv_val);
+      if (!iv_buf)
         goto error;
     
-      kid = GST_BUFFER_DATA (kid_buf);
-      iv = GST_BUFFER_DATA (iv_buf);
+      kid = (jbyte *)GST_BUFFER_DATA (kid_buf);
+      iv = (jbyte *)GST_BUFFER_DATA (iv_buf);
       j_kid = (*env)->NewByteArray (env, 16);
       j_iv =  (*env)->NewByteArray (env, 16);
       AMC_CHK (j_iv && j_kid);
@@ -251,7 +264,7 @@ static jobject gst_amc_get_crypto_info (const GstStructure * s)
   }
   
   // new MediaCodec.CryptoInfo
-  jobject crypto_info = (*env)->NewObject (env, media_codec_crypto_info.klass,
+  crypto_info = (*env)->NewObject (env, media_codec_crypto_info.klass,
       media_codec_crypto_info.constructor);
   AMC_CHK (crypto_info);
 
@@ -1367,7 +1380,7 @@ done:
 }
 
 
-static jclass j_find_class (JNIenv * env, const gchar * desc)
+static jclass j_find_class (JNIEnv * env, const gchar * desc)
 {
   jclass ret = NULL;
   jclass tmp = (*env)->FindClass (env, "android/media/MediaCodec$CryptoInfo");
@@ -1695,8 +1708,9 @@ static const struct {
 static const gchar *
 detect_known_protection_name (const gchar * uuid_utf8)
 {
+  int i;
   for (i = 0; i < G_N_ELEMENTS (known_cryptos); i++)
-    if (!g_ascii_strncasecmp (uuid_utf8, known_cryptos[i].uuid))
+    if (!g_ascii_strcasecmp (uuid_utf8, known_cryptos[i].uuid))
       return known_cryptos[i].name;
   return "(unknown)";
 }

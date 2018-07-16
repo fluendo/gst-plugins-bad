@@ -24,6 +24,7 @@ libgstandroidmedia_la_CFLAGS = \
 	$(GST_BASE_CFLAGS) \
 	$(GST_CFLAGS) \
 	$(ORC_CFLAGS) \
+	$(FLUC_CFLAGS) \
 	-I$(srcdir) \
 	-I$(top_srcdir)/gst-libs
 
@@ -35,7 +36,8 @@ libgstandroidmedia_la_LIBADD = \
 	$(top_builddir)/gst-libs/gst/androidjni/libgstandroidjni-$(GST_MAJORMINOR).la \
 	$(GST_BASE_LIBS) \
 	$(GST_LIBS) \
-	$(ORC_LIBS)
+	$(ORC_LIBS) \
+	$(FLUC_LIBS)
 
 
 libgstandroidmedia_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)

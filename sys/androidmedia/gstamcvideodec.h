@@ -95,7 +95,7 @@ struct _GstAmcVideoDec
 
   GstAmcCrypto mediacrypto;
 
-  gboolean is_encrypted
+  gboolean is_encrypted;
 };
 
 struct _GstAmcVideoDecClass
