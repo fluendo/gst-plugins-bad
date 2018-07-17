@@ -310,7 +310,7 @@ gst_amc_audio_dec_get_property (GObject * object, guint prop_id, GValue * value,
   GstAmcAudioDec *thiz = GST_AMC_AUDIO_DEC (object);
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
-      g_value_set_pointer (value, thiz->drm_agent_handle);
+      g_value_set_pointer (value, (gpointer)thiz->jmcrypto_from_user.object);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -326,13 +326,50 @@ gst_amc_audio_dec_set_property (GObject * object, guint prop_id,
   GstAmcAudioDec *thiz = GST_AMC_AUDIO_DEC (object);
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
-      thiz->drm_agent_handle = g_value_get_pointer (value);
+      thiz->jmcrypto_from_user.object = (jobject)g_value_get_pointer (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
   }
 }
+
+
+static gboolean
+gst_amc_audio_dec_sink_event (GstPad * pad, GstEvent * event)
+{
+  gboolean
+    handled = FALSE,
+    res = FALSE;
+
+  switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_CUSTOM_DOWNSTREAM:
+      /* We need to handle the protection event. On such events we receive
+       * the payload required to initialize the protection system.
+       * We can receive as many events but before the flow, otherwise
+       * it is an error
+       */
+      if (fluc_drm_is_event (event)) {
+        GstAmcAudioDec *self = GST_AMC_AUDIO_DEC (gst_pad_get_parent (pad));
+        self->jmcrypto_from_event.object = jmedia_crypto_from_drm_event (event);
+        if (self->jmcrypto_from_event.object)
+          handled = TRUE;
+
+        gst_object_unref (self);
+      }
+      break;
+      
+    default:
+      break;
+  }
+
+  if (!handled)
+    res = gst_pad_event_default (pad, event);
+  else
+    gst_event_unref (event);
+  return res;
+}
+
 
 static void
 gst_amc_audio_dec_class_init (GstAmcAudioDecClass * klass)
@@ -356,7 +393,7 @@ gst_amc_audio_dec_class_init (GstAmcAudioDecClass * klass)
   audiodec_class->set_format = GST_DEBUG_FUNCPTR (gst_amc_audio_dec_set_format);
   audiodec_class->handle_frame =
       GST_DEBUG_FUNCPTR (gst_amc_audio_dec_handle_frame);
-
+  
   /* FIXME this will be handled differently in the future.
    * 1. We need an interface that OPE will call, similar to xoverlay
    * 2. We need to not export this as a property, but an interface method
@@ -383,6 +420,9 @@ gst_amc_audio_dec_init (GstAmcAudioDec * self, GstAmcAudioDecClass * klass)
 
   self->drain_lock = g_mutex_new ();
   self->drain_cond = g_cond_new ();
+
+  gst_pad_set_event_function (GST_AUDIO_DECODER_SINK_PAD (self),
+      GST_DEBUG_FUNCPTR (gst_amc_audio_dec_sink_event));
 }
 
 static gboolean
@@ -868,6 +908,7 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
   gboolean needs_disable = FALSE;
   gchar *format_string;
   gint rate, channels;
+  GstAmcCrypto * crypto_ctx;
 
   self = GST_AMC_AUDIO_DEC (decoder);
 
@@ -974,7 +1015,16 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
   g_free (format_string);
 
   self->n_buffers = 0;
-  if (!gst_amc_codec_configure (self->codec, format, NULL, &self->mediacrypto, 0)) { // <-- mediacrypto
+
+  crypto_ctx =
+    self->jmcrypto_from_user.object ?
+    /* For now we give priority to context provided by application*/
+    &self->jmcrypto_from_user : &self->jmcrypto_from_event;
+
+  if (crypto_ctx->object)
+    self->is_encrypted = TRUE;
+  
+  if (!gst_amc_codec_configure (self->codec, format, NULL, crypto_ctx, 0)) {
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }

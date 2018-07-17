@@ -90,11 +90,8 @@ struct _GstAmcVideoDec
 
   GstFlowReturn downstream_flow_ret;
 
-  /* the drm agent handle provided by the application */
-  gpointer drm_agent_handle;
-
-  GstAmcCrypto mediacrypto;
-
+  /* possible drm contexts */
+  GstAmcCrypto jmcrypto_from_user, jmcrypto_from_event;
   gboolean is_encrypted;
 };
 
