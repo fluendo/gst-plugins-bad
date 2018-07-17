@@ -159,6 +159,11 @@ GstEvent * gst_amc_event_new_surface (gpointer surface);
 gpointer gst_amc_event_parse_surface (GstEvent *event);
 gboolean gst_amc_event_is_surface (GstEvent *event);
 
+
+jobject juuid_from_utf8 (JNIEnv *env, const gchar * uuid_utf8);
+jbyteArray jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size);
+jobject jmedia_crypto_from_drm_event (GstEvent *event);
+
 G_END_DECLS
 
 #endif /* __GST_AMC_H__ */
