@@ -304,12 +304,37 @@ jobject jmedia_crypto_from_drm_event (GstEvent *event)
     media_crypto_obj = NULL;
   jbyteArray jinit = NULL;
   JNIEnv *env = gst_jni_get_env ();
+  guchar * payload;
+  gsize payload_size;
         
   fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
   AMC_CHK (system_id && data_buf && origin);
-        
-  jinit = jbyte_arr_from_data (env, GST_BUFFER_DATA (data_buf),
-                               GST_BUFFER_SIZE (data_buf));
+
+  payload = GST_BUFFER_DATA (data_buf);
+  payload_size = GST_BUFFER_SIZE (data_buf);
+
+  /* If source is quicktime, "data" buffer is wrapped in qt atom.
+     To be compatible with qtdemux 1.0 from community, we have to skip
+     this atom thing here, and not in qtdemux.
+  */
+  if (g_str_has_prefix (origin, "isobmff/")) {
+    if (payload_size < 32) {
+      GST_ERROR ("Invalid pssh data");
+      return FALSE;
+    }
+    payload += 28;
+    payload_size = GST_READ_UINT32_BE (payload);
+    payload += 4;
+
+    GST_DEBUG ("Size of payload inside pssh: %d", payload_size);
+
+    if (GST_BUFFER_SIZE (data_buf) < payload_size) {
+      GST_ERROR ("Sanity check failed: GST_BUFFER_SIZE (data_buf) < payload_size");
+      goto error;
+    }
+  }
+  
+  jinit = jbyte_arr_from_data (env, payload, payload_size);
 
   /* FIXME: current system_id contain some text before uuid,
      not sure if it's going to be fixed here */
