@@ -84,11 +84,8 @@ struct _GstAmcAudioDec
   /* Output buffers counter */
   gint n_buffers;
 
-  /* the drm agent handle provided by the application */
-  gpointer drm_agent_handle;
-
-  GstAmcCrypto mediacrypto;
-
+  /* possible drm contexts */
+  GstAmcCrypto jmcrypto_from_user, jmcrypto_from_event;
   gboolean is_encrypted;
 };
 

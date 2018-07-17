@@ -473,7 +473,7 @@ gst_amc_video_dec_get_property (GObject * object, guint prop_id, GValue * value,
   GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
-      g_value_set_pointer (value, thiz->drm_agent_handle);
+      g_value_set_pointer (value, (gpointer)thiz->jmcrypto_from_user.object);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -489,7 +489,7 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
   GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
-      thiz->drm_agent_handle = g_value_get_pointer (value);
+      thiz->jmcrypto_from_user.object = g_value_get_pointer (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -498,7 +498,7 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
 }
 
 
-gboolean gst_amc_video_dec_sink_event (GstVideoDecoder *decoder, GstEvent *event)
+static gboolean gst_amc_video_dec_sink_event (GstVideoDecoder *decoder, GstEvent *event)
 {
   gboolean handled = FALSE;
 
@@ -510,17 +510,12 @@ gboolean gst_amc_video_dec_sink_event (GstVideoDecoder *decoder, GstEvent *event
        * it is an error
        */
       if (fluc_drm_is_event (event)) {
-        gchar * system_id = NULL;
-        GstBuffer * data_buf = NULL;
-        gchar * origin = NULL;
-        fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
-        // TODO: Initialize Content Protection
-
-        // read MediaDrm
-        handled = TRUE;
+        GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
+        self->jmcrypto_from_event.object = jmedia_crypto_from_drm_event (event);
+        if (self->jmcrypto_from_event.object)
+          handled = TRUE;
       }
       break;
-      
     default:
       break;
   }
@@ -1550,6 +1545,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   gboolean needs_disable = FALSE;
   gchar *format_string;
   jobject jsurface = NULL;
+  GstAmcCrypto * crypto_ctx;
 
   self = GST_AMC_VIDEO_DEC (decoder);
   klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
@@ -1629,16 +1625,15 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
       format_string, self->surface);
   g_free (format_string);
 
+  crypto_ctx =
+    self->jmcrypto_from_user.object ?
+    /* For now we give priority to context provided by application*/
+    &self->jmcrypto_from_user : &self->jmcrypto_from_event;
 
-  /* TODO: We have to create an configure MediaCrypto by ourself if DRM context is
-           not provided by the user. Also DRM context from user has priority.
-  */
-  if (self->drm_agent_handle) {
-    /* FIXME: global ref ?? */
-    self->mediacrypto.object = (jobject)self->drm_agent_handle;
-  }
+  if (crypto_ctx->object)
+    self->is_encrypted = TRUE;
   
-  if (!gst_amc_codec_configure (self->codec, format, jsurface, &self->mediacrypto, 0)) {
+  if (!gst_amc_codec_configure (self->codec, format, jsurface, crypto_ctx, 0)) {
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }

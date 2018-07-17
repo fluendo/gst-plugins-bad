@@ -112,6 +112,7 @@ static struct
 static struct
 {
   jclass klass;
+  jmethodID constructor;
   jmethodID is_crypto_scheme_supported;
 } media_crypto;
 static struct
@@ -170,19 +171,31 @@ static struct
   } G_STMT_END
 
 
+jbyteArray jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size)
+{
+  jbyteArray arr = (*env)->NewByteArray (env, size);
+  AMC_CHK (arr);
+  (*env)->SetByteArrayRegion(env, arr, 0, size, (const jbyte *)data);
+  J_EXCEPTION_CHECK("SetByteArrayRegion");
+
+  return arr;
+error:
+  J_DELETE_LOCAL_REF (arr);
+  return NULL;
+}
+
+
 static jobject gst_amc_get_crypto_info (const GstStructure * s)
 {
-  /* TODO: check for exceptions */
   JNIEnv *env;
   gint n_subsamples = 0;
   jint j_n_subsamples = 0;
   gboolean ok = FALSE;
-  j_n_subsamples = n_subsamples;
   FlucDrmCencSencEntry *subsamples_buf_mem = NULL;
   jintArray j_n_bytes_of_clear_data = NULL, j_n_bytes_of_encrypted_data = NULL;
-  jbyteArray j_key = NULL, j_kid = NULL, j_iv = NULL;
+  jbyteArray j_kid = NULL, j_iv = NULL;
   jobject crypto_info = NULL, crypto_info_ret = NULL;
-
+  
   ok = gst_structure_get_int (s, "subsample_count", &n_subsamples);
   if (!ok) {
     GST_WARNING ("Subsamples field in DRMBuffer is not set");
@@ -191,6 +204,7 @@ static jobject gst_amc_get_crypto_info (const GstStructure * s)
   if (!n_subsamples)
     GST_WARNING ("Number of subsamples field in DRMBuffer is 0");
 
+  j_n_subsamples = n_subsamples;
   env = gst_jni_get_env ();
 
   if (n_subsamples) {
@@ -231,8 +245,6 @@ static jobject gst_amc_get_crypto_info (const GstStructure * s)
 
     // Performing key and iv
     {
-      jbyte * kid;
-      jbyte * iv;
       const GValue *kid_val;
       const GValue *iv_val;
       GstBuffer * kid_buf;
@@ -250,16 +262,9 @@ static jobject gst_amc_get_crypto_info (const GstStructure * s)
       iv_buf = gst_value_get_buffer (iv_val);
       if (!iv_buf)
         goto error;
-    
-      kid = (jbyte *)GST_BUFFER_DATA (kid_buf);
-      iv = (jbyte *)GST_BUFFER_DATA (iv_buf);
-      j_kid = (*env)->NewByteArray (env, 16);
-      j_iv =  (*env)->NewByteArray (env, 16);
-      AMC_CHK (j_iv && j_kid);
-      
-      (*env)->SetByteArrayRegion(env, j_kid, 0, 16, kid);
-      (*env)->SetByteArrayRegion(env, j_iv, 0, 16, iv);
-      J_EXCEPTION_CHECK("SetIntArrayRegion");
+
+      j_kid = jbyte_arr_from_data (env, GST_BUFFER_DATA (kid_buf), 16);
+      j_iv = jbyte_arr_from_data (env, GST_BUFFER_DATA (iv_buf), 16);
     }
   }
   
@@ -272,7 +277,7 @@ static jobject gst_amc_get_crypto_info (const GstStructure * s)
                j_n_subsamples, // int newNumSubSamples
                j_n_bytes_of_clear_data, // int[] newNumBytesOfClearData
                j_n_bytes_of_encrypted_data, // int[] newNumBytesOfEncryptedData
-               j_key, // byte[] newKey
+               j_kid, // byte[] newKey
                j_iv, // byte[] newIV
                media_codec.CRYPTO_MODE_AES_CTR // int newMode
     );
@@ -282,10 +287,51 @@ static jobject gst_amc_get_crypto_info (const GstStructure * s)
 error:
   J_DELETE_LOCAL_REF (j_n_bytes_of_clear_data);
   J_DELETE_LOCAL_REF (j_n_bytes_of_encrypted_data);
-  J_DELETE_LOCAL_REF (j_key);
+  J_DELETE_LOCAL_REF (j_kid);
   J_DELETE_LOCAL_REF (j_iv);
   return crypto_info_ret;
 }
+
+
+jobject jmedia_crypto_from_drm_event (GstEvent *event)
+{
+  GstBuffer * data_buf = NULL;
+  const gchar
+    *origin = NULL,
+    *system_id = NULL;
+  jobject
+    juuid = NULL,
+    media_crypto_obj = NULL;
+  jbyteArray jinit = NULL;
+  JNIEnv *env = gst_jni_get_env ();
+        
+  fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
+  AMC_CHK (system_id && data_buf && origin);
+        
+  jinit = jbyte_arr_from_data (env, GST_BUFFER_DATA (data_buf),
+                               GST_BUFFER_SIZE (data_buf));
+
+  /* FIXME: current system_id contain some text before uuid,
+     not sure if it's going to be fixed here */
+  juuid = juuid_from_utf8 (env, system_id);
+        
+  AMC_CHK (juuid && jinit);
+  media_crypto_obj = (*env)->NewObject (env, media_crypto.klass,
+                                          media_crypto.constructor,
+                                          juuid,
+                                          jinit);
+  AMC_CHK (media_crypto_obj);
+
+  /* FIXME: remember that MAYBE we also need to call MediaCrypto.set()
+     with MediaDrm object likely recieved from sraf browser */
+        
+error:
+  J_DELETE_LOCAL_REF (jinit);
+  J_DELETE_LOCAL_REF (juuid);
+
+  return media_crypto_obj;
+}
+
 
 GstAmcCodec *
 gst_amc_codec_new (const gchar * name)
@@ -1617,6 +1663,7 @@ get_java_classes (void)
     goto done;
   J_INIT_STATIC_METHOD_ID(media_crypto, is_crypto_scheme_supported, "isCryptoSchemeSupported",
                           "(Ljava/util/UUID)Z");
+  J_INIT_METHOD_ID(media_crypto, constructor, "<init>", "(Ljava/util/UUID;[B)V");
   /* ====================================== UUID          */
   uuid.klass = j_find_class (env, "java/util/UUID");
   if (!uuid.klass)
@@ -1715,26 +1762,35 @@ detect_known_protection_name (const gchar * uuid_utf8)
   return "(unknown)";
 }
 
+jobject juuid_from_utf8 (JNIEnv *env, const gchar * uuid_utf8)
+{
+  jobject juuid = NULL;
+  jstring juuid_string = NULL;
+
+  juuid_string = (*env)->NewStringUTF (env, uuid_utf8);
+  AMC_CHK (juuid_string);
+  
+  juuid = J_CALL_STATIC_OBJ (uuid, from_string, juuid_string);
+  AMC_CHK (juuid);
+error:
+  J_DELETE_LOCAL_REF (juuid_string);
+  return juuid;
+}
+
 static gboolean
 is_protection_system_id_supported (const gchar * uuid_utf8)
 {
-  jstring juuid_string = NULL;
   jobject juuid = NULL;
   jboolean jis_supported = 0;
   JNIEnv *env = gst_jni_get_env ();
   GST_INFO ("Checking if protection scheme %s [%s] is supported..",
             detect_known_protection_name (uuid_utf8) , uuid_utf8);
   
-  juuid_string = (*env)->NewStringUTF (env, uuid_utf8);
-  AMC_CHK (juuid_string);
-  
-  juuid = J_CALL_STATIC_OBJ (uuid, from_string, juuid_string);
+  juuid = juuid_from_utf8(env, uuid_utf8);
   AMC_CHK (juuid);
-  
   jis_supported = J_CALL_STATIC_BOOLEAN (media_crypto, is_crypto_scheme_supported, juuid);
 
 error:
-  J_DELETE_LOCAL_REF (juuid_string);
   J_DELETE_LOCAL_REF (juuid);
   
   if (jis_supported) {
@@ -1965,12 +2021,14 @@ scan_codecs (GstPlugin * plugin)
       goto next_codec;
     }
 
+#if 0
     if (g_str_has_suffix (name_str, ".secure")) {
       GST_INFO ("Skipping DRM codec '%s'", name_str);
       valid_codec = FALSE;
       goto next_codec;
     }
-
+#endif
+    
     /* FIXME: Non-Google codecs usually just don't work and hang forever
      * or crash when not used from a process that started the Java
      * VM via the non-public AndroidRuntime class. Can we somehow
