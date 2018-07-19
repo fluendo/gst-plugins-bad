@@ -1027,6 +1027,12 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
 
   self->n_buffers = 0;
 
+  /* now it's time to request the application for a DRM agent handle */
+  gst_element_post_message (GST_ELEMENT (self),
+                            gst_message_new_element
+                            (GST_OBJECT (self),
+                             gst_structure_new ("prepare-drm-agent-handle", NULL)));
+  
   crypto_ctx =
     self->jmcrypto_from_user.object ?
     /* For now we give priority to context provided by application*/
