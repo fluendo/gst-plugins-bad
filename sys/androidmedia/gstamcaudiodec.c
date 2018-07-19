@@ -150,9 +150,6 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
         gst_structure_set (tmp2, "profile", G_TYPE_STRING, profile, NULL);
         gst_caps_merge_structure (ret, tmp2);
 
-        tmp2 = gst_structure_new ("application/x-cenc",
-                                 "real-caps", G_TYPE_STRING, "audio/mpeg");
-        gst_caps_merge_structure (ret, tmp2);
         have_profile = TRUE;
       }
 
@@ -203,6 +200,20 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
     } else {
       GST_WARNING ("Unsupported mimetype '%s'", type->mime);
     }
+  }
+
+  // Append the x-cenc caps
+  if (ret) {
+    GstCaps *cenc_caps = gst_caps_new_empty();
+    guint i;
+    for (i = 0; i < gst_caps_get_size(ret); ++i) {
+      GstStructure *str = gst_structure_copy (gst_caps_get_structure (ret, i));
+      const gchar *real_media_type = g_strdup (gst_structure_get_name (str));
+      gst_structure_set_name (str, "application/x-cenc");
+      gst_structure_set (str, "real-caps", G_TYPE_STRING, real_media_type, NULL);
+      gst_caps_append_structure(cenc_caps, str);
+    }
+    gst_caps_append(ret, cenc_caps);
   }
 
   return ret;
