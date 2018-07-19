@@ -1454,7 +1454,7 @@ done:
 static jclass j_find_class (JNIEnv * env, const gchar * desc)
 {
   jclass ret = NULL;
-  jclass tmp = (*env)->FindClass (env, "android/media/MediaCodec$CryptoInfo");
+  jclass tmp = (*env)->FindClass (env, desc);
   AMC_CHK (tmp);
     
   ret = (*env)->NewGlobalRef (env, tmp);
@@ -1521,8 +1521,9 @@ get_java_classes (void)
 
   media_codec.CRYPTO_MODE_AES_CTR = 1; // this constant is taken from Android docs webpage
   media_codec.queue_secure_input_buffer =
-    (*env)->GetStaticMethodID (env, media_codec.klass, "queueSecureInputBuffer",
+    (*env)->GetMethodID (env, media_codec.klass, "queueSecureInputBuffer",
                                "(IILandroid/media/MediaCodec$CryptoInfo;JI)V");
+
   media_codec.create_by_codec_name =
       (*env)->GetStaticMethodID (env, media_codec.klass, "createByCodecName",
       "(Ljava/lang/String;)Landroid/media/MediaCodec;");
@@ -1678,22 +1679,22 @@ get_java_classes (void)
   
   media_codec_crypto_info.klass = j_find_class (env, "android/media/MediaCodec$CryptoInfo");
   if (!media_codec_crypto_info.klass)
-    goto done;
+    goto error;
   J_INIT_METHOD_ID(media_codec_crypto_info, constructor, "<init>", "()V");
   J_INIT_METHOD_ID(media_codec_crypto_info, set, "set", "(I[I[I[B[BI)V");
     
   /* ==================================== Media Crypto     */
   media_crypto.klass = j_find_class (env, "android/media/MediaCrypto");
   if (!media_crypto.klass)
-    goto done;
+    goto error;
   J_INIT_STATIC_METHOD_ID(media_crypto, is_crypto_scheme_supported, "isCryptoSchemeSupported",
-                          "(Ljava/util/UUID)Z");
+                          "(Ljava/util/UUID;)Z");
   J_INIT_METHOD_ID(media_crypto, constructor, "<init>", "(Ljava/util/UUID;[B)V");
   /* ====================================== UUID          */
   uuid.klass = j_find_class (env, "java/util/UUID");
   if (!uuid.klass)
-    goto done;
-  J_INIT_STATIC_METHOD_ID(uuid, from_string, "fromString", "(Ljava/lang/String)Ljava/util/UUID");
+    goto error;
+  J_INIT_STATIC_METHOD_ID(uuid, from_string, "fromString", "(Ljava/lang/String;)Ljava/util/UUID;");
   /* ======================================               */
   
 done:
@@ -1808,7 +1809,7 @@ is_protection_system_id_supported (const gchar * uuid_utf8)
   jobject juuid = NULL;
   jboolean jis_supported = 0;
   JNIEnv *env = gst_jni_get_env ();
-  GST_INFO ("Checking if protection scheme %s [%s] is supported..",
+  GST_DEBUG ("Checking if protection scheme %s [%s] is supported..",
             detect_known_protection_name (uuid_utf8) , uuid_utf8);
   
   juuid = juuid_from_utf8(env, uuid_utf8);
@@ -1819,11 +1820,11 @@ error:
   J_DELETE_LOCAL_REF (juuid);
   
   if (jis_supported) {
-    GST_INFO (".. %s is supported", uuid_utf8);
+    GST_DEBUG (".. %s is supported", uuid_utf8);
     return TRUE;
   }
 
-  GST_INFO (".. %s is not supported", uuid_utf8);
+  GST_DEBUG (".. %s is not supported", uuid_utf8);
   return FALSE;
 }
 
