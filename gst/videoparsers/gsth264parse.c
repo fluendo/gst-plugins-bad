@@ -34,6 +34,8 @@
 
 #include <string.h>
 
+#include <fluc/drm/flucdrm.h>
+
 GST_DEBUG_CATEGORY (h264_parse_debug);
 #define GST_CAT_DEFAULT h264_parse_debug
 
@@ -223,6 +225,8 @@ gst_h264_parse_reset (GstH264Parse * h264parse)
   h264parse->force_key_unit_event = NULL;
 
   gst_h264_parse_reset_frame (h264parse);
+
+  h264parse->cenc = NULL;
 }
 
 static gboolean
@@ -396,7 +400,7 @@ gst_h264_parse_wrap_nal (GstH264Parse * h264parse, guint format, guint8 * data,
       || format == GST_H264_PARSE_FORMAT_AVC3) {
     GST_WRITE_UINT32_BE (GST_BUFFER_DATA (buf), size << (32 - 8 * nl));
   } else {
-    /* HACK: nl should always be 4 here, otherwise this won't work. 
+    /* HACK: nl should always be 4 here, otherwise this won't work.
      * There are legit cases where nl in avc stream is 2, but byte-stream
      * SC is still always 4 bytes. */
     nl = 4;
@@ -1406,6 +1410,14 @@ gst_h264_parse_push_codec_buffer (GstH264Parse * h264parse, GstBuffer * nal,
 
   gst_buffer_set_caps (nal, GST_PAD_CAPS (GST_BASE_PARSE_SRC_PAD (h264parse)));
 
+  /* Push a DRM buffer if there is cenc information */
+  if (h264parse->cenc) {
+    GstBuffer *nal_drm =
+        fluc_drm_buffer_new_from (gst_buffer_ref (nal), h264parse->cenc);
+    h264parse->cenc = NULL;
+    return gst_pad_push (GST_BASE_PARSE_SRC_PAD (h264parse), nal_drm);
+  }
+
   return gst_pad_push (GST_BASE_PARSE_SRC_PAD (h264parse), nal);
 }
 
@@ -1620,8 +1632,19 @@ gst_h264_parse_pre_push_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
           /* should already be keyframe/IDR, but it may not have been,
            * so mark it as such to avoid being discarded by picky decoder */
           GST_BUFFER_FLAG_UNSET (new_buf, GST_BUFFER_FLAG_DELTA_UNIT);
-          gst_buffer_replace (&frame->buffer, new_buf);
-          gst_buffer_unref (new_buf);
+
+          /* Replace with a DRM buffer if there is cenc information */
+          if (h264parse->cenc) {
+            GstBuffer *new_buf_drm =
+                fluc_drm_buffer_new_from (new_buf, h264parse->cenc);
+            h264parse->cenc = NULL;
+            gst_buffer_replace (&frame->buffer, new_buf_drm);
+            gst_buffer_unref (new_buf_drm);
+          } else {
+            gst_buffer_replace (&frame->buffer, new_buf);
+            gst_buffer_unref (new_buf);
+          }
+
           /* some result checking seems to make some compilers happy */
           if (G_UNLIKELY (!ok)) {
             GST_ERROR_OBJECT (h264parse, "failed to insert SPS/PPS");
@@ -1632,6 +1655,16 @@ gst_h264_parse_pre_push_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
       h264parse->push_codec = FALSE;
       h264parse->have_sps = FALSE;
       h264parse->have_pps = FALSE;
+    }
+  } else {
+    /* Replace with a DRM buffer if there is cenc information */
+    if (h264parse->cenc) {
+      GstBuffer *new_buf_drm =
+          fluc_drm_buffer_new_from (gst_buffer_ref (frame->buffer),
+          h264parse->cenc);
+      h264parse->cenc = NULL;
+      gst_buffer_replace (&frame->buffer, new_buf_drm);
+      gst_buffer_unref (new_buf_drm);
     }
   }
 
@@ -1951,6 +1984,12 @@ static GstFlowReturn
 gst_h264_parse_chain (GstPad * pad, GstBuffer * buffer)
 {
   GstH264Parse *h264parse = GST_H264_PARSE (GST_PAD_PARENT (pad));
+
+  /* Store the encryption cenc information */
+  if (fluc_drm_is_buffer (buffer))
+    h264parse->cenc =
+        gst_structure_copy (fluc_drm_buffer_find_by_name (buffer,
+            "application/x-cenc"));
 
   if (h264parse->packetized && buffer) {
     GstBuffer *sub;

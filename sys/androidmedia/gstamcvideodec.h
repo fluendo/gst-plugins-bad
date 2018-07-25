@@ -89,6 +89,10 @@ struct _GstAmcVideoDec
   GstJniSurface *surface;
 
   GstFlowReturn downstream_flow_ret;
+
+  /* possible drm contexts */
+  GstAmcCrypto jmcrypto_from_user, jmcrypto_from_event;
+  gboolean is_encrypted;
 };
 
 struct _GstAmcVideoDecClass

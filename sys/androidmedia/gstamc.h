@@ -33,6 +33,7 @@ typedef struct _GstAmcCodecType GstAmcCodecType;
 typedef struct _GstAmcCodec GstAmcCodec;
 typedef struct _GstAmcBufferInfo GstAmcBufferInfo;
 typedef struct _GstAmcFormat GstAmcFormat;
+typedef struct _GstAmcCrypto GstAmcCrypto;
 typedef struct _GstAmcBuffer GstAmcBuffer;
 
 struct _GstAmcCodecType {
@@ -66,6 +67,11 @@ struct _GstAmcFormat {
   jobject object; /* global reference */
 };
 
+struct _GstAmcCrypto {
+  /* < private > */
+  jobject object; /* global reference */
+};
+
 struct _GstAmcCodec {
   /* < private > */
   jobject object; /* global reference */
@@ -84,7 +90,8 @@ GstAmcCodec * gst_amc_codec_new (const gchar *name);
 void gst_amc_codec_free (GstAmcCodec * codec);
 
 jmethodID gst_amc_codec_get_release_method_id (GstAmcCodec * codec);
-gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format, guint8 *surface, gint flags);
+gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
+                                  guint8 *surface, GstAmcCrypto * crypto_ctx, gint flags);
 GstAmcFormat * gst_amc_codec_get_output_format (GstAmcCodec * codec);
 
 gboolean gst_amc_codec_start (GstAmcCodec * codec);
@@ -98,6 +105,9 @@ void gst_amc_codec_free_buffers (GstAmcBuffer * buffers, gsize n_buffers);
 
 gint gst_amc_codec_dequeue_input_buffer (GstAmcCodec * codec, gint64 timeoutUs);
 gint gst_amc_codec_dequeue_output_buffer (GstAmcCodec * codec, GstAmcBufferInfo *info, gint64 timeoutUs);
+
+gboolean gst_amc_codec_queue_secure_input_buffer (GstAmcCodec * codec, gint index,
+    const GstAmcBufferInfo * info, const GstBuffer * drmbuf);
 
 gboolean gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index, const GstAmcBufferInfo *info);
 gboolean gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index);
@@ -148,6 +158,11 @@ gboolean gst_amc_query_set_surface (GstQuery *query, gpointer surface);
 GstEvent * gst_amc_event_new_surface (gpointer surface);
 gpointer gst_amc_event_parse_surface (GstEvent *event);
 gboolean gst_amc_event_is_surface (GstEvent *event);
+
+
+jobject juuid_from_utf8 (JNIEnv *env, const gchar * uuid_utf8);
+jbyteArray jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size);
+jobject jmedia_crypto_from_drm_event (GstEvent *event);
 
 G_END_DECLS
 
