@@ -92,7 +92,8 @@ static GstFlowReturn gst_amc_video_dec_drain (GstAmcVideoDec * self);
 
 enum
 {
-  PROP_0
+  PROP_0,
+  PROP_DRM_AGENT_HANDLE
 };
 
 /* class initialization */
@@ -346,6 +347,20 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
     }
   }
 
+  // Append the x-cenc caps
+  if (ret) {
+    GstCaps *cenc_caps = gst_caps_new_empty();
+    guint i;
+    for (i = 0; i < gst_caps_get_size(ret); ++i) {
+      GstStructure *str = gst_structure_copy (gst_caps_get_structure (ret, i));
+      const gchar *real_media_type = g_strdup (gst_structure_get_name (str));
+      gst_structure_set_name (str, "application/x-cenc");
+      gst_structure_set (str, "real-caps", G_TYPE_STRING, real_media_type, NULL);
+      gst_caps_append_structure(cenc_caps, str);
+    }
+    gst_caps_append(ret, cenc_caps);
+  }
+
   return ret;
 }
 
@@ -461,6 +476,66 @@ gst_amc_video_dec_base_init (gpointer g_class)
   g_free (longname);
 }
 
+
+static void
+gst_amc_video_dec_get_property (GObject * object, guint prop_id, GValue * value,
+                               GParamSpec * pspec) {
+  GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
+  switch (prop_id) {
+    case PROP_DRM_AGENT_HANDLE:
+      g_value_set_pointer (value, (gpointer)thiz->jmcrypto_from_user.object);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+
+static void
+gst_amc_video_dec_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec)
+{
+  GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
+  switch (prop_id) {
+    case PROP_DRM_AGENT_HANDLE:
+      thiz->jmcrypto_from_user.object = g_value_get_pointer (value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+
+static gboolean gst_amc_video_dec_sink_event (GstVideoDecoder *decoder, GstEvent *event)
+{
+  gboolean handled = FALSE;
+
+  switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_CUSTOM_DOWNSTREAM:
+      /* We need to handle the protection event. On such events we receive
+       * the payload required to initialize the protection system.
+       * We can receive as many events but before the flow, otherwise
+       * it is an error
+       */
+      if (fluc_drm_is_event (event)) {
+        GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
+        self->jmcrypto_from_event.object = jmedia_crypto_from_drm_event (event);
+        if (self->jmcrypto_from_event.object)
+          handled = TRUE;
+      }
+      break;
+    default:
+      break;
+  }
+
+  if (handled)
+    gst_event_unref (event);
+
+  return handled;
+}
+
 static void
 gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
 {
@@ -482,6 +557,27 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
   videodec_class->handle_frame =
       GST_DEBUG_FUNCPTR (gst_amc_video_dec_handle_frame);
   videodec_class->finish = GST_DEBUG_FUNCPTR (gst_amc_video_dec_finish);
+
+  videodec_class->sink_event =
+    GST_DEBUG_FUNCPTR (gst_amc_video_dec_sink_event);
+
+  
+  /* FIXME this will be handled differently in the future.
+   * 1. We need an interface that OPE will call, similar to xoverlay
+   * 2. We need to not export this as a property, but an interface method
+   * 3. All elements that decrypt must implement this interface, mainly:
+   *    fludrmdecrypt
+   *    flumtksink
+   */
+  g_object_class_install_property (gobject_class, PROP_DRM_AGENT_HANDLE,
+      g_param_spec_pointer ("drm-agent-handle", "DRM Agent handle",
+          "The DRM Agent handle to use for decrypting",
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  gobject_class->set_property =
+    GST_DEBUG_FUNCPTR (gst_amc_video_dec_set_property);
+  gobject_class->get_property =
+    GST_DEBUG_FUNCPTR (gst_amc_video_dec_get_property);
 }
 
 static void
@@ -1459,6 +1555,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   gboolean needs_disable = FALSE;
   gchar *format_string;
   jobject jsurface = NULL;
+  GstAmcCrypto * crypto_ctx;
 
   self = GST_AMC_VIDEO_DEC (decoder);
   klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
@@ -1538,7 +1635,21 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
       format_string, self->surface);
   g_free (format_string);
 
-  if (!gst_amc_codec_configure (self->codec, format, jsurface, 0)) {
+  /* now it's time to request the application for a DRM agent handle */
+  gst_element_post_message (GST_ELEMENT (self),
+                            gst_message_new_element
+                            (GST_OBJECT (self),
+                             gst_structure_new ("prepare-drm-agent-handle", NULL)));  
+  
+  crypto_ctx =
+    self->jmcrypto_from_user.object ?
+    /* For now we give priority to context provided by application*/
+    &self->jmcrypto_from_user : &self->jmcrypto_from_event;
+
+  if (crypto_ctx->object)
+    self->is_encrypted = TRUE;
+  
+  if (!gst_amc_codec_configure (self->codec, format, jsurface, crypto_ctx, 0)) {
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }
@@ -1731,8 +1842,16 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
         "Queueing buffer %d: size %d time %" G_GINT64_FORMAT " flags 0x%08x",
         idx, buffer_info.size, buffer_info.presentation_time_us,
         buffer_info.flags);
-    if (!gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info))
-      goto queue_error;
+
+
+    if (self->is_encrypted) {
+      if (!gst_amc_codec_queue_secure_input_buffer (self->codec, idx, &buffer_info,
+                                                    frame->input_buffer))
+        goto queue_error;
+    }
+    else
+      if (!gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info))
+        goto queue_error;
   }
 
   gst_video_codec_frame_unref (frame);
