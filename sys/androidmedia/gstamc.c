@@ -188,15 +188,15 @@ error:
 static jobject gst_amc_get_crypto_info (const GstStructure * s)
 {
   JNIEnv *env;
-  gint n_subsamples = 0;
+  guint n_subsamples = 0;
   jint j_n_subsamples = 0;
   gboolean ok = FALSE;
   FlucDrmCencSencEntry *subsamples_buf_mem = NULL;
   jintArray j_n_bytes_of_clear_data = NULL, j_n_bytes_of_encrypted_data = NULL;
   jbyteArray j_kid = NULL, j_iv = NULL;
   jobject crypto_info = NULL, crypto_info_ret = NULL;
-  
-  ok = gst_structure_get_int (s, "subsample_count", &n_subsamples);
+
+  ok = gst_structure_get_uint (s, "subsample_count", &n_subsamples);
   if (!ok) {
     GST_WARNING ("Subsamples field in DRMBuffer is not set");
     goto error;
