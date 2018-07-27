@@ -322,7 +322,17 @@ jobject jmedia_crypto_from_drm_event (GstEvent *event)
       GST_ERROR ("Invalid pssh data");
       return FALSE;
     }
+
+    guint32 version = GST_READ_UINT32_BE (payload + 8);
+    version = version >> 24;
     payload += 28;
+
+    if (version > 0) {
+      guint32 kid_count = GST_READ_UINT32_BE (payload);
+      GST_ERROR("kid_count = %d", kid_count);
+      payload += 4 + (16 * kid_count);
+    }
+
     payload_size = GST_READ_UINT32_BE (payload);
     payload += 4;
 
@@ -1774,6 +1784,7 @@ static const struct {
 } known_cryptos[] = {
   { "69f908af-4816-46ea-910c-cd5dcccb0a3a", "PSSH" },
   { "e2719d58-a985-b3c9-781a-b030af78d30e", "CLEARKEY" },
+  { "1077efec-c0b2-4d02-ace3-3c1e52e2fb4b", "CLEARKEY_MSE" },
   { "5e629af5-38da-4063-8977-97ffbd9902d4", "MPD" }
 };
 
