@@ -120,6 +120,7 @@ struct _GstH264Parse
 
   /* encryption data */
   GstStructure *cenc;
+  gsize orig_buffer_size;
 };
 
 struct _GstH264ParseClass
