@@ -263,8 +263,9 @@ static jobject gst_amc_get_crypto_info (const GstStructure * s)
       if (!iv_buf)
         goto error;
 
-      j_kid = jbyte_arr_from_data (env, GST_BUFFER_DATA (kid_buf), 16);
-      j_iv = jbyte_arr_from_data (env, GST_BUFFER_DATA (iv_buf), 16);
+      j_kid = jbyte_arr_from_data (env, GST_BUFFER_DATA (kid_buf), GST_BUFFER_SIZE (kid_buf));
+      j_iv = jbyte_arr_from_data (env, GST_BUFFER_DATA (iv_buf), GST_BUFFER_SIZE (iv_buf));
+      AMC_CHK (j_kid && j_iv);
     }
   }
   
