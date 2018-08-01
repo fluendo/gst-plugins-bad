@@ -543,7 +543,7 @@ gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
        * it is an error
        */
       if (fluc_drm_is_event (event)) {
-        GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (gst_pad_get_parent (pad));
+        GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
         if (FALSE == (self->crypto_ctx.mcrypto
                 || self->crypto_ctx.mcrypto_from_user)) {
           /* Now it's time to ask user if he has any drm context for us.
@@ -566,11 +566,9 @@ gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
       break;
   }
 
-  if (!handled)
-    res = gst_pad_event_default (pad, event);
-  else
+  if (handled)
     gst_event_unref (event);
-  return res;
+  return handled;
 }
 
 static void
@@ -1590,7 +1588,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   gboolean is_format_change = FALSE;
   gboolean needs_disable = FALSE;
   gchar *format_string;
-  jobject jsurface = NULL;
+  jobject jsurface = NULL, mcrypto = NULL;
   GstAmcCrypto *crypto_ctx;
 
   self = GST_AMC_VIDEO_DEC (decoder);
@@ -1671,6 +1669,9 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
       format_string, self->surface);
   g_free (format_string);
 
+  // FIXME: crypto_ctx.mcrypto (from the event) will be lost if
+  // media stream will reconfigure it's format
+
   /* Crypto ctx from user has a higher priority then crypto ctx from event */
   if (self->crypto_ctx.mcrypto_from_user)
     mcrypto = self->crypto_ctx.mcrypto_from_user;
@@ -1691,7 +1692,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     return FALSE;
   }
 
-  gst_amc_format_free (format, &self->crypto_ctx);
+  gst_amc_format_free (format, NULL);
 
   if (!gst_amc_codec_start (self->codec)) {
     GST_ERROR_OBJECT (self, "Failed to start codec");
