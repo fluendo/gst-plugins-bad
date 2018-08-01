@@ -1079,7 +1079,7 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
     return FALSE;
   }
 
-  gst_amc_format_free (format, &self->crypto_ctx);
+  gst_amc_format_free (format, NULL);
 
   if (!gst_amc_codec_start (self->codec)) {
     GST_ERROR_OBJECT (self, "Failed to start codec");
