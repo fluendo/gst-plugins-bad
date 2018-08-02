@@ -114,6 +114,7 @@ static struct
   jclass klass;
   jmethodID constructor;
   jmethodID open_session;
+  jmethodID close_session;
 } media_drm;
 static struct
 {
@@ -309,8 +310,8 @@ error:
 }
 
 
-jobject
-jmedia_crypto_from_drm_event (GstEvent * event)
+gboolean
+jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
 {
   GstBuffer *data_buf = NULL;
   const gchar *origin = NULL, *system_id = NULL;
@@ -381,13 +382,15 @@ jmedia_crypto_from_drm_event (GstEvent * event)
   J_CALL_VOID (media_crypto_obj, media_crypto.set_media_drm_session,
       jsession_id);
 
-  (*env)->NewGlobalRef (env, media_drm_obj);
-  (*env)->NewGlobalRef (env, media_crypto_obj);
+  /* Will be unreffed in free_format func */
+  crypto_ctx->mdrm = (*env)->NewGlobalRef (env, media_drm_obj);
+  crypto_ctx->mcrypto = (*env)->NewGlobalRef (env, media_crypto_obj);
+  crypto_ctx->mdrm_session_id = (*env)->NewGlobalRef (env, jsession_id);
 error:
   J_DELETE_LOCAL_REF (jinit);
   J_DELETE_LOCAL_REF (juuid);
 
-  return media_crypto_obj;
+  return crypto_ctx->mdrm && crypto_ctx->mcrypto && crypto_ctx->mdrm_session_id;
 }
 
 
@@ -461,11 +464,10 @@ gst_amc_codec_get_release_method_id (GstAmcCodec * codec)
 
 gboolean
 gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
-    guint8 * surface, GstAmcCrypto * crypto_ctx, gint flags)
+    guint8 * surface, jobject mcrypto_obj, gint flags)
 {
   JNIEnv *env;
   gboolean ret = TRUE;
-  jobject crypto = crypto_ctx ? crypto_ctx->object : NULL;
 
   g_return_val_if_fail (codec != NULL, FALSE);
   g_return_val_if_fail (format != NULL, FALSE);
@@ -473,7 +475,7 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
   env = gst_jni_get_env ();
 
   (*env)->CallVoidMethod (env, codec->object, media_codec.configure,
-      format->object, surface, crypto, flags);
+      format->object, surface, mcrypto_obj, flags);
   if ((*env)->ExceptionCheck (env)) {
     GST_ERROR ("Failed to call Java method");
     (*env)->ExceptionClear (env);
@@ -1095,7 +1097,7 @@ error:
 }
 
 void
-gst_amc_format_free (GstAmcFormat * format)
+gst_amc_format_free (GstAmcFormat * format, GstAmcCrypto * crypto_ctx)
 {
   JNIEnv *env;
 
@@ -1104,6 +1106,23 @@ gst_amc_format_free (GstAmcFormat * format)
   env = gst_jni_get_env ();
   (*env)->DeleteGlobalRef (env, format->object);
   g_slice_free (GstAmcFormat, format);
+
+  if (crypto_ctx->mcrypto_from_user)
+    (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto_from_user);
+
+  if (crypto_ctx->mcrypto)
+    (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto);
+
+  if (crypto_ctx->mdrm) {
+    if (crypto_ctx->mdrm_session_id) {
+      J_CALL_VOID (crypto_ctx->mdrm, media_drm.close_session,
+          crypto_ctx->mdrm_session_id);
+    }
+  error:
+    if (crypto_ctx->mdrm_session_id)
+      (*env)->DeleteGlobalRef (env, crypto_ctx->mdrm_session_id);
+    (*env)->DeleteGlobalRef (env, crypto_ctx->mdrm);
+  }
 }
 
 gchar *
@@ -1716,7 +1735,7 @@ get_java_classes (void)
     goto error;
   J_INIT_METHOD_ID (media_drm, constructor, "<init>", "(Ljava/util/UUID;)V");
   J_INIT_METHOD_ID (media_drm, open_session, "openSession", "()[B");
-
+  J_INIT_METHOD_ID (media_drm, close_session, "closeSession", "([B)V");
 
   /* ==================================== CryptoInfo       */
 

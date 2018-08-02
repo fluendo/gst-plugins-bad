@@ -349,16 +349,17 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
 
   // Append the x-cenc caps
   if (ret) {
-    GstCaps *cenc_caps = gst_caps_new_empty();
+    GstCaps *cenc_caps = gst_caps_new_empty ();
     guint i;
-    for (i = 0; i < gst_caps_get_size(ret); ++i) {
+    for (i = 0; i < gst_caps_get_size (ret); ++i) {
       GstStructure *str = gst_structure_copy (gst_caps_get_structure (ret, i));
       const gchar *real_media_type = g_strdup (gst_structure_get_name (str));
       gst_structure_set_name (str, "application/x-cenc");
-      gst_structure_set (str, "real-caps", G_TYPE_STRING, real_media_type, NULL);
-      gst_caps_append_structure(cenc_caps, str);
+      gst_structure_set (str, "real-caps", G_TYPE_STRING, real_media_type,
+          NULL);
+      gst_caps_append_structure (cenc_caps, str);
     }
-    gst_caps_append(ret, cenc_caps);
+    gst_caps_append (ret, cenc_caps);
   }
 
   return ret;
@@ -479,11 +480,13 @@ gst_amc_video_dec_base_init (gpointer g_class)
 
 static void
 gst_amc_video_dec_get_property (GObject * object, guint prop_id, GValue * value,
-                               GParamSpec * pspec) {
+    GParamSpec * pspec)
+{
   GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
-      g_value_set_pointer (value, (gpointer)thiz->jmcrypto_from_user.object);
+      g_value_set_pointer (value,
+          (gpointer) thiz->crypto_ctx.mcrypto_from_user);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -499,7 +502,7 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
   GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
-      thiz->jmcrypto_from_user.object = g_value_get_pointer (value);
+      thiz->crypto_ctx.mcrypto_from_user = g_value_get_pointer (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -508,9 +511,29 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
 }
 
 
-static gboolean gst_amc_video_dec_sink_event (GstVideoDecoder *decoder, GstEvent *event)
+static jobject
+gst_amc_video_dec_ask_user_mcrypto (GstAmcVideoDec * self)
 {
-  gboolean handled = FALSE;
+  gst_element_post_message (GST_ELEMENT (self),
+      gst_message_new_element
+      (GST_OBJECT (self),
+          gst_structure_new ("prepare-drm-agent-handle", NULL)));
+
+  if (self->crypto_ctx.mcrypto_from_user) {
+    JNIEnv *env = gst_jni_get_env ();
+    self->crypto_ctx.mcrypto_from_user =
+        (*env)->NewGlobalRef (env, self->crypto_ctx.mcrypto_from_user);
+
+    return self->crypto_ctx.mcrypto_from_user;
+  }
+  return NULL;
+}
+
+
+static gboolean
+gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
+{
+  gboolean handled = FALSE, res = FALSE;
 
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_CUSTOM_DOWNSTREAM:
@@ -520,20 +543,34 @@ static gboolean gst_amc_video_dec_sink_event (GstVideoDecoder *decoder, GstEvent
        * it is an error
        */
       if (fluc_drm_is_event (event)) {
-        GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
-        self->jmcrypto_from_event.object = jmedia_crypto_from_drm_event (event);
-        if (self->jmcrypto_from_event.object)
-          handled = TRUE;
+        GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (gst_pad_get_parent (pad));
+        if (FALSE == (self->crypto_ctx.mcrypto
+                || self->crypto_ctx.mcrypto_from_user)) {
+          /* Now it's time to ask user if he has any drm context for us.
+             If he has - no need to create a new drm session */
+          if (gst_amc_video_dec_ask_user_mcrypto (self))
+            GST_WARNING_OBJECT (self,
+                "Have both: DRM event and crypto context from user."
+                "Prefer crypto context from user");
+          else if (jmedia_crypto_from_drm_event (event, &self->crypto_ctx))
+            handled = TRUE;
+        } else {
+          /* If we already have some drm context, we just ignore this event */
+          GST_WARNING_OBJECT (self, "DRM event received, but ignored because"
+              "crypto context is being initialized already.");
+        }
+        gst_object_unref (self);
       }
       break;
     default:
       break;
   }
 
-  if (handled)
+  if (!handled)
+    res = gst_pad_event_default (pad, event);
+  else
     gst_event_unref (event);
-
-  return handled;
+  return res;
 }
 
 static void
@@ -558,10 +595,9 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
       GST_DEBUG_FUNCPTR (gst_amc_video_dec_handle_frame);
   videodec_class->finish = GST_DEBUG_FUNCPTR (gst_amc_video_dec_finish);
 
-  videodec_class->sink_event =
-    GST_DEBUG_FUNCPTR (gst_amc_video_dec_sink_event);
+  videodec_class->sink_event = GST_DEBUG_FUNCPTR (gst_amc_video_dec_sink_event);
 
-  
+
   /* FIXME this will be handled differently in the future.
    * 1. We need an interface that OPE will call, similar to xoverlay
    * 2. We need to not export this as a property, but an interface method
@@ -575,9 +611,9 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   gobject_class->set_property =
-    GST_DEBUG_FUNCPTR (gst_amc_video_dec_set_property);
+      GST_DEBUG_FUNCPTR (gst_amc_video_dec_set_property);
   gobject_class->get_property =
-    GST_DEBUG_FUNCPTR (gst_amc_video_dec_get_property);
+      GST_DEBUG_FUNCPTR (gst_amc_video_dec_get_property);
 }
 
 static void
@@ -1190,10 +1226,10 @@ gst_amc_video_dec_format_changed (GstAmcVideoDec * self)
   g_free (format_string);
 
   if (!gst_amc_video_dec_set_src_caps (self, format)) {
-    gst_amc_format_free (format);
+    gst_amc_format_free (format, &self->crypto_ctx);
     return FALSE;
   }
-  gst_amc_format_free (format);
+  gst_amc_format_free (format, &self->crypto_ctx);
   self->output_configured = TRUE;
   return TRUE;
 }
@@ -1555,7 +1591,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   gboolean needs_disable = FALSE;
   gchar *format_string;
   jobject jsurface = NULL;
-  GstAmcCrypto * crypto_ctx;
+  GstAmcCrypto *crypto_ctx;
 
   self = GST_AMC_VIDEO_DEC (decoder);
   klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
@@ -1635,26 +1671,27 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
       format_string, self->surface);
   g_free (format_string);
 
-  /* now it's time to request the application for a DRM agent handle */
-  gst_element_post_message (GST_ELEMENT (self),
-                            gst_message_new_element
-                            (GST_OBJECT (self),
-                             gst_structure_new ("prepare-drm-agent-handle", NULL)));  
-  
-  crypto_ctx =
-    self->jmcrypto_from_user.object ?
-    /* For now we give priority to context provided by application*/
-    &self->jmcrypto_from_user : &self->jmcrypto_from_event;
+  /* Crypto ctx from user has a higher priority then crypto ctx from event */
+  if (self->crypto_ctx.mcrypto_from_user)
+    mcrypto = self->crypto_ctx.mcrypto_from_user;
+  else if (self->crypto_ctx.mcrypto)
+    mcrypto = self->crypto_ctx.mcrypto;
+  else
+    /* If we didn't receive a drm event. Still ask the user about the crypto context. */
+    mcrypto = gst_amc_video_dec_ask_user_mcrypto (self);
 
-  if (crypto_ctx->object)
+  /* We decide that stream is encrypted if we eather received and parsed
+     drm event, eather received crypto ctx from user. It may be not completely correct.
+     Other way - is to base on caps of sinkpad (if they're x-cenc) */
+  if (mcrypto)
     self->is_encrypted = TRUE;
-  
-  if (!gst_amc_codec_configure (self->codec, format, jsurface, crypto_ctx, 0)) {
+
+  if (!gst_amc_codec_configure (self->codec, format, jsurface, mcrypto, 0)) {
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }
 
-  gst_amc_format_free (format);
+  gst_amc_format_free (format, &self->crypto_ctx);
 
   if (!gst_amc_codec_start (self->codec)) {
     GST_ERROR_OBJECT (self, "Failed to start codec");
@@ -1845,13 +1882,12 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
 
 
     if (self->is_encrypted) {
-      if (!gst_amc_codec_queue_secure_input_buffer (self->codec, idx, &buffer_info,
-                                                    frame->input_buffer))
+      if (!gst_amc_codec_queue_secure_input_buffer (self->codec, idx,
+              &buffer_info, frame->input_buffer))
         goto queue_error;
-    }
-    else
-      if (!gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info))
-        goto queue_error;
+    } else
+        if (!gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info))
+      goto queue_error;
   }
 
   gst_video_codec_frame_unref (frame);
