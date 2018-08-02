@@ -274,12 +274,14 @@ gst_amc_get_crypto_info (const GstStructure * s)
       if (!iv_buf)
         goto error;
 
-      j_kid =
-          jbyte_arr_from_data (env, GST_BUFFER_DATA (kid_buf),
-          GST_BUFFER_SIZE (kid_buf));
-      j_iv =
-          jbyte_arr_from_data (env, GST_BUFFER_DATA (iv_buf),
-          GST_BUFFER_SIZE (iv_buf));
+      /* There's a check in MediaCodec for kid size == 16 and iv size == 16
+         So, we always create and copy 16-byte arrays.
+         We manage iv size to always be 16 on android in flu-codec-sdk. */
+      AMC_CHK ((GST_BUFFER_SIZE (kid_buf) >= 16)
+          && (GST_BUFFER_SIZE (iv_buf) >= 16));
+
+      j_kid = jbyte_arr_from_data (env, GST_BUFFER_DATA (kid_buf), 16);
+      j_iv = jbyte_arr_from_data (env, GST_BUFFER_DATA (iv_buf), 16);
       AMC_CHK (j_kid && j_iv);
     }
   }
