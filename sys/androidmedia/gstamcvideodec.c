@@ -1678,7 +1678,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     mcrypto = self->crypto_ctx.mcrypto;
   else
     /* If we didn't receive a drm event. Still ask the user about the crypto context. */
-    mcrypto = gst_amc_audio_dec_ask_user_mcrypto (self);
+    mcrypto = gst_amc_video_dec_ask_user_mcrypto (self);
 
   /* We decide that stream is encrypted if we eather received and parsed
      drm event, eather received crypto ctx from user. It may be not completely correct.
