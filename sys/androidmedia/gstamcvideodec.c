@@ -1669,6 +1669,9 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
       format_string, self->surface);
   g_free (format_string);
 
+  // FIXME: crypto_ctx.mcrypto (from the event) will be lost if
+  // media stream will reconfigure it's format
+
   /* Crypto ctx from user has a higher priority then crypto ctx from event */
   if (self->crypto_ctx.mcrypto_from_user)
     mcrypto = self->crypto_ctx.mcrypto_from_user;
@@ -1689,7 +1692,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     return FALSE;
   }
 
-  gst_amc_format_free (format, &self->crypto_ctx);
+  gst_amc_format_free (format, NULL);
 
   if (!gst_amc_codec_start (self->codec)) {
     GST_ERROR_OBJECT (self, "Failed to start codec");

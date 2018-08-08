@@ -1258,24 +1258,27 @@ gst_amc_format_free (GstAmcFormat * format, GstAmcCrypto * crypto_ctx)
   env = gst_jni_get_env ();
   (*env)->DeleteGlobalRef (env, format->object);
   g_slice_free (GstAmcFormat, format);
-#if 0
-  if (crypto_ctx->mcrypto_from_user)
-    (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto_from_user);
 
-  if (crypto_ctx->mcrypto)
-    (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto);
+  if (crypto_ctx) {
+    if (crypto_ctx->mcrypto_from_user)
+      (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto_from_user);
 
-  if (crypto_ctx->mdrm) {
-    if (crypto_ctx->mdrm_session_id) {
-      J_CALL_VOID (crypto_ctx->mdrm, media_drm.close_session,
-          crypto_ctx->mdrm_session_id);
+    if (crypto_ctx->mcrypto)
+      (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto);
+
+    if (crypto_ctx->mdrm) {
+      if (crypto_ctx->mdrm_session_id) {
+        J_CALL_VOID (crypto_ctx->mdrm, media_drm.close_session,
+            crypto_ctx->mdrm_session_id);
+      }
+    error:                     // <-- to resolve J_CALL_VOID
+      if (crypto_ctx->mdrm_session_id)
+        (*env)->DeleteGlobalRef (env, crypto_ctx->mdrm_session_id);
+      (*env)->DeleteGlobalRef (env, crypto_ctx->mdrm);
     }
-  error:
-    if (crypto_ctx->mdrm_session_id)
-      (*env)->DeleteGlobalRef (env, crypto_ctx->mdrm_session_id);
-    (*env)->DeleteGlobalRef (env, crypto_ctx->mdrm);
+
+    memset (crypto_ctx, 0, sizeof (GstAmcCrypto));
   }
-#endif
 }
 
 gchar *
