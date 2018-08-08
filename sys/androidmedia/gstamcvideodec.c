@@ -1588,7 +1588,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   gboolean is_format_change = FALSE;
   gboolean needs_disable = FALSE;
   gchar *format_string;
-  jobject jsurface = NULL;
+  jobject jsurface = NULL, mcrypto = NULL;
   GstAmcCrypto *crypto_ctx;
 
   self = GST_AMC_VIDEO_DEC (decoder);

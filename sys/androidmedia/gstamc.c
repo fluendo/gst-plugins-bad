@@ -330,7 +330,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   const gchar *origin = NULL, *system_id = NULL;
   jobject juuid = NULL, media_crypto_obj = NULL, media_drm_obj = NULL, request =
       NULL;
-  jbyteArray jsession_id = NULL, jkid1 = NULL;
+  jbyteArray jsession_id = NULL, jinit_data = NULL;
   JNIEnv *env = gst_jni_get_env ();
   guchar *payload;
   gsize payload_size;
@@ -353,6 +353,14 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
     if (payload_size < 32) {
       GST_ERROR ("Invalid pssh data");
       return FALSE;
+    }
+
+    if (FALSE == (complete_pssh_payload[4] == 'p' &&
+            complete_pssh_payload[5] == 's' &&
+            complete_pssh_payload[6] == 's' &&
+            complete_pssh_payload[7] == 'h')) {
+      GST_ERROR ("Sanity check failed: provided payload is not pssh");
+      goto error;
     }
 
     {
@@ -393,19 +401,11 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
     }
   }
 
-  /* To check: */
-  GST_ERROR ("{{{ sanity for pssh: size(%d) %c%c%c%c, other size: %d",
-      *(gint *) complete_pssh_payload,
-      complete_pssh_payload[4],
-      complete_pssh_payload[5],
-      complete_pssh_payload[6],
-      complete_pssh_payload[7], complete_pssh_payload_size);
-
-  jkid1 =
+  jinit_data =
       jbyte_arr_from_data (env, complete_pssh_payload,
       complete_pssh_payload_size);
 
-  AMC_CHK (jkid1);
+  AMC_CHK (jinit_data);
 
   juuid = juuid_from_utf8 (env, system_id);
 
@@ -428,7 +428,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
 
   request =
       (*env)->CallObjectMethod (env, media_drm_obj, media_drm.get_key_request,
-      jsession_id, jkid1, jmime, KEY_TYPE_STREAMING, NULL);
+      jsession_id, jinit_data, jmime, KEY_TYPE_STREAMING, NULL);
   J_EXCEPTION_CHECK ("mediaDrm->getKeyRequest");
   AMC_CHK (request);
 
@@ -445,7 +445,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
     def_url = (*env)->GetStringUTFChars (env, jdef_url, NULL);
     J_EXCEPTION_CHECK ("GetStringUTFChars");
 
-    GST_ERROR ("### default url is: %s", def_url ? def_url : "NULL !!!");
+    GST_ERROR ("### default url is: [%s]", def_url ? def_url : "NULL !!!");
 
     jreq_data =
         (*env)->CallObjectMethod (env, request, media_drm_key_request.get_data);
@@ -465,20 +465,31 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
 
   /* Provide fake key response */
   {
-    jbyteArray b;
-    const char *strr = "{\n"
+    // TODO: implement reencoding from base64url to base64 and back.
+    // We have to parse json for it first, reencode, and then compile json back.
+    // ORIGINAL fake key response/request:
+    // request:
+    // {"kids":["L--K2BLfQpeD6b9uXkk-Uw"],"type":"temporary"}
+    // response:
+    // {"keys":[{"kty":"oct","alg":"A128KW","kid":"L--K2BLfQpeD6b9uXkk-Uw","k":"f0EvBXX0T3GCWb7vVux3cQ"}],"type":"temporary"}
+
+    jbyteArray jfake_key_response;
+    const char *fake_key_response = "{\n"
         " \"status\": \"OK\",\n"
         " \"keys\": [\n"
         "   {\n"
         "     \"kid\": \"L++K2BLfQpeD6b9uXkk+Uw\",\n"
         "     \"k\": \"f0EvBXX0T3GCWb7vVux3cQ\",\n"
         "     \"kty\": \"oct\",\n" "     \"type\": \"temporary\" } ]\n" " }";
-    GST_ERROR ("#### Providing string %s", strr);
-    b = jbyte_arr_from_data (env, strr, strlen (strr) + 1);
+    GST_ERROR ("Providing key response: %s", fake_key_response);
+    jfake_key_response =
+        jbyte_arr_from_data (env, fake_key_response,
+        strlen (fake_key_response) + 1);
 
     (*env)->CallObjectMethod (env, media_drm_obj,
-        media_drm.provide_key_response, jsession_id, b);
-    J_EXCEPTION_CHECK ("PROVIDE KEY RESPONSE");
+        media_drm.provide_key_response, jsession_id, jfake_key_response);
+    J_EXCEPTION_CHECK ("media_drm.provide_key_response");
+    J_DELETE_LOCAL_REF (jfake_key_response);
   }
 
   media_crypto_obj = (*env)->NewObject (env, media_crypto.klass,
@@ -494,6 +505,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
       && crypto_ctx->mdrm_session_id);
 error:
   J_DELETE_LOCAL_REF (juuid);
+  J_DELETE_LOCAL_REF (jinit_data);
 
   return crypto_ctx->mdrm && crypto_ctx->mcrypto && crypto_ctx->mdrm_session_id;
 }
