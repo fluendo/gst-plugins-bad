@@ -28,7 +28,6 @@
 #include "gstamc.h"
 
 G_BEGIN_DECLS
-
 #define GST_TYPE_AMC_AUDIO_DEC \
   (gst_amc_audio_dec_get_type())
 #define GST_AMC_AUDIO_DEC(obj) \
@@ -41,7 +40,6 @@ G_BEGIN_DECLS
   (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_AMC_AUDIO_DEC))
 #define GST_IS_AMC_AUDIO_DEC_CLASS(obj) \
   (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_AMC_AUDIO_DEC))
-
 typedef struct _GstAmcAudioDec GstAmcAudioDec;
 typedef struct _GstAmcAudioDecClass GstAmcAudioDecClass;
 
@@ -84,8 +82,7 @@ struct _GstAmcAudioDec
   /* Output buffers counter */
   gint n_buffers;
 
-  /* possible drm contexts */
-  GstAmcCrypto jmcrypto_from_user, jmcrypto_from_event;
+  GstAmcCrypto crypto_ctx;
   gboolean is_encrypted;
 };
 
@@ -99,5 +96,4 @@ struct _GstAmcAudioDecClass
 GType gst_amc_audio_dec_get_type (void);
 
 G_END_DECLS
-
 #endif /* __GST_AMC_AUDIO_DEC_H__ */

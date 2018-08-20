@@ -81,6 +81,11 @@ static struct
 static struct
 {
   jclass klass;
+  jmethodID get_error_code;
+} crypto_exception;
+static struct
+{
+  jclass klass;
   jmethodID constructor;
   jfieldID flags;
   jfieldID offset;
@@ -113,17 +118,34 @@ static struct
 {
   jclass klass;
   jmethodID constructor;
+  jmethodID open_session;
+  jmethodID get_key_request;
+  jmethodID provide_key_response;
+  jmethodID close_session;
+} media_drm;
+static struct
+{
+  jclass klass;
+  jmethodID get_default_url;
+  jmethodID get_data;
+} media_drm_key_request;
+static struct
+{
+  jclass klass;
+  jmethodID constructor;
   jmethodID is_crypto_scheme_supported;
+  jmethodID set_media_drm_session;
 } media_crypto;
 static struct
 {
   jclass klass;
   jmethodID from_string;
-} uuid;   
+} uuid;
 
 #define J_EXCEPTION_CHECK(method) G_STMT_START {        \
     if (G_UNLIKELY((*env)->ExceptionCheck (env))) {     \
       GST_ERROR ("Caught exception on call " method);   \
+      (*env)->ExceptionDescribe (env);                  \
       (*env)->ExceptionClear (env);                     \
       /* ret = error */                                 \
       goto error;                                       \
@@ -150,7 +172,7 @@ static struct
       goto error;                                       \
     }                                                   \
   } G_STMT_END
-    
+
 #define J_DELETE_LOCAL_REF(ref) G_STMT_START {  \
     if (G_LIKELY(ref)) {                        \
       (*env)->DeleteLocalRef (env, ref);        \
@@ -171,12 +193,13 @@ static struct
   } G_STMT_END
 
 
-jbyteArray jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size)
+jbyteArray
+jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size)
 {
   jbyteArray arr = (*env)->NewByteArray (env, size);
   AMC_CHK (arr);
-  (*env)->SetByteArrayRegion(env, arr, 0, size, (const jbyte *)data);
-  J_EXCEPTION_CHECK("SetByteArrayRegion");
+  (*env)->SetByteArrayRegion (env, arr, 0, size, (const jbyte *) data);
+  J_EXCEPTION_CHECK ("SetByteArrayRegion");
 
   return arr;
 error:
@@ -185,7 +208,8 @@ error:
 }
 
 
-static jobject gst_amc_get_crypto_info (const GstStructure * s)
+static jobject
+gst_amc_get_crypto_info (const GstStructure * s)
 {
   JNIEnv *env;
   guint n_subsamples = 0;
@@ -210,10 +234,10 @@ static jobject gst_amc_get_crypto_info (const GstStructure * s)
   if (n_subsamples) {
     // Performing subsample arrays
     {
-      jint * n_bytes_of_clear_data = g_new (jint, n_subsamples);
-      jint * n_bytes_of_encrypted_data = g_new (jint, n_subsamples);
+      jint *n_bytes_of_clear_data = g_new (jint, n_subsamples);
+      jint *n_bytes_of_encrypted_data = g_new (jint, n_subsamples);
       const GValue *subsamples_val;
-      GstBuffer * subsamples_buf;
+      GstBuffer *subsamples_buf;
       gint i;
 
       subsamples_val = gst_structure_get_value (s, "subsamples");
@@ -222,33 +246,34 @@ static jobject gst_amc_get_crypto_info (const GstStructure * s)
       subsamples_buf = gst_value_get_buffer (subsamples_val);
       if (!subsamples_buf)
         goto error;
-    
-      subsamples_buf_mem = (FlucDrmCencSencEntry *)GST_BUFFER_DATA (subsamples_buf);
-      for (i = 0; i < n_subsamples; i++ ) {
+
+      subsamples_buf_mem =
+          (FlucDrmCencSencEntry *) GST_BUFFER_DATA (subsamples_buf);
+      for (i = 0; i < n_subsamples; i++) {
         n_bytes_of_clear_data[i] = subsamples_buf_mem[i].clear;
         n_bytes_of_encrypted_data[i] = subsamples_buf_mem[i].encrypted;
       }
-  
-      j_n_bytes_of_clear_data = (*env)->NewIntArray(env, j_n_subsamples);
-      j_n_bytes_of_encrypted_data = (*env)->NewIntArray(env, j_n_subsamples);
+
+      j_n_bytes_of_clear_data = (*env)->NewIntArray (env, j_n_subsamples);
+      j_n_bytes_of_encrypted_data = (*env)->NewIntArray (env, j_n_subsamples);
       AMC_CHK (j_n_bytes_of_clear_data && j_n_bytes_of_encrypted_data);
-      
-      (*env)->SetIntArrayRegion(env, j_n_bytes_of_clear_data, 0,
-                                n_subsamples, n_bytes_of_clear_data);
-      (*env)->SetIntArrayRegion(env, j_n_bytes_of_encrypted_data, 0, n_subsamples,
-                                n_bytes_of_encrypted_data);
-      J_EXCEPTION_CHECK("SetIntArrayRegion");
-      
+
+      (*env)->SetIntArrayRegion (env, j_n_bytes_of_clear_data, 0,
+          n_subsamples, n_bytes_of_clear_data);
+      (*env)->SetIntArrayRegion (env, j_n_bytes_of_encrypted_data, 0,
+          n_subsamples, n_bytes_of_encrypted_data);
+      J_EXCEPTION_CHECK ("SetIntArrayRegion");
+
       g_free (n_bytes_of_clear_data);
-      g_free ( n_bytes_of_encrypted_data);
+      g_free (n_bytes_of_encrypted_data);
     }
 
     // Performing key and iv
     {
       const GValue *kid_val;
       const GValue *iv_val;
-      GstBuffer * kid_buf;
-      GstBuffer * iv_buf;
+      GstBuffer *kid_buf;
+      GstBuffer *iv_buf;
 
       kid_val = gst_structure_get_value (s, "kid");
       if (!kid_val)
@@ -263,26 +288,30 @@ static jobject gst_amc_get_crypto_info (const GstStructure * s)
       if (!iv_buf)
         goto error;
 
-      j_kid = jbyte_arr_from_data (env, GST_BUFFER_DATA (kid_buf), GST_BUFFER_SIZE (kid_buf));
-      j_iv = jbyte_arr_from_data (env, GST_BUFFER_DATA (iv_buf), GST_BUFFER_SIZE (iv_buf));
+      /* There's a check in MediaCodec for kid size == 16 and iv size == 16
+         So, we always create and copy 16-byte arrays.
+         We manage iv size to always be 16 on android in flu-codec-sdk. */
+      AMC_CHK ((GST_BUFFER_SIZE (kid_buf) >= 16)
+          && (GST_BUFFER_SIZE (iv_buf) >= 16));
+
+      j_kid = jbyte_arr_from_data (env, GST_BUFFER_DATA (kid_buf), 16);
+      j_iv = jbyte_arr_from_data (env, GST_BUFFER_DATA (iv_buf), 16);
       AMC_CHK (j_kid && j_iv);
     }
   }
-  
   // new MediaCodec.CryptoInfo
   crypto_info = (*env)->NewObject (env, media_codec_crypto_info.klass,
       media_codec_crypto_info.constructor);
   AMC_CHK (crypto_info);
 
-  J_CALL_VOID (crypto_info, media_codec_crypto_info.set,
-               j_n_subsamples, // int newNumSubSamples
-               j_n_bytes_of_clear_data, // int[] newNumBytesOfClearData
-               j_n_bytes_of_encrypted_data, // int[] newNumBytesOfEncryptedData
-               j_kid, // byte[] newKey
-               j_iv, // byte[] newIV
-               media_codec.CRYPTO_MODE_AES_CTR // int newMode
-    );
-                          
+  J_CALL_VOID (crypto_info, media_codec_crypto_info.set, j_n_subsamples,        // int newNumSubSamples
+      j_n_bytes_of_clear_data,  // int[] newNumBytesOfClearData
+      j_n_bytes_of_encrypted_data,      // int[] newNumBytesOfEncryptedData
+      j_kid,                    // byte[] newKey
+      j_iv,                     // byte[] newIV
+      media_codec.CRYPTO_MODE_AES_CTR   // int newMode
+      );
+
 
   crypto_info_ret = crypto_info;
 error:
@@ -294,44 +323,70 @@ error:
 }
 
 
-jobject jmedia_crypto_from_drm_event (GstEvent *event)
+gboolean
+jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
 {
-  GstBuffer * data_buf = NULL;
-  const gchar
-    *origin = NULL,
-    *system_id = NULL;
-  jobject
-    juuid = NULL,
-    media_crypto_obj = NULL;
-  jbyteArray jinit = NULL;
+  GstBuffer *data_buf = NULL;
+  const gchar *origin = NULL, *system_id = NULL;
+  jobject juuid = NULL, media_crypto_obj = NULL, media_drm_obj = NULL, request =
+      NULL;
+  jbyteArray jsession_id = NULL, jinit_data = NULL;
   JNIEnv *env = gst_jni_get_env ();
-  guchar * payload;
+  guchar *payload;
   gsize payload_size;
-        
+  static jint KEY_TYPE_STREAMING = 1;
+  jstring jmime;
+  gchar *complete_pssh_payload;
+  gsize complete_pssh_payload_size;
+
   fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
   AMC_CHK (system_id && data_buf && origin);
 
-  payload = GST_BUFFER_DATA (data_buf);
-  payload_size = GST_BUFFER_SIZE (data_buf);
+  complete_pssh_payload = payload = GST_BUFFER_DATA (data_buf);
+  complete_pssh_payload_size = payload_size = GST_BUFFER_SIZE (data_buf);
 
   /* If source is quicktime, "data" buffer is wrapped in qt atom.
      To be compatible with qtdemux 1.0 from community, we have to skip
      this atom thing here, and not in qtdemux.
-  */
+   */
   if (g_str_has_prefix (origin, "isobmff/")) {
     if (payload_size < 32) {
       GST_ERROR ("Invalid pssh data");
       return FALSE;
     }
 
-    guint32 version = GST_READ_UINT32_BE (payload + 8);
-    version = version >> 24;
-    payload += 28;
+    if (FALSE == (complete_pssh_payload[4] == 'p' &&
+            complete_pssh_payload[5] == 's' &&
+            complete_pssh_payload[6] == 's' &&
+            complete_pssh_payload[7] == 'h')) {
+      GST_ERROR ("Sanity check failed: provided payload is not pssh");
+      goto error;
+    }
 
-    if (version > 0) {
-      guint32 kid_count = GST_READ_UINT32_BE (payload);
-      GST_ERROR("kid_count = %d", kid_count);
-      payload += 4 + (16 * kid_count);
+    {
+      guint32 version = GST_READ_UINT32_BE (payload + 8);
+      version = version >> 24;
+      payload += 28;
+
+      if (version > 0) {
+        gint i;
+        guint32 kid_count = GST_READ_UINT32_BE (payload);
+        GST_ERROR ("### PSSH: kid_count = %d", kid_count);
+        payload += 4;
+        for (i = 0; i < kid_count; i++) {
+          guchar *p = payload;
+          GST_ERROR ("### kid[%d] = [%02x.%02x.%02x.%02x."
+              "%02x.%02x.%02x.%02x."
+              "%02x.%02x.%02x.%02x."
+              "%02x.%02x.%02x.%02x]", i,
+              p[0], p[1], p[2], p[3],
+              p[4], p[5], p[6], p[7],
+              p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]
+              );
+
+          payload += 16;
+        }
+      }
     }
 
     payload_size = GST_READ_UINT32_BE (payload);
@@ -340,32 +395,119 @@ jobject jmedia_crypto_from_drm_event (GstEvent *event)
     GST_DEBUG ("Size of payload inside pssh: %d", payload_size);
 
     if (GST_BUFFER_SIZE (data_buf) < payload_size) {
-      GST_ERROR ("Sanity check failed: GST_BUFFER_SIZE (data_buf) < payload_size");
+      GST_ERROR
+          ("Sanity check failed: GST_BUFFER_SIZE (data_buf) < payload_size");
       goto error;
     }
   }
-  
-  jinit = jbyte_arr_from_data (env, payload, payload_size);
 
-  /* FIXME: current system_id contain some text before uuid,
-     not sure if it's going to be fixed here */
+  jinit_data =
+      jbyte_arr_from_data (env, complete_pssh_payload,
+      complete_pssh_payload_size);
+
+  AMC_CHK (jinit_data);
+
   juuid = juuid_from_utf8 (env, system_id);
-        
-  AMC_CHK (juuid && jinit);
+
+  AMC_CHK (juuid);
+
+  media_drm_obj = (*env)->NewObject (env, media_drm.klass,
+      media_drm.constructor, juuid);
+  AMC_CHK (media_drm_obj);
+
+  jsession_id =
+      (*env)->CallObjectMethod (env, media_drm_obj, media_drm.open_session);
+  J_EXCEPTION_CHECK ("mediaDrm->openSession");
+  AMC_CHK (jsession_id);
+
+  // For all other systemids it's "video/mp4" or "audio/mp4"
+  jmime = (*env)->NewStringUTF (env, "cenc");
+  AMC_CHK (jmime);
+
+  /* TODO: wrap it to macro !!! */
+
+  request =
+      (*env)->CallObjectMethod (env, media_drm_obj, media_drm.get_key_request,
+      jsession_id, jinit_data, jmime, KEY_TYPE_STREAMING, NULL);
+  J_EXCEPTION_CHECK ("mediaDrm->getKeyRequest");
+  AMC_CHK (request);
+
+  {
+    gchar *def_url;
+    jbyteArray jreq_data;
+    jsize req_data_len;
+    gchar *req_data_utf8;
+    jstring jdef_url = (*env)->CallObjectMethod (env, request,
+        media_drm_key_request.get_default_url);
+    J_EXCEPTION_CHECK ("mediaDrm.KeyRequest->getDefaultUrl");
+    AMC_CHK (request);
+
+    def_url = (*env)->GetStringUTFChars (env, jdef_url, NULL);
+    J_EXCEPTION_CHECK ("GetStringUTFChars");
+
+    GST_ERROR ("### default url is: [%s]", def_url ? def_url : "NULL !!!");
+
+    jreq_data =
+        (*env)->CallObjectMethod (env, request, media_drm_key_request.get_data);
+    J_EXCEPTION_CHECK ("mediaDrm.KeyRequest->getData");
+    AMC_CHK (jreq_data);
+
+    req_data_len = (*env)->GetArrayLength (env, jreq_data);
+    J_EXCEPTION_CHECK ("GetArrayLength");
+    GST_ERROR ("### req_data_len = %d", req_data_len);
+
+    req_data_utf8 = g_malloc0 (req_data_len + 1);
+    (*env)->GetByteArrayRegion (env, jreq_data, 0, req_data_len, req_data_utf8);
+    J_EXCEPTION_CHECK ("GetByteArrayRegion");
+
+    GST_ERROR ("### req_data_utf8 = <%s>", req_data_utf8);
+  }
+
+  /* Provide fake key response */
+  {
+    // TODO: implement reencoding from base64url to base64 and back.
+    // We have to parse json for it first, reencode, and then compile json back.
+    // ORIGINAL fake key response/request:
+    // request:
+    // {"kids":["L--K2BLfQpeD6b9uXkk-Uw"],"type":"temporary"}
+    // response:
+    // {"keys":[{"kty":"oct","alg":"A128KW","kid":"L--K2BLfQpeD6b9uXkk-Uw","k":"f0EvBXX0T3GCWb7vVux3cQ"}],"type":"temporary"}
+
+    jbyteArray jfake_key_response;
+    const char *fake_key_response = "{\n"
+        " \"status\": \"OK\",\n"
+        " \"keys\": [\n"
+        "   {\n"
+        "     \"kid\": \"L++K2BLfQpeD6b9uXkk+Uw\",\n"
+        "     \"k\": \"f0EvBXX0T3GCWb7vVux3cQ\",\n"
+        "     \"kty\": \"oct\",\n" "     \"type\": \"temporary\" } ]\n" " }";
+    GST_ERROR ("Providing key response: %s", fake_key_response);
+    jfake_key_response =
+        jbyte_arr_from_data (env, fake_key_response,
+        strlen (fake_key_response) + 1);
+
+    (*env)->CallObjectMethod (env, media_drm_obj,
+        media_drm.provide_key_response, jsession_id, jfake_key_response);
+    J_EXCEPTION_CHECK ("media_drm.provide_key_response");
+    J_DELETE_LOCAL_REF (jfake_key_response);
+  }
+
   media_crypto_obj = (*env)->NewObject (env, media_crypto.klass,
-                                          media_crypto.constructor,
-                                          juuid,
-                                          jinit);
+      media_crypto.constructor, juuid, jsession_id);
   AMC_CHK (media_crypto_obj);
 
-  /* FIXME: remember that MAYBE we also need to call MediaCrypto.set()
-     with MediaDrm object likely recieved from sraf browser */
-        
-error:
-  J_DELETE_LOCAL_REF (jinit);
-  J_DELETE_LOCAL_REF (juuid);
+  /* Will be unreffed in free_format func */
+  crypto_ctx->mdrm = (*env)->NewGlobalRef (env, media_drm_obj);
+  crypto_ctx->mcrypto = (*env)->NewGlobalRef (env, media_crypto_obj);
+  crypto_ctx->mdrm_session_id = (*env)->NewGlobalRef (env, jsession_id);
 
-  return media_crypto_obj;
+  AMC_CHK (crypto_ctx->mdrm && crypto_ctx->mcrypto
+      && crypto_ctx->mdrm_session_id);
+error:
+  J_DELETE_LOCAL_REF (juuid);
+  J_DELETE_LOCAL_REF (jinit_data);
+
+  return crypto_ctx->mdrm && crypto_ctx->mcrypto && crypto_ctx->mdrm_session_id;
 }
 
 
@@ -439,11 +581,10 @@ gst_amc_codec_get_release_method_id (GstAmcCodec * codec)
 
 gboolean
 gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
-                         guint8 * surface, GstAmcCrypto * crypto_ctx, gint flags)
+    guint8 * surface, jobject mcrypto_obj, gint flags)
 {
   JNIEnv *env;
   gboolean ret = TRUE;
-  jobject crypto = crypto_ctx ? crypto_ctx->object : NULL;
 
   g_return_val_if_fail (codec != NULL, FALSE);
   g_return_val_if_fail (format != NULL, FALSE);
@@ -451,7 +592,7 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
   env = gst_jni_get_env ();
 
   (*env)->CallVoidMethod (env, codec->object, media_codec.configure,
-                          format->object, surface, crypto, flags);
+      format->object, surface, mcrypto_obj, flags);
   if ((*env)->ExceptionCheck (env)) {
     GST_ERROR ("Failed to call Java method");
     (*env)->ExceptionClear (env);
@@ -873,12 +1014,12 @@ done:
 
 gboolean
 gst_amc_codec_queue_secure_input_buffer (GstAmcCodec * codec, gint index,
-                                         const GstAmcBufferInfo * info, const GstBuffer * drmbuf)
+    const GstAmcBufferInfo * info, const GstBuffer * drmbuf)
 {
   gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
   jobject crypto_info = NULL;
-  const GstStructure * cenc_info;
+  const GstStructure *cenc_info;
 
   if (!fluc_drm_is_buffer (drmbuf)) {
     GST_ERROR ("DRM Buffer not found");
@@ -893,13 +1034,49 @@ gst_amc_codec_queue_secure_input_buffer (GstAmcCodec * codec, gint index,
 
   crypto_info = gst_amc_get_crypto_info (cenc_info);
   if (!crypto_info) {
-    GST_ERROR ("Couldn't create MediaCodec.CryptoInfo object or parse cenc structure");
+    GST_ERROR
+        ("Couldn't create MediaCodec.CryptoInfo object or parse cenc structure");
     return FALSE;
   }
-  
   // queueSecureInputBuffer
-  J_CALL_VOID (codec->object, media_codec.queue_secure_input_buffer,
-               index, info->offset, crypto_info, info->presentation_time_us, info->flags);
+  GST_ERROR ("### Calling queue_secure_input_buffer");
+  (*env)->CallVoidMethod (env, codec->object,
+      media_codec.queue_secure_input_buffer, index, info->offset, crypto_info,
+      info->presentation_time_us, info->flags);
+
+  if (G_UNLIKELY ((*env)->ExceptionCheck (env))) {
+    jthrowable ex = (*env)->ExceptionOccurred (env);
+    GST_ERROR
+        ("Caught exception on call media_codec.queue_secure_input_buffer");
+    (*env)->ExceptionDescribe (env);
+    (*env)->ExceptionClear (env);
+    if (ex && (*env)->IsInstanceOf (env, ex, crypto_exception.klass)) {
+      static const jint
+          ERROR_INSUFFICIENT_OUTPUT_PROTECTION = 4,
+          ERROR_KEY_EXPIRED = 2,
+          ERROR_NO_KEY = 1,
+          ERROR_RESOURCE_BUSY = 3,
+          ERROR_SESSION_NOT_OPENED = 5, ERROR_UNSUPPORTED_OPERATION = 6;
+
+#define CHK_CRYPTO_ERR_CODE(code) do {                                  \
+        if (error_code == code) {                                       \
+          GST_ERROR ("Error code from crypto exception is " #code);     \
+          goto printed;                                                 \
+        } } while (0)
+
+      jint error_code =
+          (*env)->CallIntMethod (env, ex, crypto_exception.get_error_code);
+      CHK_CRYPTO_ERR_CODE (ERROR_INSUFFICIENT_OUTPUT_PROTECTION);
+      CHK_CRYPTO_ERR_CODE (ERROR_KEY_EXPIRED);
+      CHK_CRYPTO_ERR_CODE (ERROR_NO_KEY);
+      CHK_CRYPTO_ERR_CODE (ERROR_RESOURCE_BUSY);
+      CHK_CRYPTO_ERR_CODE (ERROR_SESSION_NOT_OPENED);
+      CHK_CRYPTO_ERR_CODE (ERROR_UNSUPPORTED_OPERATION);
+      GST_ERROR ("Unknown error code from CryptoException: %d", error_code);
+    }
+  printed:
+    goto error;
+  }
 
   ret = TRUE;
 error:
@@ -1072,7 +1249,7 @@ error:
 }
 
 void
-gst_amc_format_free (GstAmcFormat * format)
+gst_amc_format_free (GstAmcFormat * format, GstAmcCrypto * crypto_ctx)
 {
   JNIEnv *env;
 
@@ -1081,6 +1258,27 @@ gst_amc_format_free (GstAmcFormat * format)
   env = gst_jni_get_env ();
   (*env)->DeleteGlobalRef (env, format->object);
   g_slice_free (GstAmcFormat, format);
+
+  if (crypto_ctx) {
+    if (crypto_ctx->mcrypto_from_user)
+      (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto_from_user);
+
+    if (crypto_ctx->mcrypto)
+      (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto);
+
+    if (crypto_ctx->mdrm) {
+      if (crypto_ctx->mdrm_session_id) {
+        J_CALL_VOID (crypto_ctx->mdrm, media_drm.close_session,
+            crypto_ctx->mdrm_session_id);
+      }
+    error:                     // <-- to resolve J_CALL_VOID
+      if (crypto_ctx->mdrm_session_id)
+        (*env)->DeleteGlobalRef (env, crypto_ctx->mdrm_session_id);
+      (*env)->DeleteGlobalRef (env, crypto_ctx->mdrm);
+    }
+
+    memset (crypto_ctx, 0, sizeof (GstAmcCrypto));
+  }
 }
 
 gchar *
@@ -1462,14 +1660,15 @@ done:
 }
 
 
-static jclass j_find_class (JNIEnv * env, const gchar * desc)
+static jclass
+j_find_class (JNIEnv * env, const gchar * desc)
 {
   jclass ret = NULL;
   jclass tmp = (*env)->FindClass (env, desc);
   AMC_CHK (tmp);
-    
+
   ret = (*env)->NewGlobalRef (env, tmp);
-  AMC_CHK (ret);    
+  AMC_CHK (ret);
 error:
   J_DELETE_LOCAL_REF (tmp);
   return ret;
@@ -1530,10 +1729,10 @@ get_java_classes (void)
   (*env)->DeleteLocalRef (env, tmp);
   tmp = NULL;
 
-  media_codec.CRYPTO_MODE_AES_CTR = 1; // this constant is taken from Android docs webpage
+  media_codec.CRYPTO_MODE_AES_CTR = 1;  // this constant is taken from Android docs webpage
   media_codec.queue_secure_input_buffer =
-    (*env)->GetMethodID (env, media_codec.klass, "queueSecureInputBuffer",
-                               "(IILandroid/media/MediaCodec$CryptoInfo;JI)V");
+      (*env)->GetMethodID (env, media_codec.klass, "queueSecureInputBuffer",
+      "(IILandroid/media/MediaCodec$CryptoInfo;JI)V");
 
   media_codec.create_by_codec_name =
       (*env)->GetStaticMethodID (env, media_codec.klass, "createByCodecName",
@@ -1572,19 +1771,19 @@ get_java_classes (void)
       (*env)->GetMethodID (env, media_codec.klass, "stop", "()V");
 
   AMC_CHK (media_codec.queue_secure_input_buffer &&
-           media_codec.configure &&
-           media_codec.create_by_codec_name &&
-           media_codec.dequeue_input_buffer &&
-           media_codec.dequeue_output_buffer &&
-           media_codec.flush &&
-           media_codec.get_input_buffers &&
-           media_codec.get_output_buffers &&
-           media_codec.get_output_format &&
-           media_codec.queue_input_buffer &&
-           media_codec.release &&
-           media_codec.release_output_buffer &&
-           media_codec.start && media_codec.stop);
-  
+      media_codec.configure &&
+      media_codec.create_by_codec_name &&
+      media_codec.dequeue_input_buffer &&
+      media_codec.dequeue_output_buffer &&
+      media_codec.flush &&
+      media_codec.get_input_buffers &&
+      media_codec.get_output_buffers &&
+      media_codec.get_output_format &&
+      media_codec.queue_input_buffer &&
+      media_codec.release &&
+      media_codec.release_output_buffer &&
+      media_codec.start && media_codec.stop);
+
   tmp = (*env)->FindClass (env, "android/media/MediaCodec$BufferInfo");
   if (!tmp) {
     ret = FALSE;
@@ -1686,28 +1885,68 @@ get_java_classes (void)
     goto done;
   }
 
+  /* MEDIA DRM */
+  media_drm.klass = j_find_class (env, "android/media/MediaDrm");
+  if (!media_drm.klass)
+    goto error;
+  J_INIT_METHOD_ID (media_drm, constructor, "<init>", "(Ljava/util/UUID;)V");
+  J_INIT_METHOD_ID (media_drm, open_session, "openSession", "()[B");
+  J_INIT_METHOD_ID (media_drm, get_key_request, "getKeyRequest", "(" "[B"       // byte[] scope
+      "[B"                      // byte[] init
+      "Ljava/lang/String;"      // String mimeType
+      "I"                       // int keyType
+      "Ljava/util/HashMap;"     // HashMap<String, String> optionalParameters
+      /* returns */
+      ")Landroid/media/MediaDrm$KeyRequest;");
+
+  J_INIT_METHOD_ID (media_drm, provide_key_response, "provideKeyResponse",
+      "([B[B)[B");
+  J_INIT_METHOD_ID (media_drm, close_session, "closeSession", "([B)V");
+
+  /* ==================================== MediaDrm.KeyRequest */
+  media_drm_key_request.klass =
+      j_find_class (env, "android/media/MediaDrm$KeyRequest");
+  if (!media_drm_key_request.klass)
+    goto error;
+  J_INIT_METHOD_ID (media_drm_key_request, get_default_url, "getDefaultUrl",
+      "()Ljava/lang/String;");
+  J_INIT_METHOD_ID (media_drm_key_request, get_data, "getData", "()[B");
+
   /* ==================================== CryptoInfo       */
-  
-  media_codec_crypto_info.klass = j_find_class (env, "android/media/MediaCodec$CryptoInfo");
+
+  media_codec_crypto_info.klass =
+      j_find_class (env, "android/media/MediaCodec$CryptoInfo");
   if (!media_codec_crypto_info.klass)
     goto error;
-  J_INIT_METHOD_ID(media_codec_crypto_info, constructor, "<init>", "()V");
-  J_INIT_METHOD_ID(media_codec_crypto_info, set, "set", "(I[I[I[B[BI)V");
-    
+  J_INIT_METHOD_ID (media_codec_crypto_info, constructor, "<init>", "()V");
+  J_INIT_METHOD_ID (media_codec_crypto_info, set, "set", "(I[I[I[B[BI)V");
+
+  /* ==================================== CryptoException   */
+  crypto_exception.klass =
+      j_find_class (env, "android/media/MediaCodec$CryptoException");
+  if (!crypto_exception.klass)
+    goto error;
+  J_INIT_METHOD_ID (crypto_exception, get_error_code, "getErrorCode", "()I");
+
   /* ==================================== Media Crypto     */
   media_crypto.klass = j_find_class (env, "android/media/MediaCrypto");
   if (!media_crypto.klass)
     goto error;
-  J_INIT_STATIC_METHOD_ID(media_crypto, is_crypto_scheme_supported, "isCryptoSchemeSupported",
-                          "(Ljava/util/UUID;)Z");
-  J_INIT_METHOD_ID(media_crypto, constructor, "<init>", "(Ljava/util/UUID;[B)V");
+  J_INIT_STATIC_METHOD_ID (media_crypto, is_crypto_scheme_supported,
+      "isCryptoSchemeSupported", "(Ljava/util/UUID;)Z");
+
+  J_INIT_METHOD_ID (media_crypto, set_media_drm_session, "setMediaDrmSession",
+      "([B)V");
+  J_INIT_METHOD_ID (media_crypto, constructor, "<init>",
+      "(Ljava/util/UUID;[B)V");
   /* ====================================== UUID          */
   uuid.klass = j_find_class (env, "java/util/UUID");
   if (!uuid.klass)
     goto error;
-  J_INIT_STATIC_METHOD_ID(uuid, from_string, "fromString", "(Ljava/lang/String;)Ljava/util/UUID;");
+  J_INIT_STATIC_METHOD_ID (uuid, from_string, "fromString",
+      "(Ljava/lang/String;)Ljava/util/UUID;");
   /* ======================================               */
-  
+
 done:
   J_DELETE_LOCAL_REF (tmp);
   return ret;
@@ -1779,14 +2018,16 @@ save_codecs (GstPlugin * plugin, GstStructure * cache_data)
 }
 
 
-static const struct {
-  const char * uuid;
-  const char * name;
+static const struct
+{
+  const char *uuid;
+  const char *name;
 } known_cryptos[] = {
-  { "69f908af-4816-46ea-910c-cd5dcccb0a3a", "PSSH" },
-  { "e2719d58-a985-b3c9-781a-b030af78d30e", "CLEARKEY" },
-  { "1077efec-c0b2-4d02-ace3-3c1e52e2fb4b", "CLEARKEY_MSE" },
-  { "5e629af5-38da-4063-8977-97ffbd9902d4", "MPD" }
+  {
+  "69f908af-4816-46ea-910c-cd5dcccb0a3a", "PSSH"}, {
+  "e2719d58-a985-b3c9-781a-b030af78d30e", "CLEARKEY"}, {
+  "1077efec-c0b2-4d02-ace3-3c1e52e2fb4b", "CLEARKEY_MSE"}, {
+  "5e629af5-38da-4063-8977-97ffbd9902d4", "MPD"}
 };
 
 
@@ -1800,14 +2041,15 @@ detect_known_protection_name (const gchar * uuid_utf8)
   return "(unknown)";
 }
 
-jobject juuid_from_utf8 (JNIEnv *env, const gchar * uuid_utf8)
+jobject
+juuid_from_utf8 (JNIEnv * env, const gchar * uuid_utf8)
 {
   jobject juuid = NULL;
   jstring juuid_string = NULL;
 
   juuid_string = (*env)->NewStringUTF (env, uuid_utf8);
   AMC_CHK (juuid_string);
-  
+
   juuid = J_CALL_STATIC_OBJ (uuid, from_string, juuid_string);
   AMC_CHK (juuid);
 error:
@@ -1822,15 +2064,16 @@ is_protection_system_id_supported (const gchar * uuid_utf8)
   jboolean jis_supported = 0;
   JNIEnv *env = gst_jni_get_env ();
   GST_DEBUG ("Checking if protection scheme %s [%s] is supported..",
-            detect_known_protection_name (uuid_utf8) , uuid_utf8);
-  
-  juuid = juuid_from_utf8(env, uuid_utf8);
+      detect_known_protection_name (uuid_utf8), uuid_utf8);
+
+  juuid = juuid_from_utf8 (env, uuid_utf8);
   AMC_CHK (juuid);
-  jis_supported = J_CALL_STATIC_BOOLEAN (media_crypto, is_crypto_scheme_supported, juuid);
+  jis_supported =
+      J_CALL_STATIC_BOOLEAN (media_crypto, is_crypto_scheme_supported, juuid);
 
 error:
   J_DELETE_LOCAL_REF (juuid);
-  
+
   if (jis_supported) {
     GST_DEBUG (".. %s is supported", uuid_utf8);
     return TRUE;
@@ -1848,7 +2091,7 @@ log_known_supported_protection_schemes (void)
   GST_DEBUG ("Scanning device for known decryptors:");
   for (i = 0; i < G_N_ELEMENTS (known_cryptos); i++)
     GST_DEBUG ("%s is %s supported by device", known_cryptos[i].name,
-               is_protection_system_id_supported (known_cryptos[i].uuid) ? "" : "not");
+        is_protection_system_id_supported (known_cryptos[i].uuid) ? "" : "not");
 }
 
 static gboolean
@@ -2058,7 +2301,6 @@ scan_codecs (GstPlugin * plugin)
       valid_codec = FALSE;
       goto next_codec;
     }
-
 #if 0
     if (g_str_has_suffix (name_str, ".secure")) {
       GST_INFO ("Skipping DRM codec '%s'", name_str);
@@ -2066,7 +2308,7 @@ scan_codecs (GstPlugin * plugin)
       goto next_codec;
     }
 #endif
-    
+
     /* FIXME: Non-Google codecs usually just don't work and hang forever
      * or crash when not used from a process that started the Java
      * VM via the non-public AndroidRuntime class. Can we somehow
@@ -3217,7 +3459,7 @@ plugin_init (GstPlugin * plugin)
   gst_amc_codec_info_quark = g_quark_from_static_string ("gst-amc-codec-info");
 
   log_known_supported_protection_schemes ();
-  
+
   if (!register_codecs (plugin))
     return FALSE;
 
