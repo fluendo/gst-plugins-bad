@@ -185,6 +185,7 @@ GstEvent *gst_amc_event_new_surface (gpointer surface);
 gpointer gst_amc_event_parse_surface (GstEvent * event);
 gboolean gst_amc_event_is_surface (GstEvent * event);
 
+gboolean is_protection_system_id_supported (const gchar * uuid_utf8);
 
 jobject juuid_from_utf8 (JNIEnv * env, const gchar * uuid_utf8);
 jbyteArray jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size);

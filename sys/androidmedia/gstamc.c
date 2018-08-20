@@ -345,6 +345,11 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   complete_pssh_payload = payload = GST_BUFFER_DATA (data_buf);
   complete_pssh_payload_size = payload_size = GST_BUFFER_SIZE (data_buf);
 
+  GST_ERROR
+      ("{{{ Parsed drm event. system id = %s (%s supported by device), origin = %s, data_size = %d",
+      system_id, is_protection_system_id_supported (system_id) ? "" : "not",
+      origin, payload_size);
+
   /* If source is quicktime, "data" buffer is wrapped in qt atom.
      To be compatible with qtdemux 1.0 from community, we have to skip
      this atom thing here, and not in qtdemux.
@@ -2018,26 +2023,37 @@ save_codecs (GstPlugin * plugin, GstStructure * cache_data)
 }
 
 
-static const struct
+static struct
 {
   const char *uuid;
   const char *name;
+  gboolean supported;
 } known_cryptos[] = {
   {
+  "9a04f079-9840-4286-ab92-e65be0885f95", "PLAYREADY_BE"}, {
+  "79f0049a-4098-8642-ab92-e65be0885f95", "PLAYREADY"}, {
   "69f908af-4816-46ea-910c-cd5dcccb0a3a", "PSSH"}, {
   "e2719d58-a985-b3c9-781a-b030af78d30e", "CLEARKEY"}, {
   "1077efec-c0b2-4d02-ace3-3c1e52e2fb4b", "CLEARKEY_MSE"}, {
   "5e629af5-38da-4063-8977-97ffbd9902d4", "MPD"}
 };
 
+static gboolean cached_supported_system_ids = FALSE;
+
 
 static const gchar *
-detect_known_protection_name (const gchar * uuid_utf8)
+detect_known_protection_name (const gchar * uuid_utf8,
+    gboolean * cached_supported, gboolean * found)
 {
   int i;
   for (i = 0; i < G_N_ELEMENTS (known_cryptos); i++)
-    if (!g_ascii_strcasecmp (uuid_utf8, known_cryptos[i].uuid))
+    if (!g_ascii_strcasecmp (uuid_utf8, known_cryptos[i].uuid)) {
+      if (cached_supported)
+        *cached_supported = known_cryptos[i].supported;
+      if (found)
+        *found = cached_supported_system_ids;
       return known_cryptos[i].name;
+    }
   return "(unknown)";
 }
 
@@ -2057,14 +2073,21 @@ error:
   return juuid;
 }
 
-static gboolean
+
+gboolean
 is_protection_system_id_supported (const gchar * uuid_utf8)
 {
   jobject juuid = NULL;
   jboolean jis_supported = 0;
   JNIEnv *env = gst_jni_get_env ();
-  GST_DEBUG ("Checking if protection scheme %s [%s] is supported..",
-      detect_known_protection_name (uuid_utf8), uuid_utf8);
+  gboolean cached_supported;
+  gboolean found;
+  const gchar *sysid_name =
+      detect_known_protection_name (uuid_utf8, &cached_supported, &found);
+  if (found) {
+    jis_supported = cached_supported;
+    goto error;                 // <-- not an error, but same label
+  }
 
   juuid = juuid_from_utf8 (env, uuid_utf8);
   AMC_CHK (juuid);
@@ -2073,14 +2096,9 @@ is_protection_system_id_supported (const gchar * uuid_utf8)
 
 error:
   J_DELETE_LOCAL_REF (juuid);
-
-  if (jis_supported) {
-    GST_DEBUG (".. %s is supported", uuid_utf8);
-    return TRUE;
-  }
-
-  GST_DEBUG (".. %s is not supported", uuid_utf8);
-  return FALSE;
+  GST_ERROR ("Protection scheme %s (%s) is%s supported by device",
+      sysid_name, uuid_utf8, jis_supported ? "" : " not");
+  return jis_supported;
 }
 
 
@@ -2088,10 +2106,11 @@ static void
 log_known_supported_protection_schemes (void)
 {
   gint i;
-  GST_DEBUG ("Scanning device for known decryptors:");
   for (i = 0; i < G_N_ELEMENTS (known_cryptos); i++)
-    GST_DEBUG ("%s is %s supported by device", known_cryptos[i].name,
-        is_protection_system_id_supported (known_cryptos[i].uuid) ? "" : "not");
+    known_cryptos[i].supported =
+        is_protection_system_id_supported (known_cryptos[i].uuid);
+
+  cached_supported_system_ids = TRUE;
 }
 
 static gboolean
