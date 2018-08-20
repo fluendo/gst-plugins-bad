@@ -204,16 +204,17 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
 
   // Append the x-cenc caps
   if (ret) {
-    GstCaps *cenc_caps = gst_caps_new_empty();
+    GstCaps *cenc_caps = gst_caps_new_empty ();
     guint i;
-    for (i = 0; i < gst_caps_get_size(ret); ++i) {
+    for (i = 0; i < gst_caps_get_size (ret); ++i) {
       GstStructure *str = gst_structure_copy (gst_caps_get_structure (ret, i));
       const gchar *real_media_type = g_strdup (gst_structure_get_name (str));
       gst_structure_set_name (str, "application/x-cenc");
-      gst_structure_set (str, "real-caps", G_TYPE_STRING, real_media_type, NULL);
-      gst_caps_append_structure(cenc_caps, str);
+      gst_structure_set (str, "real-caps", G_TYPE_STRING, real_media_type,
+          NULL);
+      gst_caps_append_structure (cenc_caps, str);
     }
-    gst_caps_append(ret, cenc_caps);
+    gst_caps_append (ret, cenc_caps);
   }
 
   return ret;
@@ -317,11 +318,13 @@ gst_amc_audio_dec_base_init (gpointer g_class)
 
 static void
 gst_amc_audio_dec_get_property (GObject * object, guint prop_id, GValue * value,
-                               GParamSpec * pspec) {
+    GParamSpec * pspec)
+{
   GstAmcAudioDec *thiz = GST_AMC_AUDIO_DEC (object);
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
-      g_value_set_pointer (value, (gpointer)thiz->jmcrypto_from_user.object);
+      g_value_set_pointer (value,
+          (gpointer) thiz->crypto_ctx.mcrypto_from_user);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -337,7 +340,8 @@ gst_amc_audio_dec_set_property (GObject * object, guint prop_id,
   GstAmcAudioDec *thiz = GST_AMC_AUDIO_DEC (object);
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
-      thiz->jmcrypto_from_user.object = (jobject)g_value_get_pointer (value);
+      thiz->crypto_ctx.mcrypto_from_user =
+          (jobject) g_value_get_pointer (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -346,12 +350,29 @@ gst_amc_audio_dec_set_property (GObject * object, guint prop_id,
 }
 
 
+static jobject
+gst_amc_audio_dec_ask_user_mcrypto (GstAmcAudioDec * self)
+{
+  gst_element_post_message (GST_ELEMENT (self),
+      gst_message_new_element
+      (GST_OBJECT (self),
+          gst_structure_new ("prepare-drm-agent-handle", NULL)));
+
+  if (self->crypto_ctx.mcrypto_from_user) {
+    JNIEnv *env = gst_jni_get_env ();
+    self->crypto_ctx.mcrypto_from_user =
+        (*env)->NewGlobalRef (env, self->crypto_ctx.mcrypto_from_user);
+
+    return self->crypto_ctx.mcrypto_from_user;
+  }
+  return NULL;
+}
+
+
 static gboolean
 gst_amc_audio_dec_sink_event (GstPad * pad, GstEvent * event)
 {
-  gboolean
-    handled = FALSE,
-    res = FALSE;
+  gboolean handled = FALSE, res = FALSE;
 
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_CUSTOM_DOWNSTREAM:
@@ -362,14 +383,25 @@ gst_amc_audio_dec_sink_event (GstPad * pad, GstEvent * event)
        */
       if (fluc_drm_is_event (event)) {
         GstAmcAudioDec *self = GST_AMC_AUDIO_DEC (gst_pad_get_parent (pad));
-        self->jmcrypto_from_event.object = jmedia_crypto_from_drm_event (event);
-        if (self->jmcrypto_from_event.object)
-          handled = TRUE;
-
+        if (FALSE == (self->crypto_ctx.mcrypto
+                || self->crypto_ctx.mcrypto_from_user)) {
+          /* Now it's time to ask user if he has any drm context for us.
+             If he has - no need to create a new drm session */
+          if (gst_amc_audio_dec_ask_user_mcrypto (self))
+            GST_WARNING_OBJECT (self,
+                "Have both: DRM event and crypto context from user."
+                "Prefer crypto context from user");
+          else if (jmedia_crypto_from_drm_event (event, &self->crypto_ctx))
+            handled = TRUE;
+        } else {
+          /* If we already have some drm context, we just ignore this event */
+          GST_WARNING_OBJECT (self, "DRM event received, but ignored because"
+              "crypto context is being initialized already.");
+        }
         gst_object_unref (self);
       }
       break;
-      
+
     default:
       break;
   }
@@ -404,7 +436,7 @@ gst_amc_audio_dec_class_init (GstAmcAudioDecClass * klass)
   audiodec_class->set_format = GST_DEBUG_FUNCPTR (gst_amc_audio_dec_set_format);
   audiodec_class->handle_frame =
       GST_DEBUG_FUNCPTR (gst_amc_audio_dec_handle_frame);
-  
+
   /* FIXME this will be handled differently in the future.
    * 1. We need an interface that OPE will call, similar to xoverlay
    * 2. We need to not export this as a property, but an interface method
@@ -418,9 +450,9 @@ gst_amc_audio_dec_class_init (GstAmcAudioDecClass * klass)
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   gobject_class->set_property =
-    GST_DEBUG_FUNCPTR (gst_amc_audio_dec_set_property);
+      GST_DEBUG_FUNCPTR (gst_amc_audio_dec_set_property);
   gobject_class->get_property =
-    GST_DEBUG_FUNCPTR (gst_amc_audio_dec_get_property);
+      GST_DEBUG_FUNCPTR (gst_amc_audio_dec_get_property);
 }
 
 static void
@@ -651,10 +683,10 @@ retry:
         g_free (format_string);
 
         if (!gst_amc_audio_dec_set_src_caps (self, format)) {
-          gst_amc_format_free (format);
+          gst_amc_format_free (format, &self->crypto_ctx);
           goto format_error;
         }
-        gst_amc_format_free (format);
+        gst_amc_format_free (format, &self->crypto_ctx);
 
         if (self->output_buffers)
           gst_amc_codec_free_buffers (self->output_buffers,
@@ -919,7 +951,7 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
   gboolean needs_disable = FALSE;
   gchar *format_string;
   gint rate, channels;
-  GstAmcCrypto * crypto_ctx;
+  jobject mcrypto = NULL;
 
   self = GST_AMC_AUDIO_DEC (decoder);
 
@@ -1027,26 +1059,27 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
 
   self->n_buffers = 0;
 
-  /* now it's time to request the application for a DRM agent handle */
-  gst_element_post_message (GST_ELEMENT (self),
-                            gst_message_new_element
-                            (GST_OBJECT (self),
-                             gst_structure_new ("prepare-drm-agent-handle", NULL)));
-  
-  crypto_ctx =
-    self->jmcrypto_from_user.object ?
-    /* For now we give priority to context provided by application*/
-    &self->jmcrypto_from_user : &self->jmcrypto_from_event;
+  /* Crypto ctx from user has a higher priority then crypto ctx from event */
+  if (self->crypto_ctx.mcrypto_from_user)
+    mcrypto = self->crypto_ctx.mcrypto_from_user;
+  else if (self->crypto_ctx.mcrypto)
+    mcrypto = self->crypto_ctx.mcrypto;
+  else
+    /* If we didn't receive a drm event. Still ask the user about the crypto context. */
+    mcrypto = gst_amc_audio_dec_ask_user_mcrypto (self);
 
-  if (crypto_ctx->object)
+  /* We decide that stream is encrypted if we eather received and parsed
+     drm event, eather received crypto ctx from user. It may be not completely correct.
+     Other way - is to base on caps of sinkpad (if they're x-cenc) */
+  if (mcrypto)
     self->is_encrypted = TRUE;
-  
-  if (!gst_amc_codec_configure (self->codec, format, NULL, crypto_ctx, 0)) {
+
+  if (!gst_amc_codec_configure (self->codec, format, NULL, mcrypto, 0)) {
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }
 
-  gst_amc_format_free (format);
+  gst_amc_format_free (format, NULL);
 
   if (!gst_amc_codec_start (self->codec)) {
     GST_ERROR_OBJECT (self, "Failed to start codec");
@@ -1235,12 +1268,12 @@ gst_amc_audio_dec_handle_frame (GstAudioDecoder * decoder, GstBuffer * inbuf)
         buffer_info.flags);
 
     if (self->is_encrypted) {
-      if (!gst_amc_codec_queue_secure_input_buffer (self->codec, idx, &buffer_info, inbuf))
+      if (!gst_amc_codec_queue_secure_input_buffer (self->codec, idx,
+              &buffer_info, inbuf))
         goto queue_error;
-    }
-    else
-      if (!gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info))
-        goto queue_error;
+    } else
+        if (!gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info))
+      goto queue_error;
   }
 
   gst_buffer_unref (inbuf);
