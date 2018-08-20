@@ -350,6 +350,7 @@ gst_amc_audio_dec_set_property (GObject * object, guint prop_id,
 }
 
 
+#if 0
 static jobject
 gst_amc_audio_dec_ask_user_mcrypto (GstAmcAudioDec * self)
 {
@@ -367,6 +368,7 @@ gst_amc_audio_dec_ask_user_mcrypto (GstAmcAudioDec * self)
   }
   return NULL;
 }
+#endif
 
 
 static gboolean
@@ -383,6 +385,34 @@ gst_amc_audio_dec_sink_event (GstPad * pad, GstEvent * event)
        */
       if (fluc_drm_is_event (event)) {
         GstAmcAudioDec *self = GST_AMC_AUDIO_DEC (gst_pad_get_parent (pad));
+        GstBuffer *data_buf;
+        const gchar *system_id, *origin;
+        fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
+        GST_ERROR_OBJECT (self, "{{{ Received drm event."
+            "SystemId = [%s] (%ssupported by device), origin = [%s], %s data buffer,"
+            "data size = %d", system_id,
+            is_protection_system_id_supported (system_id) ? "" : "not ",
+            origin, data_buf ? "attached" : "no",
+            data_buf ? GST_BUFFER_SIZE (data_buf) : 0);
+
+        if (data_buf) {
+          // Hack for now to be sure we're providing pssh
+          if (GST_BUFFER_SIZE (data_buf))
+            gst_element_post_message (self,
+                gst_message_new_element
+                (GST_OBJECT (self),
+                    gst_structure_new ("prepare-drm-agent-handle",
+                        "init_data", GST_TYPE_BUFFER, data_buf, NULL)));
+
+          if (self->crypto_ctx.mcrypto_from_user) {
+            GST_ERROR_OBJECT (self, "{{{ Received from user MediaCrypto [%p]",
+                self->crypto_ctx.mcrypto_from_user);
+            handled = TRUE;
+          }
+        }
+
+        /* For now we rely on MediaCrypto provided by the user */
+#if 0
         if (FALSE == (self->crypto_ctx.mcrypto
                 || self->crypto_ctx.mcrypto_from_user)) {
           /* Now it's time to ask user if he has any drm context for us.
@@ -398,6 +428,7 @@ gst_amc_audio_dec_sink_event (GstPad * pad, GstEvent * event)
           GST_WARNING_OBJECT (self, "DRM event received, but ignored because"
               "crypto context is being initialized already.");
         }
+#endif
         gst_object_unref (self);
       }
       break;
@@ -1062,11 +1093,15 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
   /* Crypto ctx from user has a higher priority then crypto ctx from event */
   if (self->crypto_ctx.mcrypto_from_user)
     mcrypto = self->crypto_ctx.mcrypto_from_user;
+
+  /* For now we rely on MediaCrypto provided by the user */
+#if 0
   else if (self->crypto_ctx.mcrypto)
     mcrypto = self->crypto_ctx.mcrypto;
   else
     /* If we didn't receive a drm event. Still ask the user about the crypto context. */
     mcrypto = gst_amc_audio_dec_ask_user_mcrypto (self);
+#endif
 
   /* We decide that stream is encrypted if we eather received and parsed
      drm event, eather received crypto ctx from user. It may be not completely correct.
