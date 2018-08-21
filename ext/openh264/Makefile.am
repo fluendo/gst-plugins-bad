@@ -7,7 +7,8 @@ libgstopenh264_la_SOURCES = \
 
 libgstopenh264_la_CFLAGS = $(GST_PLUGINS_BAD_CFLAGS) $(GST_PLUGINS_BASE_CFLAGS) $(GST_CFLAGS) $(OPENH264_CFLAGS)
 libgstopenh264_la_CXXFLAGS = $(GST_PLUGINS_BAD_CXXFLAGS) $(GST_PLUGINS_BASE_CFLAGS) $(GST_CXXFLAGS) $(OPENH264_CFLAGS)
-libgstopenh264_la_LIBADD = $(GST_PLUGINS_BASE_LIBS) -lgstbasevideo-0.10 $(GST_LIBS) $(OPENH264_LIBS)
+libgstopenh264_la_LIBADD = $(top_builddir)/gst-libs/gst/video/libgstbasevideo-@GST_MAJORMINOR@.la \
+    $(GST_PLUGINS_BASE_LIBS) -lgstbasevideo-0.10 $(GST_LIBS) $(OPENH264_LIBS)
 libgstopenh264_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
 
 noinst_HEADERS = \
