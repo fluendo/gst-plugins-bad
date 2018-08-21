@@ -324,6 +324,76 @@ error:
 
 
 gboolean
+hack_pssh_initdata (guchar * payload, gsize payload_size,
+    gsize * new_payload_size)
+{
+  guchar *payload_begin = payload;
+  if (payload_size < 32) {
+    GST_ERROR ("Invalid pssh data");
+    return FALSE;
+  }
+
+  if (FALSE == (payload[4] == 'p' &&
+          payload[5] == 's' && payload[6] == 's' && payload[7] == 'h')) {
+    GST_ERROR ("Sanity check failed: provided payload is not pssh");
+    return FALSE;
+  }
+
+  {
+    guint32 version = GST_READ_UINT32_BE (payload + 8);
+    version = version >> 24;
+    payload += 28;
+
+    if (version != 1)
+      GST_ERROR ("Sanity check failed: pssh version (%d) != 1", version);
+
+    if (version > 0) {
+      gint i;
+      guint32 kid_count = GST_READ_UINT32_BE (payload);
+      GST_ERROR ("### PSSH: kid_count = %d", kid_count);
+      payload += 4;
+      for (i = 0; i < kid_count; i++) {
+        guchar *p = payload;
+        GST_ERROR ("### kid[%d] = [%02x.%02x.%02x.%02x."
+            "%02x.%02x.%02x.%02x."
+            "%02x.%02x.%02x.%02x."
+            "%02x.%02x.%02x.%02x]", i,
+            p[0], p[1], p[2], p[3],
+            p[4], p[5], p[6], p[7],
+            p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]
+            );
+
+        payload += 16;
+      }
+    }
+  }
+
+  {
+    gsize data_field_size = GST_READ_UINT32_BE (payload);
+    payload += 4;
+
+    GST_ERROR ("### Size of data field inside pssh: %d", data_field_size);
+  }
+
+  /* Now we have to hack pssh a little because of Android libmediadrm's pitfall: 
+     It requires initData (pssh) to have "data" size == 0, and if "data" size != 0,
+     android will just refuse to parse in
+     av/drm/mediadrm/plugins/clearkey/InitDataParcer.cpp:112
+   */
+  *new_payload_size = payload - payload_begin;
+  if (*new_payload_size != payload_size) {
+    GST_ERROR
+        ("&&& Overwriting pssh header's size from %u to %u, and \"data size\" field to 0",
+        payload_size, *new_payload_size);
+    GST_WRITE_UINT32_BE (payload_begin, *new_payload_size);
+    GST_WRITE_UINT32_BE (payload - 4, 0);
+  }
+
+  return TRUE;
+}
+
+
+gboolean
 jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
 {
   GstBuffer *data_buf = NULL;
@@ -342,69 +412,22 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
   AMC_CHK (system_id && data_buf && origin);
 
-  complete_pssh_payload = payload = GST_BUFFER_DATA (data_buf);
-  complete_pssh_payload_size = payload_size = GST_BUFFER_SIZE (data_buf);
+  complete_pssh_payload = GST_BUFFER_DATA (data_buf);
+  complete_pssh_payload_size = GST_BUFFER_SIZE (data_buf);
 
   GST_ERROR
       ("{{{ Parsed drm event. system id = %s (%s supported by device), origin = %s, data_size = %d",
       system_id, is_protection_system_id_supported (system_id) ? "" : "not",
-      origin, payload_size);
+      origin, complete_pssh_payload_size);
 
   /* If source is quicktime, "data" buffer is wrapped in qt atom.
      To be compatible with qtdemux 1.0 from community, we have to skip
      this atom thing here, and not in qtdemux.
    */
-  if (g_str_has_prefix (origin, "isobmff/")) {
-    if (payload_size < 32) {
-      GST_ERROR ("Invalid pssh data");
-      return FALSE;
-    }
-
-    if (FALSE == (complete_pssh_payload[4] == 'p' &&
-            complete_pssh_payload[5] == 's' &&
-            complete_pssh_payload[6] == 's' &&
-            complete_pssh_payload[7] == 'h')) {
-      GST_ERROR ("Sanity check failed: provided payload is not pssh");
+  if (g_str_has_prefix (origin, "isobmff/"))
+    if (!hack_pssh_initdata (complete_pssh_payload, complete_pssh_payload_size,
+            &complete_pssh_payload_size))
       goto error;
-    }
-
-    {
-      guint32 version = GST_READ_UINT32_BE (payload + 8);
-      version = version >> 24;
-      payload += 28;
-
-      if (version > 0) {
-        gint i;
-        guint32 kid_count = GST_READ_UINT32_BE (payload);
-        GST_ERROR ("### PSSH: kid_count = %d", kid_count);
-        payload += 4;
-        for (i = 0; i < kid_count; i++) {
-          guchar *p = payload;
-          GST_ERROR ("### kid[%d] = [%02x.%02x.%02x.%02x."
-              "%02x.%02x.%02x.%02x."
-              "%02x.%02x.%02x.%02x."
-              "%02x.%02x.%02x.%02x]", i,
-              p[0], p[1], p[2], p[3],
-              p[4], p[5], p[6], p[7],
-              p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]
-              );
-
-          payload += 16;
-        }
-      }
-    }
-
-    payload_size = GST_READ_UINT32_BE (payload);
-    payload += 4;
-
-    GST_DEBUG ("Size of payload inside pssh: %d", payload_size);
-
-    if (GST_BUFFER_SIZE (data_buf) < payload_size) {
-      GST_ERROR
-          ("Sanity check failed: GST_BUFFER_SIZE (data_buf) < payload_size");
-      goto error;
-    }
-  }
 
   jinit_data =
       jbyte_arr_from_data (env, complete_pssh_payload,
@@ -2023,6 +2046,10 @@ save_codecs (GstPlugin * plugin, GstStructure * cache_data)
 }
 
 
+//  "69f908af-4816-46ea-910c-cd5dcccb0a3a", "PSSH"}, {
+//  "e2719d58-a985-b3c9-781a-b030af78d30e", "CENC"}, {
+//  "5e629af5-38da-4063-8977-97ffbd9902d4", "MPD"}
+
 static struct
 {
   const char *uuid;
@@ -2030,15 +2057,20 @@ static struct
   gboolean supported;
 } known_cryptos[] = {
   {
+    // clearkey should be the first, it's used in sysid_is_clearkey
+  "1077efec-c0b2-4d02-ace3-3c1e52e2fb4b", "CLEARKEY"}, {
   "9a04f079-9840-4286-ab92-e65be0885f95", "PLAYREADY_BE"}, {
-  "79f0049a-4098-8642-ab92-e65be0885f95", "PLAYREADY"}, {
-  "69f908af-4816-46ea-910c-cd5dcccb0a3a", "PSSH"}, {
-  "e2719d58-a985-b3c9-781a-b030af78d30e", "CLEARKEY"}, {
-  "1077efec-c0b2-4d02-ace3-3c1e52e2fb4b", "CLEARKEY_MSE"}, {
-  "5e629af5-38da-4063-8977-97ffbd9902d4", "MPD"}
+  "79f0049a-4098-8642-ab92-e65be0885f95", "PLAYREADY"}
 };
 
 static gboolean cached_supported_system_ids = FALSE;
+
+
+gboolean
+sysid_is_clearkey (const gchar * sysid)
+{
+  return !g_ascii_strcasecmp (sysid, known_cryptos[0].uuid);
+}
 
 
 static const gchar *

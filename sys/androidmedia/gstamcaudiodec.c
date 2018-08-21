@@ -397,12 +397,21 @@ gst_amc_audio_dec_sink_event (GstPad * pad, GstEvent * event)
 
         if (data_buf) {
           // Hack for now to be sure we're providing pssh
-          if (GST_BUFFER_SIZE (data_buf))
+          if (GST_BUFFER_SIZE (data_buf)) {
+            if (g_str_has_prefix (origin, "isobmff/") &&
+                sysid_is_clearkey (system_id)) {
+              gsize new_size;
+              hack_pssh_initdata (GST_BUFFER_DATA (data_buf),
+                  GST_BUFFER_SIZE (data_buf), &new_size);
+              GST_BUFFER_SIZE (data_buf) = new_size;
+            }
+
             gst_element_post_message (self,
                 gst_message_new_element
                 (GST_OBJECT (self),
                     gst_structure_new ("prepare-drm-agent-handle",
                         "init_data", GST_TYPE_BUFFER, data_buf, NULL)));
+          }
 
           if (self->crypto_ctx.mcrypto_from_user) {
             GST_ERROR_OBJECT (self, "{{{ Received from user MediaCrypto [%p]",
