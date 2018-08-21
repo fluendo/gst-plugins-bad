@@ -26,7 +26,8 @@
 #include <gst/audio/multichannel.h>
 #include <jni.h>
 
-G_BEGIN_DECLS typedef struct _GstAmcCodecInfo GstAmcCodecInfo;
+G_BEGIN_DECLS
+typedef struct _GstAmcCodecInfo GstAmcCodecInfo;
 typedef struct _GstAmcCodecType GstAmcCodecType;
 typedef struct _GstAmcCodec GstAmcCodec;
 typedef struct _GstAmcBufferInfo GstAmcBufferInfo;
@@ -191,6 +192,11 @@ jobject juuid_from_utf8 (JNIEnv * env, const gchar * uuid_utf8);
 jbyteArray jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size);
 gboolean jmedia_crypto_from_drm_event (GstEvent * event,
     GstAmcCrypto * crypto_ctx);
+
+gboolean hack_pssh_initdata (guchar * payload, gsize payload_size,
+    gsize * new_payload_size);
+
+gboolean sysid_is_clearkey (const gchar * sysid);
 
 G_END_DECLS
 #endif /* __GST_AMC_H__ */
