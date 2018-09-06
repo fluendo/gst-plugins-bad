@@ -324,18 +324,18 @@ error:
   return crypto_info_ret;
 }
 
-struct CurlWriteData
+typedef struct _AmcCurlWriteData
 {
   char *data;
   size_t size;
-};
+} AmcCurlWriteData;
 
 static size_t
-curl_write_memory_callback (void *contents, size_t size, size_t nmemb,
+amc_curl_write_memory_callback (void *contents, size_t size, size_t nmemb,
     void *data)
 {
   const size_t realsize = size * nmemb;
-  struct CurlWriteData *write_data = (struct CurlWriteData *) data;
+  AmcCurlWriteData *write_data = (AmcCurlWriteData *) data;
   write_data->data =
       g_realloc (write_data->data, write_data->size + realsize + 1);
   memcpy (&(write_data->data[write_data->size]), contents, realsize);
@@ -345,12 +345,12 @@ curl_write_memory_callback (void *contents, size_t size, size_t nmemb,
 }
 
 static gboolean
-curl_post_request (const char *url, const char *post, size_t * post_size,
+amc_curl_post_request (const char *url, const char *post, size_t * post_size,
     char **response_data, size_t * response_size)
 {
   CURL *curl;
   struct curl_slist *slist;
-  struct CurlWriteData chunk;
+  AmcCurlWriteData chunk;
   CURLcode res;
 
   /* Check parameters */
@@ -378,7 +378,8 @@ curl_post_request (const char *url, const char *post, size_t * post_size,
   chunk.data = g_new0 (char, 1);        // Will grow with realloc
   chunk.size = 0;
   curl_easy_setopt (curl, CURLOPT_WRITEDATA, (void *) &chunk);
-  curl_easy_setopt (curl, CURLOPT_WRITEFUNCTION, curl_write_memory_callback);
+  curl_easy_setopt (curl, CURLOPT_WRITEFUNCTION,
+      amc_curl_write_memory_callback);
 
   /* process the request */
   res = curl_easy_perform (curl);
@@ -387,8 +388,10 @@ curl_post_request (const char *url, const char *post, size_t * post_size,
   curl_easy_cleanup (curl);
   curl_slist_free_all (slist);
 
-  if (res != CURLE_OK)
+  if (res != CURLE_OK) {
+    g_free (chunk.data);
     return FALSE;
+  }
 
   *response_data = chunk.data;
   *response_size = chunk.size;
@@ -533,15 +536,20 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   jbyteArray jreq_data;
   jsize req_data_len;
   gchar *req_data_utf8;
+  guint32 def_url_size;
   jstring jdef_url = (*env)->CallObjectMethod (env, request,
       media_drm_key_request.get_default_url);
   J_EXCEPTION_CHECK ("mediaDrm.KeyRequest->getDefaultUrl");
   AMC_CHK (request);
 
   def_url = (*env)->GetStringUTFChars (env, jdef_url, NULL);
-  J_EXCEPTION_CHECK ("GetStringUTFChars");
+  J_EXCEPTION_CHECK ("def_url = GetStringUTFChars()");
 
-  GST_ERROR ("### default url is: [%s]", def_url ? def_url : "NULL !!!");
+  def_url_size = (*env)->GetArrayLength (env, jreq_data);
+  J_EXCEPTION_CHECK ("jdef_url_size = GetArrayLength()");
+
+  GST_ERROR ("### default url is: [%s], size = %u",
+      def_url ? def_url : "NULL !!!", def_url_size);
 
   jreq_data =
       (*env)->CallObjectMethod (env, request, media_drm_key_request.get_data);
@@ -565,29 +573,16 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   GST_ERROR ("### req_data_utf8 = %s", req_data_utf8 + i);
 
   /* ProvideKeyResponse */
-#if 0                           // CLEARKEY
-  // TODO: implement reencoding from base64url to base64 and back.
-  // We have to parse json for it first, reencode, and then compile json back.
-  // ORIGINAL fake key response/request:
-  // request:
-  // {"kids":["L--K2BLfQpeD6b9uXkk-Uw"],"type":"temporary"}
-  // response:
-  // {"keys":[{"kty":"oct","alg":"A128KW","kid":"L--K2BLfQpeD6b9uXkk-Uw","k":"f0EvBXX0T3GCWb7vVux3cQ"}],"type":"temporary"}
-  const char *key_response = "{\n"
-      " \"status\": \"OK\",\n"
-      " \"keys\": [\n"
-      "   {\n"
-      "     \"kid\": \"L++K2BLfQpeD6b9uXkk+Uw\",\n"
-      "     \"k\": \"f0EvBXX0T3GCWb7vVux3cQ\",\n"
-      "     \"kty\": \"oct\",\n" "     \"type\": \"temporary\" } ]\n" " }";
-  const key_response_size = strlen (key_response) + 1;
-#else // PLAYREADY
   char *key_response = NULL;
   size_t key_response_size = 0;
-  if (!curl_post_request (def_url, req_data_utf8, req_data_len, &key_response,
-          &key_response_size))
-    GST_ERROR ("Could not post key request with curl");
-#endif
+
+  // FIXME: if clearkey --> reencode request and response base64/base64url
+
+  if (!amc_curl_post_request (def_url, req_data_utf8, req_data_len,
+          &key_response, &key_response_size)) {
+    GST_ERROR ("Could not post key request to url <%s>", def_url);
+    goto error;
+  }
   GST_ERROR ("Providing key response: %s", key_response);
   jbyteArray jkey_response =
       jbyte_arr_from_data (env, key_response, key_response_size);
@@ -612,6 +607,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
 error:
   J_DELETE_LOCAL_REF (juuid);
   J_DELETE_LOCAL_REF (jinit_data);
+  g_free (key_response);
 
   return crypto_ctx->mdrm && crypto_ctx->mcrypto && crypto_ctx->mdrm_session_id;
 }
