@@ -536,7 +536,6 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   jbyteArray jreq_data;
   jsize req_data_len;
   gchar *req_data_utf8;
-  guint32 def_url_size;
   jstring jdef_url = (*env)->CallObjectMethod (env, request,
       media_drm_key_request.get_default_url);
   J_EXCEPTION_CHECK ("mediaDrm.KeyRequest->getDefaultUrl");
@@ -545,11 +544,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   def_url = (*env)->GetStringUTFChars (env, jdef_url, NULL);
   J_EXCEPTION_CHECK ("def_url = GetStringUTFChars()");
 
-  def_url_size = (*env)->GetArrayLength (env, jdef_url);
-  J_EXCEPTION_CHECK ("jdef_url_size = GetArrayLength()");
-
-  GST_ERROR ("### default url is: [%s], size = %u",
-      def_url ? def_url : "NULL !!!", def_url_size);
+  GST_ERROR ("### default url is: [%s]", def_url ? def_url : "NULL !!!");
 
   jreq_data =
       (*env)->CallObjectMethod (env, request, media_drm_key_request.get_data);
