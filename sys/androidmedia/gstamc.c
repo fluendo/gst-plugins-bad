@@ -2211,7 +2211,7 @@ gst_amc_handle_drm_event (GstElement * self, GstEvent * event,
 #endif
   }
 
-  if (self->crypto_ctx.mcrypto) {
+  if (crypto_ctx->mcrypto) {
     GST_ERROR_OBJECT (self, "{{{ Received from user MediaCrypto [%p]",
         crypto_ctx->mcrypto);
   } else {
