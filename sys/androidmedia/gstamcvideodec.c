@@ -792,7 +792,8 @@ _find_nearest_frame (GstAmcVideoDec * self, GstClockTime reference_timestamp)
 }
 
 static gboolean
-gst_amc_video_dec_set_src_caps (GstAmcVideoDec * self, GstAmcFormat * format)
+gst_amc_video_dec_set_src_caps (GstAmcVideoDec * self,
+    const GstAmcFormat * format)
 {
   GstVideoCodecState *output_state;
   GstAmcVideoDecClass *klass;
@@ -1182,22 +1183,23 @@ gst_amc_video_dec_format_changed (GstAmcVideoDec * self)
 {
   GstAmcFormat *format;
   gchar *format_string;
+  gboolean ret;
+
+  GST_ERROR ("{{{ gst_amc_video_dec_format_changed");
 
   format = gst_amc_codec_get_output_format (self->codec);
   if (!format)
     return FALSE;
 
   format_string = gst_amc_format_to_string (format);
-  GST_DEBUG_OBJECT (self, "Got new output format: %s", format_string);
+  GST_ERROR_OBJECT (self, "{{{ Got new output format: %s", format_string);
   g_free (format_string);
 
-  if (!gst_amc_video_dec_set_src_caps (self, format)) {
-    gst_amc_format_free (format, &self->crypto_ctx);
-    return FALSE;
-  }
+  ret = gst_amc_video_dec_set_src_caps (self, format);
   gst_amc_format_free (format, &self->crypto_ctx);
-  self->output_configured = TRUE;
-  return TRUE;
+
+  self->output_configured = ret;
+  return ret;
 }
 
 static gboolean
@@ -1259,6 +1261,8 @@ retry:
           goto format_error;
         if (!gst_amc_video_dec_output_buffers_changed (self))
           goto get_output_buffers_error;
+
+        // here we need to reconfigure the decoder
         break;
       case INFO_TRY_AGAIN_LATER:
         GST_DEBUG_OBJECT (self, "Dequeueing output buffer timed out");
@@ -1633,7 +1637,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   }
 
   format_string = gst_amc_format_to_string (format);
-  GST_DEBUG_OBJECT (self, "Configuring codec with format: %s surface: %p",
+  GST_ERROR_OBJECT (self, "{{{ Configuring codec with format: %s surface: %p",
       format_string, self->surface);
   g_free (format_string);
 

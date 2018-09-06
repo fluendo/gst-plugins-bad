@@ -296,7 +296,25 @@ gst_amc_get_crypto_info (const GstStructure * s)
       AMC_CHK ((GST_BUFFER_SIZE (kid_buf) >= 16)
           && (GST_BUFFER_SIZE (iv_buf) >= 16));
 
-      j_kid = jbyte_arr_from_data (env, GST_BUFFER_DATA (kid_buf), 16);
+      char *k = GST_BUFFER_DATA (kid_buf);
+      GST_ERROR (";;;; qq: kid = "
+          "%02x.%02x.%02x.%02x."
+          "%02x.%02x.%02x.%02x."
+          "%02x.%02x.%02x.%02x."
+          "%02x.%02x.%02x.%02x",
+          k[0], k[1], k[2], k[3],
+          k[4], k[5], k[6], k[7],
+          k[8], k[9], k[10], k[11], k[12], k[13], k[14], k[15]
+          );
+
+      char nk[16] = {
+        k[3], k[2], k[1], k[0],
+        k[5], k[4],
+        k[7], k[6],
+        k[8], k[9], k[10], k[11], k[12], k[13], k[14], k[15]
+      };
+
+      j_kid = jbyte_arr_from_data (env, nk, 16);
       j_iv = jbyte_arr_from_data (env, GST_BUFFER_DATA (iv_buf), 16);
       AMC_CHK (j_kid && j_iv);
     }
@@ -438,6 +456,16 @@ hack_pssh_initdata (guchar * payload, gsize payload_size,
             p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]
             );
 
+        // now swap the bytes for playready
+        char new_pssh[16] = {
+          p[3], p[2], p[1], p[0],
+          p[5], p[4],
+          p[7], p[6],
+          p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]
+        };
+
+        memcpy (p, new_pssh, 16);
+
         payload += 16;
       }
     }
@@ -495,10 +523,104 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
       system_id, is_protection_system_id_supported (system_id) ? "" : "not",
       origin, complete_pssh_payload_size);
 
-  if (g_str_has_prefix (origin, "isobmff/") && sysid_is_clearkey (system_id))
+  if (g_str_has_prefix (origin,
+          "isobmff/") /* && sysid_is_clearkey (system_id) */ ) {
     if (!hack_pssh_initdata (complete_pssh_payload, complete_pssh_payload_size,
             &complete_pssh_payload_size))
       goto error;
+  } else if (g_str_has_prefix (origin, "dash/mpd")) {
+    // hack dash_mpd
+    glong items_read, items_written;
+    GError *error;
+    gchar *po = complete_pssh_payload;
+
+    gint po_len = GST_READ_UINT32_LE (po);
+    po += 4;
+
+    gshort po_rec_count = GST_READ_UINT16_LE (po);
+    po += 2;
+
+    GST_ERROR (";;;;; po len = %d, rec count = %d", po_len, po_rec_count);
+
+    gint p;
+    for (p = 0; p < po_rec_count; p++) {
+      guint16 rec_type = GST_READ_UINT16_LE (po);
+      po += 2;
+      guint16 rec_len = GST_READ_UINT16_LE (po);
+      po += 2;
+
+      GST_ERROR (";;;; rec type = %d, len = %d", rec_type, rec_len);
+
+      if (rec_type == 1) {
+        gchar *ppoint = po;
+        gchar *utf8_prh = g_utf16_to_utf8 (po,
+            rec_len,
+            &items_read,
+            &items_written,
+            &error);
+
+        GST_ERROR ("#### prh = %s, read = %d, written = %d, error = %p",
+            utf8_prh, items_read, items_written, error);
+
+        {
+          char *ka = g_strstr_len (utf8_prh, rec_len, "<KID>");
+          if (ka) {
+            ka += 5;
+            char *ke = g_strstr_len (ka, rec_len - (ka - utf8_prh),
+                "</KID>");
+            char zz[32] = { 0 };
+            memcpy (zz, ka, ke - ka);
+            GST_ERROR ("#### zz = %s", zz);
+
+            gsize kid_len;
+            guchar *p = g_base64_decode (zz, &kid_len);
+            GST_ERROR ("#### kid len = %d", kid_len);
+
+            char new_pssh[16] = {
+              p[3], p[2], p[1], p[0],
+              p[5], p[4],
+              p[7], p[6],
+              p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]
+            };
+
+            memcpy (p, new_pssh, 16);
+
+            GST_ERROR ("### new kid = [%02x.%02x.%02x.%02x."
+                "%02x.%02x.%02x.%02x."
+                "%02x.%02x.%02x.%02x."
+                "%02x.%02x.%02x.%02x]",
+                p[0], p[1], p[2], p[3],
+                p[4], p[5], p[6], p[7],
+                p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]
+                );
+
+            gchar *bas64 = g_base64_encode (p, 16);
+
+            GST_ERROR ("#### new kid (len = %d): %s", strlen (bas64), bas64);
+
+            memcpy (ka, bas64, strlen (bas64));
+
+            GST_ERROR ("new prh before convertion: %s", utf8_prh);
+
+            // now encode to utf16 back
+            gunichar2 *new_prh = g_utf8_to_utf16 (utf8_prh,
+                items_written,
+                &items_read,
+                &items_written,
+                &error);
+
+            GST_ERROR ("#### new prh, read = %d, written = %d, error = %p",
+                items_read, items_written, error);
+
+            memcpy (ppoint, new_prh, rec_len);
+          }
+        }
+      } else
+        po += rec_len;
+    }
+
+
+  }
 
   jinit_data =
       jbyte_arr_from_data (env, complete_pssh_payload,
@@ -520,7 +642,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   AMC_CHK (jsession_id);
 
   // For all other systemids it's "video/mp4" or "audio/mp4"
-  jmime = (*env)->NewStringUTF (env, "cenc");
+  jmime = (*env)->NewStringUTF (env, "video/mp4");
   AMC_CHK (jmime);
 
   /* TODO: wrap it to macro !!! */
@@ -566,6 +688,41 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
     GST_ERROR ("### req_data_utf8 = %s", chunk);
   }
   GST_ERROR ("### req_data_utf8 = %s", req_data_utf8 + i);
+
+
+  /*
+     #if 0
+     // tryhack
+     char *ka = g_strstr_len (req_data_utf8, req_data_len, "<KID>");
+     if (ka) {
+     GST_ERROR ("#### kidapp = %c%c%c%c" "%c%c%c%c" "...",
+     ka[0], ka[1], ka[2], ka[3], ka[4], ka[5], ka[6], ka[7]);
+
+     char zz[32] = { 0 };
+     memcpy (zz, ka + 5, 24);
+     GST_ERROR ("#### zz = %s", zz);
+
+     gsize kid_len;
+     guchar *p = g_base64_decode (zz, &kid_len);
+     GST_ERROR ("#### kid len = %d", kid_len);
+
+     char new_pssh[16] = {
+     p[3], p[2], p[1], p[0],
+     p[5], p[4],
+     p[7], p[6],
+     p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]
+     };
+
+     memcpy (p, new_pssh, 16);
+
+     gchar *bas64 = g_base64_encode (p, 16);
+
+     GST_ERROR ("#### new kid (len = %d): %s", strlen (bas64), bas64);
+
+     memcpy (ka + 5, bas64, strlen (bas64));
+     }
+     #endif
+   */
 
   /* ProvideKeyResponse */
   char *key_response = NULL;
@@ -1356,11 +1513,16 @@ gst_amc_format_free (GstAmcFormat * format, GstAmcCrypto * crypto_ctx)
   (*env)->DeleteGlobalRef (env, format->object);
   g_slice_free (GstAmcFormat, format);
 
-  if (crypto_ctx) {
-    if (crypto_ctx->mcrypto)
-      (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto);
 
+  if (crypto_ctx) {
+    GST_ERROR ("{{{ gst_amc_format_free");
+
+#if 0
     if (crypto_ctx->mdrm) {
+      // If we have mdrm, we think that the mcrypto is created by us, not the user
+      if (crypto_ctx->mcrypto)
+        (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto);
+
       if (crypto_ctx->mdrm_session_id) {
         J_CALL_VOID (crypto_ctx->mdrm, media_drm.close_session,
             crypto_ctx->mdrm_session_id);
@@ -1372,6 +1534,7 @@ gst_amc_format_free (GstAmcFormat * format, GstAmcCrypto * crypto_ctx)
     }
 
     memset (crypto_ctx, 0, sizeof (GstAmcCrypto));
+#endif
   }
 }
 
@@ -1511,7 +1674,8 @@ done:
 }
 
 gboolean
-gst_amc_format_get_int (GstAmcFormat * format, const gchar * key, gint * value)
+gst_amc_format_get_int (const GstAmcFormat * format, const gchar * key,
+    gint * value)
 {
   JNIEnv *env;
   gboolean ret = FALSE;

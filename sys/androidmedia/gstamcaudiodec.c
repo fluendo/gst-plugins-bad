@@ -639,6 +639,7 @@ retry:
         GstAmcFormat *format;
         gchar *format_string;
 
+        GST_ERROR ("{{{ audio INFO_OUTPUT_FORMAT_CHANGED");
         GST_DEBUG_OBJECT (self, "Output format has changed");
 
         format = gst_amc_codec_get_output_format (self->codec);
@@ -661,6 +662,12 @@ retry:
         self->output_buffers =
             gst_amc_codec_get_output_buffers (self->codec,
             &self->n_output_buffers);
+
+        /* Here we need to reconfigure MediaCrypto */
+        // 1. get catched drm event
+        // 2. create new mediacrypto ?? or change mediacrypto session id ?
+        // 3. configure decoder again 
+
         if (!self->output_buffers)
           goto get_output_buffers_error;
 
