@@ -1362,9 +1362,6 @@ gst_amc_format_free (GstAmcFormat * format, GstAmcCrypto * crypto_ctx)
   g_slice_free (GstAmcFormat, format);
 
   if (crypto_ctx) {
-    if (crypto_ctx->mcrypto_from_user)
-      (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto_from_user);
-
     if (crypto_ctx->mcrypto)
       (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto);
 
@@ -2179,6 +2176,51 @@ error:
   return juuid;
 }
 
+
+void
+gst_amc_handle_drm_event (GstElement * self, GstEvent * event,
+    GstAmcCrypto * crypto_ctx)
+{
+  GstBuffer *data_buf;
+  const gchar *system_id, *origin;
+  fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
+  GST_ERROR_OBJECT (self, "{{{ Received drm event."
+      "SystemId = [%s] (%ssupported by device), origin = [%s], %s data buffer,"
+      "data size = %d", system_id,
+      is_protection_system_id_supported (system_id) ? "" : "not ",
+      origin, data_buf ? "attached" : "no",
+      data_buf ? GST_BUFFER_SIZE (data_buf) : 0);
+
+  // Hack for now to be sure we're providing pssh
+  if (!data_buf)
+    return;
+
+  if (GST_BUFFER_SIZE (data_buf)) {
+    if (g_str_has_prefix (origin, "isobmff/") && sysid_is_clearkey (system_id)) {
+      gsize new_size;
+      hack_pssh_initdata (GST_BUFFER_DATA (data_buf),
+          GST_BUFFER_SIZE (data_buf), &new_size);
+      GST_BUFFER_SIZE (data_buf) = new_size;
+    }
+#if 0                           // Disabled to test in-band
+    gst_element_post_message (self,
+        gst_message_new_element
+        (GST_OBJECT (self),
+            gst_structure_new ("prepare-drm-agent-handle",
+                "init_data", GST_TYPE_BUFFER, data_buf, NULL)));
+#endif
+  }
+
+  if (self->crypto_ctx.mcrypto) {
+    GST_ERROR_OBJECT (self, "{{{ Received from user MediaCrypto [%p]",
+        crypto_ctx->mcrypto);
+  } else {
+    GST_ERROR_OBJECT (self,
+        "{{{ User didn't provide us MediaCrypto, trying In-band mode");
+    if (!jmedia_crypto_from_drm_event (event, crypto_ctx))
+      GST_ERROR_OBJECT (self, "{{{ In-band mode's drm event parsing failed");
+  }
+}
 
 gboolean
 is_protection_system_id_supported (const gchar * uuid_utf8)

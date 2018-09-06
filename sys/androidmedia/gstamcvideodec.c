@@ -485,8 +485,7 @@ gst_amc_video_dec_get_property (GObject * object, guint prop_id, GValue * value,
   GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
-      g_value_set_pointer (value,
-          (gpointer) thiz->crypto_ctx.mcrypto_from_user);
+      g_value_set_pointer (value, (gpointer) thiz->crypto_ctx.mcrypto);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -502,7 +501,7 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
   GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
-      thiz->crypto_ctx.mcrypto_from_user = g_value_get_pointer (value);
+      thiz->crypto_ctx.mcrypto = g_value_get_pointer (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -520,12 +519,12 @@ gst_amc_video_dec_ask_user_mcrypto (GstAmcVideoDec * self)
       (GST_OBJECT (self),
           gst_structure_new ("prepare-drm-agent-handle", NULL)));
 
-  if (self->crypto_ctx.mcrypto_from_user) {
+  if (self->crypto_ctx.mcrypto) {
     JNIEnv *env = gst_jni_get_env ();
-    self->crypto_ctx.mcrypto_from_user =
-        (*env)->NewGlobalRef (env, self->crypto_ctx.mcrypto_from_user);
+    self->crypto_ctx.mcrypto =
+        (*env)->NewGlobalRef (env, self->crypto_ctx.mcrypto);
 
-    return self->crypto_ctx.mcrypto_from_user;
+    return self->crypto_ctx.mcrypto;
   }
   return NULL;
 }
@@ -546,59 +545,8 @@ gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
        */
       if (fluc_drm_is_event (event)) {
         GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
-        GstBuffer *data_buf;
-        const gchar *system_id, *origin;
-        fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
-        GST_ERROR_OBJECT (self, "{{{ Received drm event."
-            "SystemId = [%s] (%ssupported by device), origin = [%s], %s data buffer,"
-            "data size = %d", system_id,
-            is_protection_system_id_supported (system_id) ? "" : "not ",
-            origin, data_buf ? "attached" : "no",
-            data_buf ? GST_BUFFER_SIZE (data_buf) : 0);
-
-        if (data_buf) {
-          // Hack for now to be sure we're providing pssh
-          if (GST_BUFFER_SIZE (data_buf)) {
-            if (g_str_has_prefix (origin, "isobmff/") &&
-                sysid_is_clearkey (system_id)) {
-              gsize new_size;
-              hack_pssh_initdata (GST_BUFFER_DATA (data_buf),
-                  GST_BUFFER_SIZE (data_buf), &new_size);
-              GST_BUFFER_SIZE (data_buf) = new_size;
-            }
-
-            gst_element_post_message (self,
-                gst_message_new_element
-                (GST_OBJECT (self),
-                    gst_structure_new ("prepare-drm-agent-handle",
-                        "init_data", GST_TYPE_BUFFER, data_buf, NULL)));
-          }
-
-          if (self->crypto_ctx.mcrypto_from_user) {
-            GST_ERROR_OBJECT (self, "{{{ Received from user MediaCrypto [%p]",
-                self->crypto_ctx.mcrypto_from_user);
-            handled = TRUE;
-          }
-        }
-
-        /* For now we rely on MediaCrypto provided by the user */
-#if 0
-        if (FALSE == (self->crypto_ctx.mcrypto
-                || self->crypto_ctx.mcrypto_from_user)) {
-          /* Now it's time to ask user if he has any drm context for us.
-             If he has - no need to create a new drm session */
-          if (gst_amc_video_dec_ask_user_mcrypto (self))
-            GST_WARNING_OBJECT (self,
-                "Have both: DRM event and crypto context from user."
-                "Prefer crypto context from user");
-          else if (jmedia_crypto_from_drm_event (event, &self->crypto_ctx))
-            handled = TRUE;
-        } else {
-          /* If we already have some drm context, we just ignore this event */
-          GST_WARNING_OBJECT (self, "DRM event received, but ignored because"
-              "crypto context is being initialized already.");
-        }
-#endif
+        gst_amc_handle_drm_event ((GstElement *) self, event, &self.crypto_ctx);
+        handled = TRUE;
         gst_object_unref (self);
       }
       break;
@@ -1712,27 +1660,14 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   // FIXME: crypto_ctx.mcrypto (from the event) will be lost if
   // media stream will reconfigure it's format
 
-  // temporal approach: always rely on mediacrypto from user
-  mcrypto = self->crypto_ctx.mcrypto_from_user;
-
-#if 0
-  /* Crypto ctx from user has a higher priority then crypto ctx from event */
-  if (self->crypto_ctx.mcrypto_from_user)
-    mcrypto = self->crypto_ctx.mcrypto_from_user;
-  else if (self->crypto_ctx.mcrypto)
-    mcrypto = self->crypto_ctx.mcrypto;
-  else
-    /* If we didn't receive a drm event. Still ask the user about the crypto context. */
-    mcrypto = gst_amc_video_dec_ask_user_mcrypto (self);
-#endif
-
   /* We decide that stream is encrypted if we eather received and parsed
      drm event, eather received crypto ctx from user. It may be not completely correct.
      Other way - is to base on caps of sinkpad (if they're x-cenc) */
-  if (mcrypto)
+  if (self->crypto_ctx.mcrypto)
     self->is_encrypted = TRUE;
 
-  if (!gst_amc_codec_configure (self->codec, format, jsurface, mcrypto, 0)) {
+  if (!gst_amc_codec_configure (self->codec, format, jsurface,
+          self->crypto_ctx.mcrypto, 0)) {
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }
