@@ -510,27 +510,6 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
 }
 
 
-#if 0
-static jobject
-gst_amc_video_dec_ask_user_mcrypto (GstAmcVideoDec * self)
-{
-  gst_element_post_message (GST_ELEMENT (self),
-      gst_message_new_element
-      (GST_OBJECT (self),
-          gst_structure_new ("prepare-drm-agent-handle", NULL)));
-
-  if (self->crypto_ctx.mcrypto) {
-    JNIEnv *env = gst_jni_get_env ();
-    self->crypto_ctx.mcrypto =
-        (*env)->NewGlobalRef (env, self->crypto_ctx.mcrypto);
-
-    return self->crypto_ctx.mcrypto;
-  }
-  return NULL;
-}
-#endif
-
-
 static gboolean
 gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
 {
@@ -545,7 +524,8 @@ gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
        */
       if (fluc_drm_is_event (event)) {
         GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
-        gst_amc_handle_drm_event ((GstElement *) self, event, &self.crypto_ctx);
+        gst_amc_handle_drm_event ((GstElement *) self, event,
+            &self->crypto_ctx);
         handled = TRUE;
         gst_object_unref (self);
       }

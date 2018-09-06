@@ -362,7 +362,8 @@ gst_amc_audio_dec_sink_event (GstPad * pad, GstEvent * event)
        */
       if (fluc_drm_is_event (event)) {
         GstAmcAudioDec *self = GST_AMC_AUDIO_DEC (gst_pad_get_parent (pad));
-        gst_amc_handle_drm_event ((GstElement *) self, event, &self.crypto_ctx);
+        gst_amc_handle_drm_event ((GstElement *) self, event,
+            &self->crypto_ctx);
         handled = TRUE;
         gst_object_unref (self);
       }
