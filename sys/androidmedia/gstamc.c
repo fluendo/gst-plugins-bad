@@ -545,7 +545,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   def_url = (*env)->GetStringUTFChars (env, jdef_url, NULL);
   J_EXCEPTION_CHECK ("def_url = GetStringUTFChars()");
 
-  def_url_size = (*env)->GetArrayLength (env, jreq_data);
+  def_url_size = (*env)->GetArrayLength (env, jdef_url);
   J_EXCEPTION_CHECK ("jdef_url_size = GetArrayLength()");
 
   GST_ERROR ("### default url is: [%s], size = %u",
