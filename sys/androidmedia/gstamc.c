@@ -297,6 +297,8 @@ gst_amc_get_crypto_info (const GstStructure * s)
           && (GST_BUFFER_SIZE (iv_buf) >= 16));
 
       char *k = GST_BUFFER_DATA (kid_buf);
+
+#if 0
       GST_ERROR (";;;; qq: kid = "
           "%02x.%02x.%02x.%02x."
           "%02x.%02x.%02x.%02x."
@@ -313,8 +315,9 @@ gst_amc_get_crypto_info (const GstStructure * s)
         k[7], k[6],
         k[8], k[9], k[10], k[11], k[12], k[13], k[14], k[15]
       };
+#endif
 
-      j_kid = jbyte_arr_from_data (env, nk, 16);
+      j_kid = jbyte_arr_from_data (env, k, 16);
       j_iv = jbyte_arr_from_data (env, GST_BUFFER_DATA (iv_buf), 16);
       AMC_CHK (j_kid && j_iv);
     }
@@ -528,7 +531,9 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
     if (!hack_pssh_initdata (complete_pssh_payload, complete_pssh_payload_size,
             &complete_pssh_payload_size))
       goto error;
-  } else if (g_str_has_prefix (origin, "dash/mpd")) {
+  }
+#if 0
+  else if (g_str_has_prefix (origin, "dash/mpd")) {
     // hack dash_mpd
     glong items_read, items_written;
     GError *error;
@@ -618,9 +623,8 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
       } else
         po += rec_len;
     }
-
-
   }
+#endif
 
   jinit_data =
       jbyte_arr_from_data (env, complete_pssh_payload,
