@@ -228,7 +228,7 @@ gst_amc_get_crypto_info (const GstStructure * s)
     goto error;
   }
   if (!n_subsamples)
-    GST_WARNING ("Number of subsamples field in DRMBuffer is 0");
+    GST_ERROR (";;;; Number of subsamples field in DRMBuffer is 0");
 
   j_n_subsamples = n_subsamples;
   env = gst_jni_get_env ();
