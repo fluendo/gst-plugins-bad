@@ -2215,7 +2215,7 @@ gst_amc_handle_drm_event (GstElement * self, GstEvent * event,
         GST_BUFFER_SIZE (data_buf), &new_size);
     GST_BUFFER_SIZE (data_buf) = new_size;
   }
-#if 0                           // Disabled to test in-band
+#if 1                           // Disabled to test in-band
   gst_element_post_message (self,
       gst_message_new_element
       (GST_OBJECT (self),
