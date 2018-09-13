@@ -36,6 +36,8 @@
 #include <string.h>
 #include <jni.h>
 
+#include <curl/curl.h>
+
 #include <fluc/drm/flucdrm.h>
 
 GST_DEBUG_CATEGORY (gst_amc_debug);
@@ -322,6 +324,79 @@ error:
   return crypto_info_ret;
 }
 
+typedef struct _GstAmcCurlWriteData
+{
+  char *data;
+  size_t size;
+} GstAmcCurlWriteData;
+
+static size_t
+gst_amc_curl_write_memory_callback (void *contents, size_t size, size_t nmemb,
+    void *data)
+{
+  const size_t realsize = size * nmemb;
+  GstAmcCurlWriteData *write_data = (GstAmcCurlWriteData *) data;
+  write_data->data =
+      g_realloc (write_data->data, write_data->size + realsize + 1);
+  memcpy (&(write_data->data[write_data->size]), contents, realsize);
+  write_data->size += realsize;
+  write_data->data[write_data->size] = 0;
+  return realsize;
+}
+
+static gboolean
+gst_amc_curl_post_request (const char *url, const char *post,
+    size_t * post_size, char **response_data, size_t * response_size)
+{
+  CURL *curl;
+  struct curl_slist *slist;
+  GstAmcCurlWriteData chunk;
+  CURLcode res;
+
+  /* Check parameters */
+  if (!url || !post)
+    return FALSE;
+
+  /* Create a new curl instance */
+  curl = curl_easy_init ();
+  if (!curl)
+    return FALSE;
+
+  /* Set the basic options */
+  curl_easy_setopt (curl, CURLOPT_HEADER, 0);
+  curl_easy_setopt (curl, CURLOPT_USERAGENT, "Linux C libcurl");
+  curl_easy_setopt (curl, CURLOPT_URL, url);
+  curl_easy_setopt (curl, CURLOPT_TIMEOUT, 30);
+  curl_easy_setopt (curl, CURLOPT_POSTFIELDS, post);
+  curl_easy_setopt (curl, CURLOPT_POSTFIELDSIZE, post_size);
+
+  /* Set the header options */
+  slist = curl_slist_append (slist, "Content-Type: text/xml");
+  curl_easy_setopt (curl, CURLOPT_HTTPHEADER, slist);
+
+  /* Set the data options */
+  chunk.data = g_new0 (char, 1);        // Will grow with realloc
+  chunk.size = 0;
+  curl_easy_setopt (curl, CURLOPT_WRITEDATA, (void *) &chunk);
+  curl_easy_setopt (curl, CURLOPT_WRITEFUNCTION,
+      gst_amc_curl_write_memory_callback);
+
+  /* process the request */
+  res = curl_easy_perform (curl);
+
+  /* Clean up */
+  curl_easy_cleanup (curl);
+  curl_slist_free_all (slist);
+
+  if (res != CURLE_OK) {
+    g_free (chunk.data);
+    return FALSE;
+  }
+
+  *response_data = chunk.data;
+  *response_size = chunk.size;
+  return TRUE;
+}
 
 gboolean
 hack_pssh_initdata (guchar * payload, gsize payload_size,
@@ -460,66 +535,63 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   J_EXCEPTION_CHECK ("mediaDrm->getKeyRequest");
   AMC_CHK (request);
 
-  {
-    gchar *def_url;
-    jbyteArray jreq_data;
-    jsize req_data_len;
-    gchar *req_data_utf8;
-    jstring jdef_url = (*env)->CallObjectMethod (env, request,
-        media_drm_key_request.get_default_url);
-    J_EXCEPTION_CHECK ("mediaDrm.KeyRequest->getDefaultUrl");
-    AMC_CHK (request);
+  /* getKeyRequest */
+  gchar *def_url;
+  jbyteArray jreq_data;
+  jsize req_data_len;
+  gchar *req_data_utf8;
+  jstring jdef_url = (*env)->CallObjectMethod (env, request,
+      media_drm_key_request.get_default_url);
+  J_EXCEPTION_CHECK ("mediaDrm.KeyRequest->getDefaultUrl");
+  AMC_CHK (request);
 
-    def_url = (*env)->GetStringUTFChars (env, jdef_url, NULL);
-    J_EXCEPTION_CHECK ("GetStringUTFChars");
+  def_url = (*env)->GetStringUTFChars (env, jdef_url, NULL);
+  J_EXCEPTION_CHECK ("def_url = GetStringUTFChars()");
 
-    GST_ERROR ("### default url is: [%s]", def_url ? def_url : "NULL !!!");
+  GST_ERROR ("### default url is: [%s]", def_url ? def_url : "NULL !!!");
 
-    jreq_data =
-        (*env)->CallObjectMethod (env, request, media_drm_key_request.get_data);
-    J_EXCEPTION_CHECK ("mediaDrm.KeyRequest->getData");
-    AMC_CHK (jreq_data);
+  jreq_data =
+      (*env)->CallObjectMethod (env, request, media_drm_key_request.get_data);
+  J_EXCEPTION_CHECK ("mediaDrm.KeyRequest->getData");
+  AMC_CHK (jreq_data);
 
-    req_data_len = (*env)->GetArrayLength (env, jreq_data);
-    J_EXCEPTION_CHECK ("GetArrayLength");
-    GST_ERROR ("### req_data_len = %d", req_data_len);
+  req_data_len = (*env)->GetArrayLength (env, jreq_data);
+  J_EXCEPTION_CHECK ("GetArrayLength");
+  GST_ERROR ("### req_data_len = %d", req_data_len);
 
-    req_data_utf8 = g_malloc0 (req_data_len + 1);
-    (*env)->GetByteArrayRegion (env, jreq_data, 0, req_data_len, req_data_utf8);
-    J_EXCEPTION_CHECK ("GetByteArrayRegion");
+  req_data_utf8 = g_malloc0 (req_data_len + 1);
+  (*env)->GetByteArrayRegion (env, jreq_data, 0, req_data_len, req_data_utf8);
+  J_EXCEPTION_CHECK ("GetByteArrayRegion");
 
-    GST_ERROR ("### req_data_utf8 = <%s>", req_data_utf8);
+  jsize i;
+  for (i = 0; i < req_data_len; i += 700) {
+    gchar chunk[701];
+    snprintf (chunk, 701, "%s", req_data_utf8 + i);
+    GST_ERROR ("### req_data_utf8 = %s", chunk);
   }
+  GST_ERROR ("### req_data_utf8 = %s", req_data_utf8 + i);
 
-  /* Provide fake key response */
-  {
-    // TODO: implement reencoding from base64url to base64 and back.
-    // We have to parse json for it first, reencode, and then compile json back.
-    // ORIGINAL fake key response/request:
-    // request:
-    // {"kids":["L--K2BLfQpeD6b9uXkk-Uw"],"type":"temporary"}
-    // response:
-    // {"keys":[{"kty":"oct","alg":"A128KW","kid":"L--K2BLfQpeD6b9uXkk-Uw","k":"f0EvBXX0T3GCWb7vVux3cQ"}],"type":"temporary"}
+  /* ProvideKeyResponse */
+  char *key_response = NULL;
+  size_t key_response_size = 0;
 
-    jbyteArray jfake_key_response;
-    const char *fake_key_response = "{\n"
-        " \"status\": \"OK\",\n"
-        " \"keys\": [\n"
-        "   {\n"
-        "     \"kid\": \"L++K2BLfQpeD6b9uXkk+Uw\",\n"
-        "     \"k\": \"f0EvBXX0T3GCWb7vVux3cQ\",\n"
-        "     \"kty\": \"oct\",\n" "     \"type\": \"temporary\" } ]\n" " }";
-    GST_ERROR ("Providing key response: %s", fake_key_response);
-    jfake_key_response =
-        jbyte_arr_from_data (env, fake_key_response,
-        strlen (fake_key_response) + 1);
+  // FIXME: if clearkey --> reencode request and response base64/base64url
 
-    (*env)->CallObjectMethod (env, media_drm_obj,
-        media_drm.provide_key_response, jsession_id, jfake_key_response);
-    J_EXCEPTION_CHECK ("media_drm.provide_key_response");
-    J_DELETE_LOCAL_REF (jfake_key_response);
+  if (!gst_amc_curl_post_request (def_url, req_data_utf8, req_data_len,
+          &key_response, &key_response_size)) {
+    GST_ERROR ("Could not post key request to url <%s>", def_url);
+    goto error;
   }
+  GST_ERROR ("Providing key response: %s", key_response);
+  jbyteArray jkey_response =
+      jbyte_arr_from_data (env, key_response, key_response_size);
 
+  (*env)->CallObjectMethod (env, media_drm_obj,
+      media_drm.provide_key_response, jsession_id, jkey_response);
+  J_EXCEPTION_CHECK ("media_drm.provide_key_response");
+  J_DELETE_LOCAL_REF (jkey_response);
+
+  /* Create MediaCrypto object */
   media_crypto_obj = (*env)->NewObject (env, media_crypto.klass,
       media_crypto.constructor, juuid, jsession_id);
   AMC_CHK (media_crypto_obj);
@@ -534,6 +606,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
 error:
   J_DELETE_LOCAL_REF (juuid);
   J_DELETE_LOCAL_REF (jinit_data);
+  g_free (key_response);
 
   return crypto_ctx->mdrm && crypto_ctx->mcrypto && crypto_ctx->mdrm_session_id;
 }
@@ -1287,14 +1360,14 @@ gst_amc_format_free (GstAmcFormat * format, GstAmcCrypto * crypto_ctx)
   (*env)->DeleteGlobalRef (env, format->object);
   g_slice_free (GstAmcFormat, format);
 
+  /* FIXME: this is not correct, move to uninitializing */
+#if 0
   if (crypto_ctx) {
-    if (crypto_ctx->mcrypto_from_user)
-      (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto_from_user);
-
-    if (crypto_ctx->mcrypto)
-      (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto);
-
     if (crypto_ctx->mdrm) {
+      // If we have mdrm, we think that the mcrypto is created by us, not the user
+      if (crypto_ctx->mcrypto)
+        (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto);
+
       if (crypto_ctx->mdrm_session_id) {
         J_CALL_VOID (crypto_ctx->mdrm, media_drm.close_session,
             crypto_ctx->mdrm_session_id);
@@ -1307,6 +1380,7 @@ gst_amc_format_free (GstAmcFormat * format, GstAmcCrypto * crypto_ctx)
 
     memset (crypto_ctx, 0, sizeof (GstAmcCrypto));
   }
+#endif
 }
 
 gchar *
@@ -1445,7 +1519,8 @@ done:
 }
 
 gboolean
-gst_amc_format_get_int (GstAmcFormat * format, const gchar * key, gint * value)
+gst_amc_format_get_int (const GstAmcFormat * format, const gchar * key,
+    gint * value)
 {
   JNIEnv *env;
   gboolean ret = FALSE;
@@ -2105,6 +2180,49 @@ error:
   return juuid;
 }
 
+
+void
+gst_amc_handle_drm_event (GstElement * self, GstEvent * event,
+    GstAmcCrypto * crypto_ctx)
+{
+  GstBuffer *data_buf;
+  const gchar *system_id, *origin;
+  fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
+  GST_ERROR_OBJECT (self, "{{{ Received drm event."
+      "SystemId = [%s] (%ssupported by device), origin = [%s], %s data buffer,"
+      "data size = %d", system_id,
+      is_protection_system_id_supported (system_id) ? "" : "not ",
+      origin, data_buf ? "attached" : "no",
+      data_buf ? GST_BUFFER_SIZE (data_buf) : 0);
+
+  // Hack for now to be sure we're providing pssh
+  if (!data_buf || !GST_BUFFER_SIZE (data_buf))
+    return;
+
+  if (g_str_has_prefix (origin, "isobmff/") && sysid_is_clearkey (system_id)) {
+    gsize new_size;
+    hack_pssh_initdata (GST_BUFFER_DATA (data_buf),
+        GST_BUFFER_SIZE (data_buf), &new_size);
+    GST_BUFFER_SIZE (data_buf) = new_size;
+  }
+#if 0                           // Disabled to test in-band
+  gst_element_post_message (self,
+      gst_message_new_element
+      (GST_OBJECT (self),
+          gst_structure_new ("prepare-drm-agent-handle",
+              "init_data", GST_TYPE_BUFFER, data_buf, NULL)));
+#endif
+
+  if (crypto_ctx->mcrypto) {
+    GST_ERROR_OBJECT (self, "{{{ Received from user MediaCrypto [%p]",
+        crypto_ctx->mcrypto);
+  } else {
+    GST_ERROR_OBJECT (self,
+        "{{{ User didn't provide us MediaCrypto, trying In-band mode");
+    if (!jmedia_crypto_from_drm_event (event, crypto_ctx))
+      GST_ERROR_OBJECT (self, "{{{ In-band mode's drm event parsing failed");
+  }
+}
 
 gboolean
 is_protection_system_id_supported (const gchar * uuid_utf8)

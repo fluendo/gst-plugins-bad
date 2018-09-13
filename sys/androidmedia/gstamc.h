@@ -75,7 +75,6 @@ struct _GstAmcCrypto
 {
   /* < private > */
   jobject mcrypto;
-  jobject mcrypto_from_user;
   jobject mdrm;
   jbyteArray mdrm_session_id;
 };
@@ -142,7 +141,7 @@ gboolean gst_amc_format_get_float (GstAmcFormat * format, const gchar * key,
     gfloat * value);
 void gst_amc_format_set_float (GstAmcFormat * format, const gchar * key,
     gfloat value);
-gboolean gst_amc_format_get_int (GstAmcFormat * format, const gchar * key,
+gboolean gst_amc_format_get_int (const GstAmcFormat * format, const gchar * key,
     gint * value);
 void gst_amc_format_set_int (GstAmcFormat * format, const gchar * key,
     gint value);
@@ -197,6 +196,7 @@ gboolean hack_pssh_initdata (guchar * payload, gsize payload_size,
     gsize * new_payload_size);
 
 gboolean sysid_is_clearkey (const gchar * sysid);
+void gst_amc_handle_drm_event (GstElement * self, GstEvent * event, GstAmcCrypto * crypto_ctx);
 
 G_END_DECLS
 #endif /* __GST_AMC_H__ */
