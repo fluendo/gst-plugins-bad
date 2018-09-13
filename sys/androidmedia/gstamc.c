@@ -1170,6 +1170,9 @@ gst_amc_codec_queue_secure_input_buffer (GstAmcCodec * codec, gint index,
         ("Couldn't create MediaCodec.CryptoInfo object or parse cenc structure");
     return FALSE;
   }
+
+  g_usleep (1000 * 20);
+  
   // queueSecureInputBuffer
   GST_ERROR (";;;; Calling queue_secure_input_buffer, bufsize = %d", GST_BUFFER_SIZE (drmbuf));
   (*env)->CallVoidMethod (env, codec->object,
