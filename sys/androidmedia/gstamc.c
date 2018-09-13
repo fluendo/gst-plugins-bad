@@ -251,7 +251,9 @@ gst_amc_get_crypto_info (const GstStructure * s)
 
       subsamples_buf_mem =
           (FlucDrmCencSencEntry *) GST_BUFFER_DATA (subsamples_buf);
+      GST_ERROR (";;; CryptoInfo: n_subsamples = %d", n_subsamples);
       for (i = 0; i < n_subsamples; i++) {
+        GST_ERROR (";;; CryptoInfo [%d]: clear = %d, enc = %d", i, subsamples_buf_mem[i].clear, subsamples_buf_mem[i].encrypted);
         n_bytes_of_clear_data[i] = subsamples_buf_mem[i].clear;
         n_bytes_of_encrypted_data[i] = subsamples_buf_mem[i].encrypted;
       }
