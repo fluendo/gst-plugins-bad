@@ -1151,7 +1151,7 @@ gst_amc_codec_queue_secure_input_buffer (GstAmcCodec * codec, gint index,
     return FALSE;
   }
   // queueSecureInputBuffer
-  GST_ERROR ("### Calling queue_secure_input_buffer");
+  GST_ERROR (";;;; Calling queue_secure_input_buffer, bufsize = %d", GST_BUFFER_SIZE (drmbuf));
   (*env)->CallVoidMethod (env, codec->object,
       media_codec.queue_secure_input_buffer, index, info->offset, crypto_info,
       info->presentation_time_us, info->flags);
