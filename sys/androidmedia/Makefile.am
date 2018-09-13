@@ -25,6 +25,7 @@ libgstandroidmedia_la_CFLAGS = \
 	$(GST_CFLAGS) \
 	$(ORC_CFLAGS) \
 	$(FLUC_CFLAGS) \
+	$(CURL_CFLAGS) \
 	-I$(srcdir) \
 	-I$(top_srcdir)/gst-libs
 
@@ -37,7 +38,8 @@ libgstandroidmedia_la_LIBADD = \
 	$(GST_BASE_LIBS) \
 	$(GST_LIBS) \
 	$(ORC_LIBS) \
-	$(FLUC_LIBS)
+	$(FLUC_LIBS) \
+	$(CURL_LIBS)
 
 
 libgstandroidmedia_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
