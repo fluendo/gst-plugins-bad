@@ -1519,7 +1519,8 @@ done:
 }
 
 gboolean
-gst_amc_format_get_int (GstAmcFormat * format, const gchar * key, gint * value)
+gst_amc_format_get_int (const GstAmcFormat * format, const gchar * key,
+    gint * value)
 {
   JNIEnv *env;
   gboolean ret = FALSE;

@@ -792,7 +792,8 @@ _find_nearest_frame (GstAmcVideoDec * self, GstClockTime reference_timestamp)
 }
 
 static gboolean
-gst_amc_video_dec_set_src_caps (GstAmcVideoDec * self, GstAmcFormat * format)
+gst_amc_video_dec_set_src_caps (GstAmcVideoDec * self,
+    const GstAmcFormat * format)
 {
   GstVideoCodecState *output_state;
   GstAmcVideoDecClass *klass;
@@ -1182,22 +1183,22 @@ gst_amc_video_dec_format_changed (GstAmcVideoDec * self)
 {
   GstAmcFormat *format;
   gchar *format_string;
+  gboolean ret;
 
   format = gst_amc_codec_get_output_format (self->codec);
   if (!format)
     return FALSE;
 
   format_string = gst_amc_format_to_string (format);
-  GST_DEBUG_OBJECT (self, "Got new output format: %s", format_string);
+  GST_ERROR_OBJECT (self, "### Format changed, new output format: %s",
+      format_string);
   g_free (format_string);
 
-  if (!gst_amc_video_dec_set_src_caps (self, format)) {
-    gst_amc_format_free (format, &self->crypto_ctx);
-    return FALSE;
-  }
+  ret = gst_amc_video_dec_set_src_caps (self, format);
   gst_amc_format_free (format, &self->crypto_ctx);
-  self->output_configured = TRUE;
-  return TRUE;
+
+  self->output_configured = ret;
+  return ret;
 }
 
 static gboolean
