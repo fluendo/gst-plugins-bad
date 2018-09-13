@@ -224,7 +224,7 @@ gst_amc_get_crypto_info (const GstStructure * s)
 
   ok = gst_structure_get_uint (s, "subsample_count", &n_subsamples);
   if (!ok) {
-    GST_WARNING ("Subsamples field in DRMBuffer is not set");
+    GST_ERROR ("//// Subsamples field in DRMBuffer is not set");
     goto error;
   }
   if (!n_subsamples)
@@ -297,6 +297,26 @@ gst_amc_get_crypto_info (const GstStructure * s)
          We manage iv size to always be 16 on android in flu-codec-sdk. */
       AMC_CHK ((GST_BUFFER_SIZE (kid_buf) >= 16)
           && (GST_BUFFER_SIZE (iv_buf) >= 16));
+
+      guchar *p = GST_BUFFER_DATA (kid_buf);
+        GST_ERROR (";;; cryptoinfo: kid = [%02x.%02x.%02x.%02x."
+            "%02x.%02x.%02x.%02x."
+            "%02x.%02x.%02x.%02x."
+            "%02x.%02x.%02x.%02x]",
+            p[0], p[1], p[2], p[3],
+            p[4], p[5], p[6], p[7],
+            p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]
+            );
+        
+      p = GST_BUFFER_DATA (iv_buf);
+        GST_ERROR (";;; cryptoinfo: iv = [%02x.%02x.%02x.%02x."
+            "%02x.%02x.%02x.%02x."
+            "%02x.%02x.%02x.%02x."
+            "%02x.%02x.%02x.%02x]",
+            p[0], p[1], p[2], p[3],
+            p[4], p[5], p[6], p[7],
+            p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]
+            );
 
       j_kid = jbyte_arr_from_data (env, GST_BUFFER_DATA (kid_buf), 16);
       j_iv = jbyte_arr_from_data (env, GST_BUFFER_DATA (iv_buf), 16);
