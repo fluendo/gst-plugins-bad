@@ -475,10 +475,9 @@ gst_amc_log_big (gchar * pref, gchar * text, gsize size)
   jsize i;
   for (i = 0; i < size; i += 700) {
     gchar chunk[701];
-    snprintf (chunk, 701, "[%s]", text + i);
-    GST_ERROR ("### %s = %s", pref, chunk);
+    snprintf (chunk, 701, "%s", text + i);
+    GST_ERROR ("### %s = [%s]", pref, chunk);
   }
-  GST_ERROR ("### %s = %s", text + i);
 }
 
 
