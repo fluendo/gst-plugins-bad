@@ -468,6 +468,20 @@ hack_pssh_initdata (guchar * payload, gsize payload_size,
 }
 
 
+void
+gst_amc_log_big (gchar * pref, gchar * text, gsize size)
+{
+  GST_ERROR ("### start logging %s of size %d", pref, size);
+  jsize i;
+  for (i = 0; i < size; i += 700) {
+    gchar chunk[701];
+    snprintf (chunk, 701, "[%s]", text + i);
+    GST_ERROR ("### %s = %s", pref, chunk);
+  }
+  GST_ERROR ("### %s = %s", text + i);
+}
+
+
 gboolean
 jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
 {
@@ -563,13 +577,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   (*env)->GetByteArrayRegion (env, jreq_data, 0, req_data_len, req_data_utf8);
   J_EXCEPTION_CHECK ("GetByteArrayRegion");
 
-  jsize i;
-  for (i = 0; i < req_data_len; i += 700) {
-    gchar chunk[701];
-    snprintf (chunk, 701, "%s", req_data_utf8 + i);
-    GST_ERROR ("### req_data_utf8 = %s", chunk);
-  }
-  GST_ERROR ("### req_data_utf8 = %s", req_data_utf8 + i);
+  gst_amc_log_big ("req", req_data_utf8, req_data_len);
 
   /* ProvideKeyResponse */
   char *key_response = NULL;
@@ -582,7 +590,9 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
     GST_ERROR ("Could not post key request to url <%s>", def_url);
     goto error;
   }
-  GST_ERROR ("Providing key response: %s", key_response);
+
+  gst_amc_log_big ("resp", key_response, key_response_size);
+  
   jbyteArray jkey_response =
       jbyte_arr_from_data (env, key_response, key_response_size);
 
