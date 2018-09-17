@@ -186,9 +186,8 @@ error:
 
 
 static jobject
-gst_amc_get_crypto_info (const GstStructure * s)
+gst_amc_get_crypto_info (const GstStructure * s, gsize bufsize)
 {
-  JNIEnv *env;
   guint n_subsamples = 0;
   jint j_n_subsamples = 0;
   gboolean ok = FALSE;
@@ -196,86 +195,74 @@ gst_amc_get_crypto_info (const GstStructure * s)
   jintArray j_n_bytes_of_clear_data = NULL, j_n_bytes_of_encrypted_data = NULL;
   jbyteArray j_kid = NULL, j_iv = NULL;
   jobject crypto_info = NULL, crypto_info_ret = NULL;
-
+  JNIEnv *env = gst_jni_get_env ();
+  
   ok = gst_structure_get_uint (s, "subsample_count", &n_subsamples);
-  if (!ok) {
-    GST_WARNING ("Subsamples field in DRMBuffer is not set");
-    goto error;
-  }
-  if (!n_subsamples)
-    GST_WARNING ("Number of subsamples field in DRMBuffer is 0");
+  AMC_CHK (ok && n_subsamples);
 
   j_n_subsamples = n_subsamples;
-  env = gst_jni_get_env ();
 
-  if (n_subsamples) {
-    // Performing subsample arrays
-    {
-      jint *n_bytes_of_clear_data = g_new (jint, n_subsamples);
-      jint *n_bytes_of_encrypted_data = g_new (jint, n_subsamples);
-      const GValue *subsamples_val;
-      GstBuffer *subsamples_buf;
-      gint i;
+  // Performing subsample arrays
+  {
+    jint *n_bytes_of_clear_data = g_new (jint, n_subsamples);
+    jint *n_bytes_of_encrypted_data = g_new (jint, n_subsamples);
+    const GValue *subsamples_val;
+    GstBuffer *subsamples_buf;
+    gint i;
+    gsize entries_sumsize = 0;
 
-      subsamples_val = gst_structure_get_value (s, "subsamples");
-      if (!subsamples_val)
-        goto error;
-      subsamples_buf = gst_value_get_buffer (subsamples_val);
-      if (!subsamples_buf)
-        goto error;
+    AMC_CHK (subsamples_val = gst_structure_get_value (s, "subsamples"));
+    AMC_CHK (subsamples_buf = gst_value_get_buffer (subsamples_val));
 
-      subsamples_buf_mem =
-          (FlucDrmCencSencEntry *) GST_BUFFER_DATA (subsamples_buf);
-      for (i = 0; i < n_subsamples; i++) {
-        n_bytes_of_clear_data[i] = subsamples_buf_mem[i].clear;
-        n_bytes_of_encrypted_data[i] = subsamples_buf_mem[i].encrypted;
-      }
-
-      j_n_bytes_of_clear_data = (*env)->NewIntArray (env, j_n_subsamples);
-      j_n_bytes_of_encrypted_data = (*env)->NewIntArray (env, j_n_subsamples);
-      AMC_CHK (j_n_bytes_of_clear_data && j_n_bytes_of_encrypted_data);
-
-      (*env)->SetIntArrayRegion (env, j_n_bytes_of_clear_data, 0,
-          n_subsamples, n_bytes_of_clear_data);
-      (*env)->SetIntArrayRegion (env, j_n_bytes_of_encrypted_data, 0,
-          n_subsamples, n_bytes_of_encrypted_data);
-      J_EXCEPTION_CHECK ("SetIntArrayRegion");
-
-      g_free (n_bytes_of_clear_data);
-      g_free (n_bytes_of_encrypted_data);
+    subsamples_buf_mem =
+        (FlucDrmCencSencEntry *) GST_BUFFER_DATA (subsamples_buf);
+    for (i = 0; i < n_subsamples; i++) {
+      n_bytes_of_clear_data[i] = subsamples_buf_mem[i].clear;
+      n_bytes_of_encrypted_data[i] = subsamples_buf_mem[i].encrypted;
+      entries_sumsize +=
+          subsamples_buf_mem[i].clear + subsamples_buf_mem[i].encrypted;
     }
 
-    // Performing key and iv
-    {
-      const GValue *kid_val;
-      const GValue *iv_val;
-      GstBuffer *kid_buf;
-      GstBuffer *iv_buf;
-
-      kid_val = gst_structure_get_value (s, "kid");
-      if (!kid_val)
-        goto error;
-      kid_buf = gst_value_get_buffer (kid_val);
-      if (!kid_buf)
-        goto error;
-      iv_val = gst_structure_get_value (s, "iv");
-      if (!iv_val)
-        goto error;
-      iv_buf = gst_value_get_buffer (iv_val);
-      if (!iv_buf)
-        goto error;
-
-      /* There's a check in MediaCodec for kid size == 16 and iv size == 16
-         So, we always create and copy 16-byte arrays.
-         We manage iv size to always be 16 on android in flu-codec-sdk. */
-      AMC_CHK ((GST_BUFFER_SIZE (kid_buf) >= 16)
-          && (GST_BUFFER_SIZE (iv_buf) >= 16));
-
-      j_kid = jbyte_arr_from_data (env, GST_BUFFER_DATA (kid_buf), 16);
-      j_iv = jbyte_arr_from_data (env, GST_BUFFER_DATA (iv_buf), 16);
-      AMC_CHK (j_kid && j_iv);
+    if (G_UNLIKELY (entries_sumsize != bufsize)) {
+      GST_ERROR ("### Sanity check failed: bufsize %d != entries size %d",
+          bufsize, entries_sumsize);
+      AMC_CHK (0);
     }
+
+    j_n_bytes_of_clear_data = (*env)->NewIntArray (env, j_n_subsamples);
+    j_n_bytes_of_encrypted_data = (*env)->NewIntArray (env, j_n_subsamples);
+    AMC_CHK (j_n_bytes_of_clear_data && j_n_bytes_of_encrypted_data);
+
+    (*env)->SetIntArrayRegion (env, j_n_bytes_of_clear_data, 0,
+        n_subsamples, n_bytes_of_clear_data);
+    (*env)->SetIntArrayRegion (env, j_n_bytes_of_encrypted_data, 0,
+        n_subsamples, n_bytes_of_encrypted_data);
+    J_EXCEPTION_CHECK ("SetIntArrayRegion");
+
+    g_free (n_bytes_of_clear_data);
+    g_free (n_bytes_of_encrypted_data);
   }
+  // Performing key and iv
+  {
+    const GValue *kid_val, *iv_val;
+    const GstBuffer *kid_buf, *iv_buf;
+
+    AMC_CHK (kid_val = gst_structure_get_value (s, "kid"));
+    AMC_CHK (kid_buf = gst_value_get_buffer (kid_val));
+    AMC_CHK (iv_val = gst_structure_get_value (s, "iv"));
+    AMC_CHK (iv_buf = gst_value_get_buffer (iv_val));
+
+    /* There's a check in MediaCodec for kid size == 16 and iv size == 16
+       So, we always create and copy 16-byte arrays.
+       We manage iv size to always be 16 on android in flu-codec-sdk. */
+    AMC_CHK ((GST_BUFFER_SIZE (kid_buf) >= 16)
+        && (GST_BUFFER_SIZE (iv_buf) >= 16));
+
+    j_kid = jbyte_arr_from_data (env, GST_BUFFER_DATA (kid_buf), 16);
+    j_iv = jbyte_arr_from_data (env, GST_BUFFER_DATA (iv_buf), 16);
+    AMC_CHK (j_kid && j_iv);
+  }
+
   // new MediaCodec.CryptoInfo
   crypto_info = (*env)->NewObject (env, media_codec_crypto_info.klass,
       media_codec_crypto_info.constructor);
@@ -555,7 +542,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   }
 
   gst_amc_log_big ("resp", key_response, key_response_size);
-  
+
   jbyteArray jkey_response =
       jbyte_arr_from_data (env, key_response, key_response_size);
 
@@ -641,7 +628,7 @@ gst_amc_codec_free (GstAmcCodec * codec, GstAmcCrypto * crypto_ctx)
 
     memset (crypto_ctx, 0, sizeof (GstAmcCrypto));
   }
-  
+
   J_DELETE_GLOBAL_REF (codec->object);
   g_slice_free (GstAmcCodec, codec);
 }
@@ -937,14 +924,15 @@ gst_amc_codec_queue_secure_input_buffer (GstAmcCodec * codec, gint index,
     return FALSE;
   }
 
-  crypto_info = gst_amc_get_crypto_info (cenc_info);
+  crypto_info = gst_amc_get_crypto_info (cenc_info, GST_BUFFER_SIZE (drmbuf));
   if (!crypto_info) {
     GST_ERROR
         ("Couldn't create MediaCodec.CryptoInfo object or parse cenc structure");
     return FALSE;
   }
   // queueSecureInputBuffer
-  GST_ERROR (";;;; Calling queue_secure_input_buffer, bufsize = %d", GST_BUFFER_SIZE (drmbuf));
+  GST_ERROR (";;;; Calling queue_secure_input_buffer, bufsize = %d",
+      GST_BUFFER_SIZE (drmbuf));
   (*env)->CallVoidMethod (env, codec->object,
       media_codec.queue_secure_input_buffer, index, info->offset, crypto_info,
       info->presentation_time_us, info->flags);
@@ -1087,8 +1075,7 @@ gst_amc_format_new_video (const gchar * mime, gint width, gint height)
 
   format = g_slice_new0 (GstAmcFormat);
   J_CALL_STATIC_OBJ (object /* = */ , media_format, create_video_format,
-      mime_str, width,
-      height);
+      mime_str, width, height);
 
   AMC_CHK (object);
   format->object = (*env)->NewGlobalRef (env, object);
