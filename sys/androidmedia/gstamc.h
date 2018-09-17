@@ -96,7 +96,7 @@ struct _GstAmcBufferInfo
 extern GQuark gst_amc_codec_info_quark;
 
 GstAmcCodec *gst_amc_codec_new (const gchar * name);
-void gst_amc_codec_free (GstAmcCodec * codec);
+void gst_amc_codec_free (GstAmcCodec * codec, GstAmcCrypto * crypto_ctx);
 
 jmethodID gst_amc_codec_get_release_method_id (GstAmcCodec * codec);
 gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
@@ -131,7 +131,7 @@ GstAmcFormat *gst_amc_format_new_audio (const gchar * mime, gint sample_rate,
     gint channels);
 GstAmcFormat *gst_amc_format_new_video (const gchar * mime, gint width,
     gint height);
-void gst_amc_format_free (GstAmcFormat * format, GstAmcCrypto * crypto_ctx);
+void gst_amc_format_free (GstAmcFormat * format);
 
 gchar *gst_amc_format_to_string (GstAmcFormat * format);
 

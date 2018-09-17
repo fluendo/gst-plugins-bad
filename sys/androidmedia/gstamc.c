@@ -155,29 +155,36 @@ static struct
   } G_STMT_END
 
 #define J_CALL_STATIC(envfunc, class, method, ...)                      \
-  (*env)->envfunc(env, class.klass, class.method, __VA_ARGS__);         \
+  (*env)->envfunc(env, class.klass, class.method, ##__VA_ARGS__);         \
   J_EXCEPTION_CHECK (#class "." #method)
 
-#define J_CALL_STATIC_OBJ(...) J_CALL_STATIC(CallStaticObjectMethod, __VA_ARGS__)
-#define J_CALL_STATIC_BOOLEAN(...) J_CALL_STATIC(CallStaticBooleanMethod, __VA_ARGS__)
+#define J_CALL_STATIC_OBJ(...) J_CALL_STATIC(CallStaticObjectMethod, ##__VA_ARGS__)
+#define J_CALL_STATIC_BOOLEAN(...) J_CALL_STATIC(CallStaticBooleanMethod, ##__VA_ARGS__)
 
 #define J_CALL(envfunc, obj, method, ...)         \
-  (*env)->envfunc(env, obj, method, __VA_ARGS__); \
+  (*env)->envfunc (env, obj, method, ##__VA_ARGS__);\
   J_EXCEPTION_CHECK (#obj "->" #method)
 
-#define J_CALL_VOID(...) J_CALL(CallVoidMethod, __VA_ARGS__)
+#define J_CALL_VOID(...) J_CALL(CallVoidMethod, ##__VA_ARGS__)
+#define J_CALL_INT(...) J_CALL(CallIntMethod, ##__VA_ARGS__)
+#define J_CALL_OBJ(...) J_CALL(CallObjectMethod, ##__VA_ARGS__)
+#define J_CALL_BOOL(...) J_CALL(CallBooleanMethod, ##__VA_ARGS__)
+#define J_CALL_FLOAT(...) J_CALL(CallFloatMethod, ##__VA_ARGS__)
 
 #define AMC_CHK(statement) G_STMT_START {               \
     if (G_UNLIKELY(!(statement))) {                     \
-      GST_DEBUG ("check for ("#statement ") failed");   \
-      (*env)->ExceptionClear (env);                     \
+      GST_ERROR ("check for ("#statement ") failed");   \
+      J_EXCEPTION_CHECK ("(none)");                     \
       goto error;                                       \
     }                                                   \
   } G_STMT_END
 
-#define J_DELETE_LOCAL_REF(ref) G_STMT_START {  \
+#define J_DELETE_LOCAL_REF(ref) J_DELETE_REF (DeleteLocalRef, ref)
+#define J_DELETE_GLOBAL_REF(ref) J_DELETE_REF (DeleteGlobalRef, ref)
+
+#define J_DELETE_REF(delfunc, ref) G_STMT_START {        \
     if (G_LIKELY(ref)) {                        \
-      (*env)->DeleteLocalRef (env, ref);        \
+      (*env)->delfunc (env, ref);               \
       ref = NULL;                               \
     }                                           \
   } G_STMT_END
@@ -207,6 +214,24 @@ jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size)
 error:
   J_DELETE_LOCAL_REF (arr);
   return NULL;
+}
+
+
+static gchar *
+gst_amc_get_string_utf8 (JNIEnv * env, jstring v_str)
+{
+  const gchar *v = NULL;
+  gchar *ret = NULL;
+  AMC_CHK (v_str);
+
+  v = (*env)->GetStringUTFChars (env, v_str, NULL);
+  AMC_CHK (v);
+
+  ret = g_strdup (v);
+error:
+  if (v)
+    (*env)->ReleaseStringUTFChars (env, v_str, v);
+  return ret;
 }
 
 
@@ -494,7 +519,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   gsize payload_size;
   static jint KEY_TYPE_STREAMING = 1;
   jstring jmime;
-  gchar *complete_pssh_payload;
+  gchar *complete_pssh_payload, *def_url = NULL;
   gsize complete_pssh_payload_size;
 
   fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
@@ -531,41 +556,29 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
       media_drm.constructor, juuid);
   AMC_CHK (media_drm_obj);
 
-  jsession_id =
-      (*env)->CallObjectMethod (env, media_drm_obj, media_drm.open_session);
-  J_EXCEPTION_CHECK ("mediaDrm->openSession");
+  jsession_id = J_CALL_OBJ (media_drm_obj, media_drm.open_session);
   AMC_CHK (jsession_id);
 
   // For all other systemids it's "video/mp4" or "audio/mp4"
   jmime = (*env)->NewStringUTF (env, "cenc");
   AMC_CHK (jmime);
 
-  /* TODO: wrap it to macro !!! */
-
-  request =
-      (*env)->CallObjectMethod (env, media_drm_obj, media_drm.get_key_request,
+  request = J_CALL_OBJ (media_drm_obj, media_drm.get_key_request,
       jsession_id, jinit_data, jmime, KEY_TYPE_STREAMING, NULL);
-  J_EXCEPTION_CHECK ("mediaDrm->getKeyRequest");
   AMC_CHK (request);
 
   /* getKeyRequest */
-  gchar *def_url;
   jbyteArray jreq_data;
   jsize req_data_len;
   gchar *req_data_utf8;
-  jstring jdef_url = (*env)->CallObjectMethod (env, request,
+  jstring jdef_url = J_CALL_OBJ (request,
       media_drm_key_request.get_default_url);
-  J_EXCEPTION_CHECK ("mediaDrm.KeyRequest->getDefaultUrl");
-  AMC_CHK (request);
 
-  def_url = (*env)->GetStringUTFChars (env, jdef_url, NULL);
-  J_EXCEPTION_CHECK ("def_url = GetStringUTFChars()");
+  def_url = gst_amc_get_string_utf8 (env, jdef_url);
+  AMC_CHK (def_url);
+  GST_ERROR ("### default url is: [%s]", def_url);
 
-  GST_ERROR ("### default url is: [%s]", def_url ? def_url : "NULL !!!");
-
-  jreq_data =
-      (*env)->CallObjectMethod (env, request, media_drm_key_request.get_data);
-  J_EXCEPTION_CHECK ("mediaDrm.KeyRequest->getData");
+  jreq_data = J_CALL_OBJ (request, media_drm_key_request.get_data);
   AMC_CHK (jreq_data);
 
   req_data_len = (*env)->GetArrayLength (env, jreq_data);
@@ -595,9 +608,10 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   jbyteArray jkey_response =
       jbyte_arr_from_data (env, key_response, key_response_size);
 
-  (*env)->CallObjectMethod (env, media_drm_obj,
+  jobject tmp = J_CALL_OBJ (media_drm_obj,
       media_drm.provide_key_response, jsession_id, jkey_response);
-  J_EXCEPTION_CHECK ("media_drm.provide_key_response");
+
+  J_DELETE_LOCAL_REF (tmp);
   J_DELETE_LOCAL_REF (jkey_response);
 
   /* Create MediaCrypto object */
@@ -616,6 +630,7 @@ error:
   J_DELETE_LOCAL_REF (juuid);
   J_DELETE_LOCAL_REF (jinit_data);
   g_free (key_response);
+  g_free (def_url);
 
   return crypto_ctx->mdrm && crypto_ctx->mcrypto && crypto_ctx->mdrm_session_id;
 }
@@ -672,14 +687,30 @@ error:
 }
 
 void
-gst_amc_codec_free (GstAmcCodec * codec)
+gst_amc_codec_free (GstAmcCodec * codec, GstAmcCrypto * crypto_ctx)
 {
-  JNIEnv *env;
-
+  JNIEnv *env = gst_jni_get_env ();
   g_return_if_fail (codec != NULL);
 
   env = gst_jni_get_env ();
-  (*env)->DeleteGlobalRef (env, codec->object);
+
+  if (crypto_ctx) {
+    if (crypto_ctx->mdrm) {
+      // If we have mdrm, we think that the mcrypto is created by us, not the user
+      J_DELETE_GLOBAL_REF (crypto_ctx->mcrypto);
+      if (crypto_ctx->mdrm_session_id) {
+        J_CALL_VOID (crypto_ctx->mdrm, media_drm.close_session,
+            crypto_ctx->mdrm_session_id);
+      }
+    error:                     // <-- to resolve J_CALL_VOID
+      J_DELETE_GLOBAL_REF (crypto_ctx->mdrm_session_id);
+      J_DELETE_GLOBAL_REF (crypto_ctx->mdrm);
+    }
+
+    memset (crypto_ctx, 0, sizeof (GstAmcCrypto));
+  }
+  
+  J_DELETE_GLOBAL_REF (codec->object);
   g_slice_free (GstAmcCodec, codec);
 }
 
@@ -693,389 +724,237 @@ gboolean
 gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
     guint8 * surface, jobject mcrypto_obj, gint flags)
 {
-  JNIEnv *env;
-  gboolean ret = TRUE;
+  gboolean ret = FALSE;
+  JNIEnv *env = gst_jni_get_env ();
+  AMC_CHK (codec && format);
 
-  g_return_val_if_fail (codec != NULL, FALSE);
-  g_return_val_if_fail (format != NULL, FALSE);
-
-  env = gst_jni_get_env ();
-
-  (*env)->CallVoidMethod (env, codec->object, media_codec.configure,
+  J_CALL_VOID (codec->object, media_codec.configure,
       format->object, surface, mcrypto_obj, flags);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    ret = FALSE;
-    goto done;
-  }
-
-done:
-
+  ret = TRUE;
+error:
   return ret;
 }
 
 GstAmcFormat *
 gst_amc_codec_get_output_format (GstAmcCodec * codec)
 {
-  JNIEnv *env;
   GstAmcFormat *ret = NULL;
   jobject object = NULL;
+  JNIEnv *env = gst_jni_get_env ();
+  AMC_CHK (codec);
 
-  g_return_val_if_fail (codec != NULL, NULL);
-
-  env = gst_jni_get_env ();
-
-  object =
-      (*env)->CallObjectMethod (env, codec->object,
-      media_codec.get_output_format);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
+  object = J_CALL_OBJ (codec->object, media_codec.get_output_format);
 
   ret = g_slice_new0 (GstAmcFormat);
-
   ret->object = (*env)->NewGlobalRef (env, object);
-  if (!ret->object) {
-    GST_ERROR ("Failed to create global reference");
-    (*env)->ExceptionClear (env);
-    g_slice_free (GstAmcFormat, ret);
-    ret = NULL;
-  }
-
-  (*env)->DeleteLocalRef (env, object);
-
+  AMC_CHK (ret->object);
 done:
-
+  J_DELETE_LOCAL_REF (object);
   return ret;
+error:
+  if (ret)
+    g_slice_free (GstAmcFormat, ret);
+  ret = NULL;
+  goto done;
+
 }
 
 gboolean
 gst_amc_codec_start (GstAmcCodec * codec)
 {
-  JNIEnv *env;
-  gboolean ret = TRUE;
+  gboolean ret = FALSE;
+  JNIEnv *env = gst_jni_get_env ();
 
-  g_return_val_if_fail (codec != NULL, FALSE);
-
-  env = gst_jni_get_env ();
-
-  (*env)->CallVoidMethod (env, codec->object, media_codec.start);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    ret = FALSE;
-    goto done;
-  }
-
-done:
-
+  AMC_CHK (codec);
+  J_CALL_VOID (codec->object, media_codec.start);
+  ret = TRUE;
+error:
   return ret;
 }
 
 gboolean
 gst_amc_codec_stop (GstAmcCodec * codec)
 {
-  JNIEnv *env;
-  gboolean ret = TRUE;
+  gboolean ret = FALSE;
+  JNIEnv *env = gst_jni_get_env ();
 
-  g_return_val_if_fail (codec != NULL, FALSE);
-
-  env = gst_jni_get_env ();
-
-  (*env)->CallVoidMethod (env, codec->object, media_codec.stop);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    ret = FALSE;
-    goto done;
-  }
-
-done:
-
+  AMC_CHK (codec);
+  J_CALL_VOID (codec->object, media_codec.stop);
+  ret = TRUE;
+error:
   return ret;
 }
 
 gboolean
 gst_amc_codec_flush (GstAmcCodec * codec)
 {
-  JNIEnv *env;
-  gboolean ret = TRUE;
+  gboolean ret = FALSE;
+  JNIEnv *env = gst_jni_get_env ();
 
-  g_return_val_if_fail (codec != NULL, FALSE);
-
-  env = gst_jni_get_env ();
-
-  (*env)->CallVoidMethod (env, codec->object, media_codec.flush);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    ret = FALSE;
-    goto done;
-  }
-
-done:
-
+  AMC_CHK (codec);
+  J_CALL_VOID (codec->object, media_codec.flush);
+  ret = TRUE;
+error:
   return ret;
 }
 
 gboolean
 gst_amc_codec_release (GstAmcCodec * codec)
 {
-  JNIEnv *env;
-  gboolean ret = TRUE;
+  gboolean ret = FALSE;
+  JNIEnv *env = gst_jni_get_env ();
 
-  g_return_val_if_fail (codec != NULL, FALSE);
-
-  env = gst_jni_get_env ();
-
-  (*env)->CallVoidMethod (env, codec->object, media_codec.release);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    ret = FALSE;
-    goto done;
-  }
-
-done:
-
+  AMC_CHK (codec);
+  J_CALL_VOID (codec->object, media_codec.release);
+  ret = TRUE;
+error:
   return ret;
 }
 
 void
 gst_amc_codec_free_buffers (GstAmcBuffer * buffers, gsize n_buffers)
 {
-  JNIEnv *env;
-  jsize i;
-
-  g_return_if_fail (buffers != NULL);
-
-  env = gst_jni_get_env ();
-
-  for (i = 0; i < n_buffers; i++) {
-    if (buffers[i].object)
-      (*env)->DeleteGlobalRef (env, buffers[i].object);
+  if (buffers) {
+    JNIEnv *env = gst_jni_get_env ();
+    jsize i;
+    for (i = 0; i < n_buffers; i++) {
+      J_DELETE_GLOBAL_REF (buffers[i].object);
+    }
+    g_free (buffers);
   }
-  g_free (buffers);
 }
 
 GstAmcBuffer *
 gst_amc_codec_get_output_buffers (GstAmcCodec * codec, gsize * n_buffers)
 {
-  JNIEnv *env;
   jobject output_buffers = NULL;
   jsize n_output_buffers;
   GstAmcBuffer *ret = NULL;
   jsize i;
+  JNIEnv *env = gst_jni_get_env ();
 
-  g_return_val_if_fail (codec != NULL, NULL);
-  g_return_val_if_fail (n_buffers != NULL, NULL);
-
+  AMC_CHK (codec && n_buffers);
   *n_buffers = 0;
-  env = gst_jni_get_env ();
 
-  output_buffers =
-      (*env)->CallObjectMethod (env, codec->object,
-      media_codec.get_output_buffers);
-  if ((*env)->ExceptionCheck (env) || !output_buffers) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
+  output_buffers = J_CALL_OBJ (codec->object, media_codec.get_output_buffers);
+  AMC_CHK (output_buffers);
 
   n_output_buffers = (*env)->GetArrayLength (env, output_buffers);
-  if ((*env)->ExceptionCheck (env)) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get output buffers array length");
-    goto done;
-  }
+  J_EXCEPTION_CHECK ("(get output buffers array length)");
 
-  *n_buffers = n_output_buffers;
   ret = g_new0 (GstAmcBuffer, n_output_buffers);
 
   for (i = 0; i < n_output_buffers; i++) {
     jobject buffer = NULL;
 
     buffer = (*env)->GetObjectArrayElement (env, output_buffers, i);
-    if ((*env)->ExceptionCheck (env) || !buffer) {
-      (*env)->ExceptionClear (env);
-      GST_ERROR ("Failed to get output buffer %d", i);
-      goto error;
-    }
+    AMC_CHK (buffer);
 
     ret[i].object = (*env)->NewGlobalRef (env, buffer);
-    (*env)->DeleteLocalRef (env, buffer);
-    if (!ret[i].object) {
-      (*env)->ExceptionClear (env);
-      GST_ERROR ("Failed to create global reference %d", i);
-      goto error;
-    }
+    J_DELETE_LOCAL_REF (buffer);
+    AMC_CHK (ret[i].object);
 
     ret[i].data = (*env)->GetDirectBufferAddress (env, ret[i].object);
-    if (!ret[i].data) {
-      (*env)->ExceptionClear (env);
-      GST_ERROR ("Failed to get buffer address %d", i);
-      goto error;
-    }
+    AMC_CHK (ret[i].data);
     ret[i].size = (*env)->GetDirectBufferCapacity (env, ret[i].object);
   }
 
+  *n_buffers = n_output_buffers;
 done:
-  if (output_buffers)
-    (*env)->DeleteLocalRef (env, output_buffers);
-  output_buffers = NULL;
-
+  J_DELETE_LOCAL_REF (output_buffers);
   return ret;
 error:
-  if (ret)
-    gst_amc_codec_free_buffers (ret, n_output_buffers);
+  gst_amc_codec_free_buffers (ret, n_output_buffers);
   ret = NULL;
-  *n_buffers = 0;
   goto done;
 }
 
 GstAmcBuffer *
 gst_amc_codec_get_input_buffers (GstAmcCodec * codec, gsize * n_buffers)
 {
-  JNIEnv *env;
   jobject input_buffers = NULL;
   jsize n_input_buffers;
   GstAmcBuffer *ret = NULL;
   jsize i;
-
-  g_return_val_if_fail (codec != NULL, NULL);
-  g_return_val_if_fail (n_buffers != NULL, NULL);
+  JNIEnv *env = gst_jni_get_env ();
+  AMC_CHK (codec && n_buffers);
 
   *n_buffers = 0;
-  env = gst_jni_get_env ();
 
-  input_buffers =
-      (*env)->CallObjectMethod (env, codec->object,
-      media_codec.get_input_buffers);
-  if ((*env)->ExceptionCheck (env) || !input_buffers) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
+  input_buffers = J_CALL_OBJ (codec->object, media_codec.get_input_buffers);
+  AMC_CHK (input_buffers);
 
   n_input_buffers = (*env)->GetArrayLength (env, input_buffers);
-  if ((*env)->ExceptionCheck (env)) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get input buffers array length");
-    goto done;
-  }
+  J_EXCEPTION_CHECK ("(get input buffers array length)");
 
-  *n_buffers = n_input_buffers;
   ret = g_new0 (GstAmcBuffer, n_input_buffers);
 
   for (i = 0; i < n_input_buffers; i++) {
     jobject buffer = NULL;
 
     buffer = (*env)->GetObjectArrayElement (env, input_buffers, i);
-    if ((*env)->ExceptionCheck (env) || !buffer) {
-      (*env)->ExceptionClear (env);
-      GST_ERROR ("Failed to get input buffer %d", i);
-      goto error;
-    }
+    AMC_CHK (buffer);
 
     ret[i].object = (*env)->NewGlobalRef (env, buffer);
-    (*env)->DeleteLocalRef (env, buffer);
-    if (!ret[i].object) {
-      (*env)->ExceptionClear (env);
-      GST_ERROR ("Failed to create global reference %d", i);
-      goto error;
-    }
+    J_DELETE_LOCAL_REF (buffer);
+    AMC_CHK (ret[i].object);
 
     ret[i].data = (*env)->GetDirectBufferAddress (env, ret[i].object);
-    if (!ret[i].data) {
-      (*env)->ExceptionClear (env);
-      GST_ERROR ("Failed to get buffer address %d", i);
-      goto error;
-    }
+    AMC_CHK (ret[i].data);
     ret[i].size = (*env)->GetDirectBufferCapacity (env, ret[i].object);
   }
 
+  *n_buffers = n_input_buffers;
 done:
-  if (input_buffers)
-    (*env)->DeleteLocalRef (env, input_buffers);
-  input_buffers = NULL;
-
+  J_DELETE_LOCAL_REF (input_buffers);
   return ret;
 error:
-  if (ret)
-    gst_amc_codec_free_buffers (ret, n_input_buffers);
+  gst_amc_codec_free_buffers (ret, n_input_buffers);
   ret = NULL;
-  *n_buffers = 0;
   goto done;
 }
 
 gint
 gst_amc_codec_dequeue_input_buffer (GstAmcCodec * codec, gint64 timeoutUs)
 {
-  JNIEnv *env;
   gint ret = G_MININT;
-
+  JNIEnv *env = gst_jni_get_env ();
   g_return_val_if_fail (codec != NULL, G_MININT);
 
-  env = gst_jni_get_env ();
-
-  ret =
-      (*env)->CallIntMethod (env, codec->object,
-      media_codec.dequeue_input_buffer, timeoutUs);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    ret = G_MININT;
-    goto done;
-  }
-
+  ret = J_CALL_INT (codec->object, media_codec.dequeue_input_buffer, timeoutUs);
 done:
-
   return ret;
+error:
+  ret = G_MININT;
+  goto done;
 }
 
 static gboolean
 gst_amc_codec_fill_buffer_info (JNIEnv * env, jobject buffer_info,
     GstAmcBufferInfo * info)
 {
-  g_return_val_if_fail (buffer_info != NULL, FALSE);
+  AMC_CHK (buffer_info);
 
   info->flags =
       (*env)->GetIntField (env, buffer_info, media_codec_buffer_info.flags);
-  if ((*env)->ExceptionCheck (env)) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get buffer info field");
-    return FALSE;
-  }
+  J_EXCEPTION_CHECK ("(get buffer info field <flags>)");
 
   info->offset =
       (*env)->GetIntField (env, buffer_info, media_codec_buffer_info.offset);
-  if ((*env)->ExceptionCheck (env)) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get buffer info field");
-    return FALSE;
-  }
+  J_EXCEPTION_CHECK ("(get buffer info field <offset>)");
 
   info->presentation_time_us =
       (*env)->GetLongField (env, buffer_info,
       media_codec_buffer_info.presentation_time_us);
-  if ((*env)->ExceptionCheck (env)) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get buffer info field");
-    return FALSE;
-  }
+  J_EXCEPTION_CHECK ("(get buffer info field <presentation_time_us>)");
 
   info->size =
       (*env)->GetIntField (env, buffer_info, media_codec_buffer_info.size);
-  if ((*env)->ExceptionCheck (env)) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get buffer info field");
-    return FALSE;
-  }
+  J_EXCEPTION_CHECK ("(get buffer info field <size>)");
 
   return TRUE;
+error:
+  return FALSE;
 }
 
 gint
@@ -1093,33 +972,20 @@ gst_amc_codec_dequeue_output_buffer (GstAmcCodec * codec,
   info_o =
       (*env)->NewObject (env, media_codec_buffer_info.klass,
       media_codec_buffer_info.constructor);
-  if (!info_o) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
+  AMC_CHK (info_o);
 
-  ret =
-      (*env)->CallIntMethod (env, codec->object,
+  ret = J_CALL_INT (codec->object,
       media_codec.dequeue_output_buffer, info_o, timeoutUs);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    ret = G_MININT;
-    goto done;
-  }
 
-  if (!gst_amc_codec_fill_buffer_info (env, info_o, info)) {
-    ret = G_MININT;
-    goto done;
-  }
+  if (!gst_amc_codec_fill_buffer_info (env, info_o, info))
+    goto error;
 
 done:
-  if (info_o)
-    (*env)->DeleteLocalRef (env, info_o);
-  info_o = NULL;
-
+  J_DELETE_LOCAL_REF (info_o);
   return ret;
+error:
+  ret = G_MININT;
+  goto done;
 }
 
 gboolean
@@ -1199,51 +1065,36 @@ gboolean
 gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
     const GstAmcBufferInfo * info)
 {
-  JNIEnv *env;
   gboolean ret = TRUE;
+  JNIEnv *env = gst_jni_get_env ();
 
   g_return_val_if_fail (codec != NULL, FALSE);
   g_return_val_if_fail (info != NULL, FALSE);
 
-  env = gst_jni_get_env ();
-
-  (*env)->CallVoidMethod (env, codec->object, media_codec.queue_input_buffer,
+  J_CALL_VOID (codec->object, media_codec.queue_input_buffer,
       index, info->offset, info->size, info->presentation_time_us, info->flags);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    ret = FALSE;
-    goto done;
-  }
-
 done:
-
   return ret;
+error:
+  ret = FALSE;
+  goto error;
 }
 
 static gboolean
 gst_amc_codec_release_output_buffer_full (GstAmcCodec * codec, gint index,
     gboolean render)
 {
-  JNIEnv *env;
   gboolean ret = TRUE;
-
+  JNIEnv *env = gst_jni_get_env ();
   g_return_val_if_fail (codec != NULL, FALSE);
 
-  env = gst_jni_get_env ();
-
-  (*env)->CallVoidMethod (env, codec->object, media_codec.release_output_buffer,
+  J_CALL_VOID (codec->object, media_codec.release_output_buffer,
       index, render ? JNI_TRUE : JNI_FALSE);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    ret = FALSE;
-    goto done;
-  }
-
 done:
-
   return ret;
+error:
+  ret = FALSE;
+  goto done;
 }
 
 gboolean
@@ -1261,47 +1112,31 @@ gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index)
 GstAmcFormat *
 gst_amc_format_new_audio (const gchar * mime, gint sample_rate, gint channels)
 {
-  JNIEnv *env;
   GstAmcFormat *format = NULL;
   jstring mime_str;
   jobject object = NULL;
-
-  g_return_val_if_fail (mime != NULL, NULL);
-
-  env = gst_jni_get_env ();
+  JNIEnv *env = gst_jni_get_env ();
+  AMC_CHK (mime);
 
   mime_str = (*env)->NewStringUTF (env, mime);
   if (mime_str == NULL)
     goto error;
 
   format = g_slice_new0 (GstAmcFormat);
-
-  object =
-      (*env)->CallStaticObjectMethod (env, media_format.klass,
-      media_format.create_audio_format, mime_str, sample_rate, channels);
-  if ((*env)->ExceptionCheck (env) || !object) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to create format '%s'", mime);
-    goto error;
-  }
+  object = J_CALL_STATIC_OBJ (media_format, create_audio_format,
+      mime_str, sample_rate, channels);
+  AMC_CHK (object);
 
   format->object = (*env)->NewGlobalRef (env, object);
-  if (!format->object) {
-    GST_ERROR ("Failed to create global reference");
-    (*env)->ExceptionClear (env);
-    goto error;
-  }
+  AMC_CHK (format->object);
 
 done:
-  if (object)
-    (*env)->DeleteLocalRef (env, object);
-  if (mime_str)
-    (*env)->DeleteLocalRef (env, mime_str);
-  mime_str = NULL;
-
+  J_DELETE_LOCAL_REF (object);
+  J_DELETE_LOCAL_REF (mime_str);
   return format;
 
 error:
+  GST_ERROR ("Failed to create format '%s'", mime ? mime : "NULL");
   if (format)
     g_slice_free (GstAmcFormat, format);
   format = NULL;
@@ -1311,47 +1146,32 @@ error:
 GstAmcFormat *
 gst_amc_format_new_video (const gchar * mime, gint width, gint height)
 {
-  JNIEnv *env;
   GstAmcFormat *format = NULL;
   jstring mime_str;
   jobject object = NULL;
-
-  g_return_val_if_fail (mime != NULL, NULL);
-
-  env = gst_jni_get_env ();
+  JNIEnv *env = gst_jni_get_env ();
+  AMC_CHK (mime);
 
   mime_str = (*env)->NewStringUTF (env, mime);
   if (mime_str == NULL)
     goto error;
 
   format = g_slice_new0 (GstAmcFormat);
-
   object =
-      (*env)->CallStaticObjectMethod (env, media_format.klass,
-      media_format.create_video_format, mime_str, width, height);
-  if ((*env)->ExceptionCheck (env) || !object) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to create format '%s'", mime);
-    goto error;
-  }
+      J_CALL_STATIC_OBJ (media_format, create_video_format, mime_str, width,
+      height);
 
+  AMC_CHK (object);
   format->object = (*env)->NewGlobalRef (env, object);
-  if (!format->object) {
-    GST_ERROR ("Failed to create global reference");
-    (*env)->ExceptionClear (env);
-    goto error;
-  }
+  AMC_CHK (format->object);
 
 done:
-  if (object)
-    (*env)->DeleteLocalRef (env, object);
-  if (mime_str)
-    (*env)->DeleteLocalRef (env, mime_str);
-  mime_str = NULL;
-
+  J_DELETE_LOCAL_REF (object);
+  J_DELETE_LOCAL_REF (mime_str);
   return format;
 
 error:
+  GST_ERROR ("Failed to create format '%s'", mime ? mime : "NULL");
   if (format)
     g_slice_free (GstAmcFormat, format);
   format = NULL;
@@ -1359,106 +1179,48 @@ error:
 }
 
 void
-gst_amc_format_free (GstAmcFormat * format, GstAmcCrypto * crypto_ctx)
+gst_amc_format_free (GstAmcFormat * format)
 {
-  JNIEnv *env;
-
+  JNIEnv *env = gst_jni_get_env ();
   g_return_if_fail (format != NULL);
 
-  env = gst_jni_get_env ();
-  (*env)->DeleteGlobalRef (env, format->object);
+  J_DELETE_GLOBAL_REF (format->object);
   g_slice_free (GstAmcFormat, format);
-
-  /* FIXME: this is not correct, move to uninitializing */
-#if 0
-  if (crypto_ctx) {
-    if (crypto_ctx->mdrm) {
-      // If we have mdrm, we think that the mcrypto is created by us, not the user
-      if (crypto_ctx->mcrypto)
-        (*env)->DeleteGlobalRef (env, crypto_ctx->mcrypto);
-
-      if (crypto_ctx->mdrm_session_id) {
-        J_CALL_VOID (crypto_ctx->mdrm, media_drm.close_session,
-            crypto_ctx->mdrm_session_id);
-      }
-    error:                     // <-- to resolve J_CALL_VOID
-      if (crypto_ctx->mdrm_session_id)
-        (*env)->DeleteGlobalRef (env, crypto_ctx->mdrm_session_id);
-      (*env)->DeleteGlobalRef (env, crypto_ctx->mdrm);
-    }
-
-    memset (crypto_ctx, 0, sizeof (GstAmcCrypto));
-  }
-#endif
 }
+
 
 gchar *
 gst_amc_format_to_string (GstAmcFormat * format)
 {
-  JNIEnv *env;
   jstring v_str = NULL;
   const gchar *v = NULL;
   gchar *ret = NULL;
+  JNIEnv *env = gst_jni_get_env ();
+  AMC_CHK (format);
 
-  g_return_val_if_fail (format != NULL, FALSE);
-
-  env = gst_jni_get_env ();
-
-  v_str =
-      (*env)->CallObjectMethod (env, format->object, media_format.to_string);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
-
-  v = (*env)->GetStringUTFChars (env, v_str, NULL);
-  if (!v) {
-    GST_ERROR ("Failed to convert string to UTF8");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
-
-  ret = g_strdup (v);
-
-done:
+  v_str = J_CALL_OBJ (format->object, media_format.to_string);
+  ret = gst_amc_get_string_utf8 (env, v_str);
+error:
   if (v)
     (*env)->ReleaseStringUTFChars (env, v_str, v);
-  if (v_str)
-    (*env)->DeleteLocalRef (env, v_str);
-
+  J_DELETE_LOCAL_REF (v_str);
   return ret;
 }
 
 gboolean
 gst_amc_format_contains_key (GstAmcFormat * format, const gchar * key)
 {
-  JNIEnv *env;
   gboolean ret = FALSE;
   jstring key_str = NULL;
-
-  g_return_val_if_fail (format != NULL, FALSE);
-  g_return_val_if_fail (key != NULL, FALSE);
-
-  env = gst_jni_get_env ();
+  JNIEnv *env = gst_jni_get_env ();
+  AMC_CHK (format && key);
 
   key_str = (*env)->NewStringUTF (env, key);
-  if (!key_str)
-    goto done;
+  AMC_CHK (key_str);
 
-  ret =
-      (*env)->CallBooleanMethod (env, format->object, media_format.contains_key,
-      key_str);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
-
-done:
-  if (key_str)
-    (*env)->DeleteLocalRef (env, key_str);
-
+  ret = J_CALL_BOOL (format->object, media_format.contains_key, key_str);
+error:
+  J_DELETE_LOCAL_REF (key_str);
   return ret;
 }
 
@@ -1466,35 +1228,19 @@ gboolean
 gst_amc_format_get_float (GstAmcFormat * format, const gchar * key,
     gfloat * value)
 {
-  JNIEnv *env;
   gboolean ret = FALSE;
   jstring key_str = NULL;
-
-  g_return_val_if_fail (format != NULL, FALSE);
-  g_return_val_if_fail (key != NULL, FALSE);
-  g_return_val_if_fail (value != NULL, FALSE);
-
-  *value = 0;
-  env = gst_jni_get_env ();
+  JNIEnv *env = gst_jni_get_env ();
+  AMC_CHK (format && key && value);
 
   key_str = (*env)->NewStringUTF (env, key);
-  if (!key_str)
-    goto done;
+  AMC_CHK (key_str);
 
-  *value =
-      (*env)->CallFloatMethod (env, format->object, media_format.get_float,
-      key_str);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
+  *value = J_CALL_FLOAT (format->object, media_format.get_float, key_str);
+
   ret = TRUE;
-
-done:
-  if (key_str)
-    (*env)->DeleteLocalRef (env, key_str);
-
+error:
+  J_DELETE_LOCAL_REF (key_str);
   return ret;
 }
 
@@ -1502,145 +1248,76 @@ void
 gst_amc_format_set_float (GstAmcFormat * format, const gchar * key,
     gfloat value)
 {
-  JNIEnv *env;
   jstring key_str = NULL;
-
-  g_return_if_fail (format != NULL);
-  g_return_if_fail (key != NULL);
-
-  env = gst_jni_get_env ();
+  JNIEnv *env = gst_jni_get_env ();
+  AMC_CHK (format && key);
 
   key_str = (*env)->NewStringUTF (env, key);
-  if (!key_str)
-    goto done;
+  AMC_CHK (key_str);
 
-  (*env)->CallVoidMethod (env, format->object, media_format.set_float, key_str,
-      value);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
-
-done:
-  if (key_str)
-    (*env)->DeleteLocalRef (env, key_str);
+  J_CALL_VOID (format->object, media_format.set_float, key_str, value);
+error:
+  J_DELETE_LOCAL_REF (key_str);
 }
 
 gboolean
 gst_amc_format_get_int (const GstAmcFormat * format, const gchar * key,
     gint * value)
 {
-  JNIEnv *env;
   gboolean ret = FALSE;
   jstring key_str = NULL;
-
-  g_return_val_if_fail (format != NULL, FALSE);
-  g_return_val_if_fail (key != NULL, FALSE);
-  g_return_val_if_fail (value != NULL, FALSE);
-
-  *value = 0;
-  env = gst_jni_get_env ();
+  JNIEnv *env = gst_jni_get_env ();
+  AMC_CHK (format && key && value);
 
   key_str = (*env)->NewStringUTF (env, key);
-  if (!key_str)
-    goto done;
+  AMC_CHK (key_str);
 
-  *value =
-      (*env)->CallIntMethod (env, format->object, media_format.get_integer,
-      key_str);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
+  *value = J_CALL_INT (format->object, media_format.get_integer, key_str);
+
   ret = TRUE;
-
-done:
-  if (key_str)
-    (*env)->DeleteLocalRef (env, key_str);
-
+error:
+  J_DELETE_LOCAL_REF (key_str);
   return ret;
-
 }
 
 void
 gst_amc_format_set_int (GstAmcFormat * format, const gchar * key, gint value)
 {
-  JNIEnv *env;
   jstring key_str = NULL;
-
-  g_return_if_fail (format != NULL);
-  g_return_if_fail (key != NULL);
-
-  env = gst_jni_get_env ();
+  JNIEnv *env = gst_jni_get_env ();
+  AMC_CHK (format && key);
 
   key_str = (*env)->NewStringUTF (env, key);
-  if (!key_str)
-    goto done;
+  AMC_CHK (key_str);
 
-  (*env)->CallVoidMethod (env, format->object, media_format.set_integer,
-      key_str, value);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
-
-done:
-  if (key_str)
-    (*env)->DeleteLocalRef (env, key_str);
+  J_CALL_VOID (format->object, media_format.set_integer, key_str, value);
+error:
+  J_DELETE_LOCAL_REF (key_str);
 }
 
 gboolean
 gst_amc_format_get_string (GstAmcFormat * format, const gchar * key,
     gchar ** value)
 {
-  JNIEnv *env;
   gboolean ret = FALSE;
   jstring key_str = NULL;
   jstring v_str = NULL;
-  const gchar *v = NULL;
+  JNIEnv *env = gst_jni_get_env ();
 
-  g_return_val_if_fail (format != NULL, FALSE);
-  g_return_val_if_fail (key != NULL, FALSE);
-  g_return_val_if_fail (value != NULL, FALSE);
-
-  *value = 0;
-  env = gst_jni_get_env ();
+  AMC_CHK (format && key && value);
+  *value = NULL;
 
   key_str = (*env)->NewStringUTF (env, key);
-  if (!key_str)
-    goto done;
+  AMC_CHK (key_str);
 
-  v_str =
-      (*env)->CallObjectMethod (env, format->object, media_format.get_string,
-      key_str);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
+  v_str = J_CALL_OBJ (format->object, media_format.get_string, key_str);
 
-  v = (*env)->GetStringUTFChars (env, v_str, NULL);
-  if (!v) {
-    GST_ERROR ("Failed to convert string to UTF8");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
-
-  *value = g_strdup (v);
-
+  *value = gst_amc_get_string_utf8 (env, v_str);
+  AMC_CHK (*value);
   ret = TRUE;
-
-done:
-  if (key_str)
-    (*env)->DeleteLocalRef (env, key_str);
-  if (v)
-    (*env)->ReleaseStringUTFChars (env, v_str, v);
-  if (v_str)
-    (*env)->DeleteLocalRef (env, v_str);
-
+error:
+  J_DELETE_LOCAL_REF (key_str);
+  J_DELETE_LOCAL_REF (v_str);
   return ret;
 }
 
@@ -1648,87 +1325,54 @@ void
 gst_amc_format_set_string (GstAmcFormat * format, const gchar * key,
     const gchar * value)
 {
-  JNIEnv *env;
   jstring key_str = NULL;
   jstring v_str = NULL;
+  JNIEnv *env = gst_jni_get_env ();
 
-  g_return_if_fail (format != NULL);
-  g_return_if_fail (key != NULL);
-  g_return_if_fail (value != NULL);
-
-  env = gst_jni_get_env ();
+  AMC_CHK (format && key && value);
 
   key_str = (*env)->NewStringUTF (env, key);
-  if (!key_str)
-    goto done;
+  AMC_CHK (key_str);
 
   v_str = (*env)->NewStringUTF (env, value);
-  if (!v_str)
-    goto done;
+  AMC_CHK (v_str);
 
-  (*env)->CallVoidMethod (env, format->object, media_format.set_string, key_str,
-      v_str);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
-
-done:
-  if (key_str)
-    (*env)->DeleteLocalRef (env, key_str);
-  if (v_str)
-    (*env)->DeleteLocalRef (env, v_str);
+  J_CALL_VOID (format->object, media_format.set_string, key_str, v_str);
+error:
+  J_DELETE_LOCAL_REF (key_str);
+  J_DELETE_LOCAL_REF (v_str);
 }
 
 gboolean
 gst_amc_format_get_buffer (GstAmcFormat * format, const gchar * key,
     GstBuffer ** value)
 {
-  JNIEnv *env;
   gboolean ret = FALSE;
   jstring key_str = NULL;
   jobject v = NULL;
   guint8 *data;
   gsize size;
+  JNIEnv *env = gst_jni_get_env ();
+  AMC_CHK (format && key && value);
 
-  g_return_val_if_fail (format != NULL, FALSE);
-  g_return_val_if_fail (key != NULL, FALSE);
-  g_return_val_if_fail (value != NULL, FALSE);
-
-  *value = 0;
-  env = gst_jni_get_env ();
+  *value = NULL;
 
   key_str = (*env)->NewStringUTF (env, key);
-  if (!key_str)
-    goto done;
+  AMC_CHK (key_str);
 
-  v = (*env)->CallObjectMethod (env, format->object,
-      media_format.get_byte_buffer, key_str);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
+  v = J_CALL_OBJ (format->object, media_format.get_byte_buffer, key_str);
 
   data = (*env)->GetDirectBufferAddress (env, v);
-  if (!data) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get buffer address");
-    goto done;
-  }
+  AMC_CHK (data);
+
   size = (*env)->GetDirectBufferCapacity (env, v);
   *value = gst_buffer_new_and_alloc (size);
   memcpy (GST_BUFFER_DATA (*value), data, size);
 
   ret = TRUE;
-
-done:
-  if (key_str)
-    (*env)->DeleteLocalRef (env, key_str);
-  if (v)
-    (*env)->DeleteLocalRef (env, v);
-
+error:
+  J_DELETE_LOCAL_REF (key_str);
+  J_DELETE_LOCAL_REF (v);
   return ret;
 }
 
@@ -1736,39 +1380,23 @@ void
 gst_amc_format_set_buffer (GstAmcFormat * format, const gchar * key,
     GstBuffer * value)
 {
-  JNIEnv *env;
   jstring key_str = NULL;
   jobject v = NULL;
-
-  g_return_if_fail (format != NULL);
-  g_return_if_fail (key != NULL);
-  g_return_if_fail (value != NULL);
-
-  env = gst_jni_get_env ();
+  JNIEnv *env = gst_jni_get_env ();
+  AMC_CHK (format && key && value);
 
   key_str = (*env)->NewStringUTF (env, key);
-  if (!key_str)
-    goto done;
+  AMC_CHK (key_str);
 
   /* FIXME: The buffer must remain valid until the codec is stopped */
   v = (*env)->NewDirectByteBuffer (env, GST_BUFFER_DATA (value),
       GST_BUFFER_SIZE (value));
-  if (!v)
-    goto done;
+  AMC_CHK (v);
 
-  (*env)->CallVoidMethod (env, format->object, media_format.set_byte_buffer,
-      key_str, v);
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Failed to call Java method");
-    (*env)->ExceptionClear (env);
-    goto done;
-  }
-
-done:
-  if (key_str)
-    (*env)->DeleteLocalRef (env, key_str);
-  if (v)
-    (*env)->DeleteLocalRef (env, v);
+  J_CALL_VOID (format->object, media_format.set_byte_buffer, key_str, v);
+error:
+  J_DELETE_LOCAL_REF (key_str);
+  J_DELETE_LOCAL_REF (v);
 }
 
 
@@ -2587,17 +2215,15 @@ scan_codecs (GstPlugin * plugin)
         goto next_supported_type;
       }
 
-      supported_type_str =
-          (*env)->GetStringUTFChars (env, supported_type, NULL);
-      if ((*env)->ExceptionCheck (env) || !supported_type_str) {
-        (*env)->ExceptionClear (env);
+      supported_type_str = gst_amc_get_string_utf8 (env, supported_type);
+      if (!supported_type_str) {
         GST_ERROR ("Failed to convert supported type to UTF8");
         valid_codec = FALSE;
         goto next_supported_type;
       }
 
       GST_INFO ("Supported type '%s'", supported_type_str);
-      gst_codec_type->mime = g_strdup (supported_type_str);
+      gst_codec_type->mime = supported_type_str;
 
       capabilities =
           (*env)->CallObjectMethod (env, codec_info,
@@ -2764,24 +2390,13 @@ scan_codecs (GstPlugin * plugin)
         (*env)->ReleaseIntArrayElements (env, color_formats,
             color_formats_elems, JNI_ABORT);
       color_formats_elems = NULL;
-      if (color_formats)
-        (*env)->DeleteLocalRef (env, color_formats);
-      color_formats = NULL;
-      if (profile_levels)
-        (*env)->DeleteLocalRef (env, profile_levels);
-      color_formats = NULL;
-      if (capabilities)
-        (*env)->DeleteLocalRef (env, capabilities);
-      capabilities = NULL;
-      if (capabilities_class)
-        (*env)->DeleteLocalRef (env, capabilities_class);
-      capabilities_class = NULL;
-      if (supported_type_str)
-        (*env)->ReleaseStringUTFChars (env, supported_type, supported_type_str);
-      supported_type_str = NULL;
-      if (supported_type)
-        (*env)->DeleteLocalRef (env, supported_type);
-      supported_type = NULL;
+
+      J_DELETE_LOCAL_REF (profile_levels);
+      J_DELETE_LOCAL_REF (color_formats);
+      J_DELETE_LOCAL_REF (capabilities);
+      J_DELETE_LOCAL_REF (capabilities_class);
+      J_DELETE_LOCAL_REF (supported_type);
+
       if (!valid_codec)
         break;
     }
@@ -2798,18 +2413,10 @@ scan_codecs (GstPlugin * plugin)
     if (name_str)
       (*env)->ReleaseStringUTFChars (env, name, name_str);
     name_str = NULL;
-    if (name)
-      (*env)->DeleteLocalRef (env, name);
-    name = NULL;
-    if (supported_types)
-      (*env)->DeleteLocalRef (env, supported_types);
-    supported_types = NULL;
-    if (codec_info)
-      (*env)->DeleteLocalRef (env, codec_info);
-    codec_info = NULL;
-    if (codec_info_class)
-      (*env)->DeleteLocalRef (env, codec_info_class);
-    codec_info_class = NULL;
+    J_DELETE_LOCAL_REF (name);
+    J_DELETE_LOCAL_REF (supported_types);
+    J_DELETE_LOCAL_REF (codec_info);
+    J_DELETE_LOCAL_REF (codec_info_class);
     if (gst_codec_info) {
       gint j;
 
@@ -2918,9 +2525,7 @@ scan_codecs (GstPlugin * plugin)
   }
 
 done:
-  if (codec_list_class)
-    (*env)->DeleteLocalRef (env, codec_list_class);
-
+  J_DELETE_LOCAL_REF (codec_list_class);
   return ret;
 }
 

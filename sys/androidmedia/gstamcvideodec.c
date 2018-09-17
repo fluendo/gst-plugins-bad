@@ -619,7 +619,7 @@ gst_amc_video_dec_close (GstVideoDecoder * decoder)
 
   if (self->codec) {
     gst_amc_codec_release (self->codec);
-    gst_amc_codec_free (self->codec);
+    gst_amc_codec_free (self->codec, &self->crypto_ctx);
   }
   self->codec = NULL;
 
@@ -1195,7 +1195,7 @@ gst_amc_video_dec_format_changed (GstAmcVideoDec * self)
   g_free (format_string);
 
   ret = gst_amc_video_dec_set_src_caps (self, format);
-  gst_amc_format_free (format, &self->crypto_ctx);
+  gst_amc_format_free (format);
 
   self->output_configured = ret;
   return ret;
@@ -1653,7 +1653,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     return FALSE;
   }
 
-  gst_amc_format_free (format, NULL);
+  gst_amc_format_free (format);
 
   if (!gst_amc_codec_start (self->codec)) {
     GST_ERROR_OBJECT (self, "Failed to start codec");
