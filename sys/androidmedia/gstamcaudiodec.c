@@ -1183,7 +1183,11 @@ gst_amc_audio_dec_handle_frame (GstAudioDecoder * decoder, GstBuffer * inbuf)
 
     if (self->downstream_flow_ret != GST_FLOW_OK) {
       memset (&buffer_info, 0, sizeof (buffer_info));
-      gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info);
+      if (self->is_encrypted)
+        gst_amc_codec_queue_secure_input_buffer (self->codec, idx,
+                                                 &buffer_info, inbuf);
+      else
+        gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info);
       goto downstream_error;
     }
 
@@ -1322,9 +1326,9 @@ gst_amc_audio_dec_drain (GstAmcAudioDec * self)
     buffer_info.flags |= BUFFER_FLAG_END_OF_STREAM;
 
     if (gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info)) {
-      GST_DEBUG_OBJECT (self, "Waiting until codec is drained");
+      GST_ERROR_OBJECT (self, ";;; Waiting until codec is drained");
       g_cond_wait (self->drain_cond, self->drain_lock);
-      GST_DEBUG_OBJECT (self, "Drained codec");
+      GST_ERROR_OBJECT (self, ";;; Drained codec");
       ret = GST_FLOW_OK;
     } else {
       GST_ERROR_OBJECT (self, "Failed to queue input buffer");
