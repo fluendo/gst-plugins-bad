@@ -463,7 +463,7 @@ gst_amc_audio_dec_close (GstAudioDecoder * decoder)
 
   if (self->codec) {
     gst_amc_codec_release (self->codec);
-    gst_amc_codec_free (self->codec);
+    gst_amc_codec_free (self->codec, &self->crypto_ctx);
   }
   self->codec = NULL;
 
@@ -650,10 +650,10 @@ retry:
         g_free (format_string);
 
         if (!gst_amc_audio_dec_set_src_caps (self, format)) {
-          gst_amc_format_free (format, &self->crypto_ctx);
+          gst_amc_format_free (format);
           goto format_error;
         }
-        gst_amc_format_free (format, &self->crypto_ctx);
+        gst_amc_format_free (format);
 
         if (self->output_buffers)
           gst_amc_codec_free_buffers (self->output_buffers,
@@ -1037,7 +1037,7 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
     return FALSE;
   }
 
-  gst_amc_format_free (format, NULL);
+  gst_amc_format_free (format);
 
   if (!gst_amc_codec_start (self->codec)) {
     GST_ERROR_OBJECT (self, "Failed to start codec");
