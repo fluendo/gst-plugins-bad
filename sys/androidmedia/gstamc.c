@@ -40,6 +40,14 @@
 
 #include <fluc/drm/flucdrm.h>
 
+/* Macros have next rules:
+   J_CALL_<TYPE> (), J_CALL_STATIC_<TYPE> () - first parameter is a variable
+   to write to, if it's not J_CALL_VOID () or J_CALL_STATIC_VOID ().
+   If exception occured, it jumps to "error" label, and the variable
+   is kept untouched.
+ */
+#include <gstamcmacro.h>
+
 GST_DEBUG_CATEGORY (gst_amc_debug);
 #define GST_CAT_DEFAULT gst_amc_debug
 
@@ -143,64 +151,6 @@ static struct
   jclass klass;
   jmethodID from_string;
 } uuid;
-
-#define J_EXCEPTION_CHECK(method) G_STMT_START {        \
-    if (G_UNLIKELY((*env)->ExceptionCheck (env))) {     \
-      GST_ERROR ("Caught exception on call " method);   \
-      (*env)->ExceptionDescribe (env);                  \
-      (*env)->ExceptionClear (env);                     \
-      /* ret = error */                                 \
-      goto error;                                       \
-    }                                                   \
-  } G_STMT_END
-
-#define J_CALL_STATIC(envfunc, class, method, ...)                      \
-  (*env)->envfunc(env, class.klass, class.method, ##__VA_ARGS__);         \
-  J_EXCEPTION_CHECK (#class "." #method)
-
-#define J_CALL_STATIC_OBJ(...) J_CALL_STATIC(CallStaticObjectMethod, ##__VA_ARGS__)
-#define J_CALL_STATIC_BOOLEAN(...) J_CALL_STATIC(CallStaticBooleanMethod, ##__VA_ARGS__)
-
-#define J_CALL(envfunc, obj, method, ...)         \
-  (*env)->envfunc (env, obj, method, ##__VA_ARGS__);\
-  J_EXCEPTION_CHECK (#obj "->" #method)
-
-#define J_CALL_VOID(...) J_CALL(CallVoidMethod, ##__VA_ARGS__)
-#define J_CALL_INT(...) J_CALL(CallIntMethod, ##__VA_ARGS__)
-#define J_CALL_OBJ(...) J_CALL(CallObjectMethod, ##__VA_ARGS__)
-#define J_CALL_BOOL(...) J_CALL(CallBooleanMethod, ##__VA_ARGS__)
-#define J_CALL_FLOAT(...) J_CALL(CallFloatMethod, ##__VA_ARGS__)
-
-#define AMC_CHK(statement) G_STMT_START {               \
-    if (G_UNLIKELY(!(statement))) {                     \
-      GST_ERROR ("check for ("#statement ") failed");   \
-      J_EXCEPTION_CHECK ("(none)");                     \
-      goto error;                                       \
-    }                                                   \
-  } G_STMT_END
-
-#define J_DELETE_LOCAL_REF(ref) J_DELETE_REF (DeleteLocalRef, ref)
-#define J_DELETE_GLOBAL_REF(ref) J_DELETE_REF (DeleteGlobalRef, ref)
-
-#define J_DELETE_REF(delfunc, ref) G_STMT_START {        \
-    if (G_LIKELY(ref)) {                        \
-      (*env)->delfunc (env, ref);               \
-      ref = NULL;                               \
-    }                                           \
-  } G_STMT_END
-
-#define J_INIT_METHOD_ID(class, method, name, desc)             \
-  J_INIT_METHOD_ID_GEN(GetMethodID, class, method, name, desc)
-
-#define J_INIT_STATIC_METHOD_ID(class, method, name, desc)              \
-  J_INIT_METHOD_ID_GEN(GetStaticMethodID, class, method, name, desc)
-
-#define J_INIT_METHOD_ID_GEN(calltype, class, method, name, desc)       \
-  G_STMT_START {                                                        \
-    class.method = (*env)->calltype (env, class.klass, name, desc);     \
-    AMC_CHK (class.method);                                             \
-  } G_STMT_END
-
 
 jbyteArray
 jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size)
@@ -556,14 +506,14 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
       media_drm.constructor, juuid);
   AMC_CHK (media_drm_obj);
 
-  jsession_id = J_CALL_OBJ (media_drm_obj, media_drm.open_session);
+  J_CALL_OBJ (jsession_id/* = */, media_drm_obj, media_drm.open_session);
   AMC_CHK (jsession_id);
 
   // For all other systemids it's "video/mp4" or "audio/mp4"
   jmime = (*env)->NewStringUTF (env, "cenc");
   AMC_CHK (jmime);
 
-  request = J_CALL_OBJ (media_drm_obj, media_drm.get_key_request,
+  J_CALL_OBJ (request/* = */, media_drm_obj, media_drm.get_key_request,
       jsession_id, jinit_data, jmime, KEY_TYPE_STREAMING, NULL);
   AMC_CHK (request);
 
@@ -571,14 +521,15 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   jbyteArray jreq_data;
   jsize req_data_len;
   gchar *req_data_utf8;
-  jstring jdef_url = J_CALL_OBJ (request,
+  jstring jdef_url;
+  J_CALL_OBJ (jdef_url/* = */, request,
       media_drm_key_request.get_default_url);
 
   def_url = gst_amc_get_string_utf8 (env, jdef_url);
   AMC_CHK (def_url);
   GST_ERROR ("### default url is: [%s]", def_url);
 
-  jreq_data = J_CALL_OBJ (request, media_drm_key_request.get_data);
+  J_CALL_OBJ (jreq_data/* = */, request, media_drm_key_request.get_data);
   AMC_CHK (jreq_data);
 
   req_data_len = (*env)->GetArrayLength (env, jreq_data);
@@ -608,7 +559,8 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   jbyteArray jkey_response =
       jbyte_arr_from_data (env, key_response, key_response_size);
 
-  jobject tmp = J_CALL_OBJ (media_drm_obj,
+  jobject tmp;
+  J_CALL_OBJ (tmp/* = */, media_drm_obj,
       media_drm.provide_key_response, jsession_id, jkey_response);
 
   J_DELETE_LOCAL_REF (tmp);
@@ -639,46 +591,26 @@ error:
 GstAmcCodec *
 gst_amc_codec_new (const gchar * name)
 {
-  JNIEnv *env;
   GstAmcCodec *codec = NULL;
   jstring name_str;
   jobject object = NULL;
-
+  JNIEnv *env = gst_jni_get_env ();
+  
   g_return_val_if_fail (name != NULL, NULL);
 
-  env = gst_jni_get_env ();
-
   name_str = (*env)->NewStringUTF (env, name);
-  if (name_str == NULL)
-    goto error;
+  AMC_CHK (name_str);
+
+  J_CALL_STATIC_OBJ (object/* = */, media_codec, create_by_codec_name, name_str);
 
   codec = g_slice_new0 (GstAmcCodec);
-
-  object =
-      (*env)->CallStaticObjectMethod (env, media_codec.klass,
-      media_codec.create_by_codec_name, name_str);
-  if ((*env)->ExceptionCheck (env) || !object) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to create codec '%s'", name);
-    goto error;
-  }
-
   codec->object = (*env)->NewGlobalRef (env, object);
-  if (!codec->object) {
-    GST_ERROR ("Failed to create global reference");
-    (*env)->ExceptionClear (env);
-    goto error;
-  }
+  AMC_CHK (codec->object);
 
 done:
-  if (object)
-    (*env)->DeleteLocalRef (env, object);
-  if (name_str)
-    (*env)->DeleteLocalRef (env, name_str);
-  name_str = NULL;
-
+  J_DELETE_LOCAL_REF (object);
+  J_DELETE_LOCAL_REF (name_str);
   return codec;
-
 error:
   if (codec)
     g_slice_free (GstAmcCodec, codec);
@@ -743,7 +675,7 @@ gst_amc_codec_get_output_format (GstAmcCodec * codec)
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (codec);
 
-  object = J_CALL_OBJ (codec->object, media_codec.get_output_format);
+  J_CALL_OBJ (object/* = */,codec->object, media_codec.get_output_format);
 
   ret = g_slice_new0 (GstAmcFormat);
   ret->object = (*env)->NewGlobalRef (env, object);
@@ -836,7 +768,7 @@ gst_amc_codec_get_output_buffers (GstAmcCodec * codec, gsize * n_buffers)
   AMC_CHK (codec && n_buffers);
   *n_buffers = 0;
 
-  output_buffers = J_CALL_OBJ (codec->object, media_codec.get_output_buffers);
+  J_CALL_OBJ (output_buffers/* = */, codec->object, media_codec.get_output_buffers);
   AMC_CHK (output_buffers);
 
   n_output_buffers = (*env)->GetArrayLength (env, output_buffers);
@@ -881,7 +813,7 @@ gst_amc_codec_get_input_buffers (GstAmcCodec * codec, gsize * n_buffers)
 
   *n_buffers = 0;
 
-  input_buffers = J_CALL_OBJ (codec->object, media_codec.get_input_buffers);
+  J_CALL_OBJ (input_buffers/* = */, codec->object, media_codec.get_input_buffers);
   AMC_CHK (input_buffers);
 
   n_input_buffers = (*env)->GetArrayLength (env, input_buffers);
@@ -921,12 +853,9 @@ gst_amc_codec_dequeue_input_buffer (GstAmcCodec * codec, gint64 timeoutUs)
   JNIEnv *env = gst_jni_get_env ();
   g_return_val_if_fail (codec != NULL, G_MININT);
 
-  ret = J_CALL_INT (codec->object, media_codec.dequeue_input_buffer, timeoutUs);
-done:
-  return ret;
+  J_CALL_INT (ret/* = */, codec->object, media_codec.dequeue_input_buffer, timeoutUs);
 error:
-  ret = G_MININT;
-  goto done;
+  return ret;
 }
 
 static gboolean
@@ -962,7 +891,7 @@ gst_amc_codec_dequeue_output_buffer (GstAmcCodec * codec,
     GstAmcBufferInfo * info, gint64 timeoutUs)
 {
   JNIEnv *env;
-  gint ret = G_MININT;
+  gint ret = G_MININT, buf_idx;
   jobject info_o = NULL;
 
   g_return_val_if_fail (codec != NULL, G_MININT);
@@ -974,18 +903,15 @@ gst_amc_codec_dequeue_output_buffer (GstAmcCodec * codec,
       media_codec_buffer_info.constructor);
   AMC_CHK (info_o);
 
-  ret = J_CALL_INT (codec->object,
+  J_CALL_INT (buf_idx/* = */, codec->object,
       media_codec.dequeue_output_buffer, info_o, timeoutUs);
 
-  if (!gst_amc_codec_fill_buffer_info (env, info_o, info))
-    goto error;
+  AMC_CHK (gst_amc_codec_fill_buffer_info (env, info_o, info));
 
-done:
+  ret = buf_idx;
+error:
   J_DELETE_LOCAL_REF (info_o);
   return ret;
-error:
-  ret = G_MININT;
-  goto done;
 }
 
 gboolean
@@ -1123,7 +1049,7 @@ gst_amc_format_new_audio (const gchar * mime, gint sample_rate, gint channels)
     goto error;
 
   format = g_slice_new0 (GstAmcFormat);
-  object = J_CALL_STATIC_OBJ (media_format, create_audio_format,
+  J_CALL_STATIC_OBJ (object/* = */, media_format, create_audio_format,
       mime_str, sample_rate, channels);
   AMC_CHK (object);
 
@@ -1157,8 +1083,7 @@ gst_amc_format_new_video (const gchar * mime, gint width, gint height)
     goto error;
 
   format = g_slice_new0 (GstAmcFormat);
-  object =
-      J_CALL_STATIC_OBJ (media_format, create_video_format, mime_str, width,
+  J_CALL_STATIC_OBJ (object/* = */, media_format, create_video_format, mime_str, width,
       height);
 
   AMC_CHK (object);
@@ -1198,11 +1123,9 @@ gst_amc_format_to_string (GstAmcFormat * format)
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (format);
 
-  v_str = J_CALL_OBJ (format->object, media_format.to_string);
+  J_CALL_OBJ (v_str/* = */, format->object, media_format.to_string);
   ret = gst_amc_get_string_utf8 (env, v_str);
 error:
-  if (v)
-    (*env)->ReleaseStringUTFChars (env, v_str, v);
   J_DELETE_LOCAL_REF (v_str);
   return ret;
 }
@@ -1218,7 +1141,7 @@ gst_amc_format_contains_key (GstAmcFormat * format, const gchar * key)
   key_str = (*env)->NewStringUTF (env, key);
   AMC_CHK (key_str);
 
-  ret = J_CALL_BOOL (format->object, media_format.contains_key, key_str);
+  J_CALL_BOOL (ret/* = */,format->object, media_format.contains_key, key_str);
 error:
   J_DELETE_LOCAL_REF (key_str);
   return ret;
@@ -1236,7 +1159,7 @@ gst_amc_format_get_float (GstAmcFormat * format, const gchar * key,
   key_str = (*env)->NewStringUTF (env, key);
   AMC_CHK (key_str);
 
-  *value = J_CALL_FLOAT (format->object, media_format.get_float, key_str);
+  J_CALL_FLOAT (*value/* = */, format->object, media_format.get_float, key_str);
 
   ret = TRUE;
 error:
@@ -1272,7 +1195,7 @@ gst_amc_format_get_int (const GstAmcFormat * format, const gchar * key,
   key_str = (*env)->NewStringUTF (env, key);
   AMC_CHK (key_str);
 
-  *value = J_CALL_INT (format->object, media_format.get_integer, key_str);
+  J_CALL_INT (*value/* = */, format->object, media_format.get_integer, key_str);
 
   ret = TRUE;
 error:
@@ -1310,7 +1233,7 @@ gst_amc_format_get_string (GstAmcFormat * format, const gchar * key,
   key_str = (*env)->NewStringUTF (env, key);
   AMC_CHK (key_str);
 
-  v_str = J_CALL_OBJ (format->object, media_format.get_string, key_str);
+  J_CALL_OBJ (v_str/* = */, format->object, media_format.get_string, key_str);
 
   *value = gst_amc_get_string_utf8 (env, v_str);
   AMC_CHK (*value);
@@ -1360,7 +1283,7 @@ gst_amc_format_get_buffer (GstAmcFormat * format, const gchar * key,
   key_str = (*env)->NewStringUTF (env, key);
   AMC_CHK (key_str);
 
-  v = J_CALL_OBJ (format->object, media_format.get_byte_buffer, key_str);
+  J_CALL_OBJ (v/* = */,format->object, media_format.get_byte_buffer, key_str);
 
   data = (*env)->GetDirectBufferAddress (env, v);
   AMC_CHK (data);
@@ -1810,7 +1733,7 @@ juuid_from_utf8 (JNIEnv * env, const gchar * uuid_utf8)
   juuid_string = (*env)->NewStringUTF (env, uuid_utf8);
   AMC_CHK (juuid_string);
 
-  juuid = J_CALL_STATIC_OBJ (uuid, from_string, juuid_string);
+  J_CALL_STATIC_OBJ (juuid/* = */, uuid, from_string, juuid_string);
   AMC_CHK (juuid);
 error:
   J_DELETE_LOCAL_REF (juuid_string);
@@ -1865,7 +1788,7 @@ gboolean
 is_protection_system_id_supported (const gchar * uuid_utf8)
 {
   jobject juuid = NULL;
-  jboolean jis_supported = 0;
+  jboolean jis_supported = FALSE;
   JNIEnv *env = gst_jni_get_env ();
   gboolean cached_supported;
   gboolean found;
@@ -1878,9 +1801,8 @@ is_protection_system_id_supported (const gchar * uuid_utf8)
 
   juuid = juuid_from_utf8 (env, uuid_utf8);
   AMC_CHK (juuid);
-  jis_supported =
-      J_CALL_STATIC_BOOLEAN (media_crypto, is_crypto_scheme_supported, juuid);
 
+  J_CALL_STATIC_BOOLEAN (jis_supported/* = */, media_crypto, is_crypto_scheme_supported, juuid);
 error:
   J_DELETE_LOCAL_REF (juuid);
   GST_ERROR ("Protection scheme %s (%s) is%s supported by device",
@@ -2375,12 +2297,8 @@ scan_codecs (GstPlugin * plugin)
         gst_codec_type->profile_levels[k].profile = profile;
 
       next_profile_level:
-        if (profile_level)
-          (*env)->DeleteLocalRef (env, profile_level);
-        profile_level = NULL;
-        if (profile_level_class)
-          (*env)->DeleteLocalRef (env, profile_level_class);
-        profile_level_class = NULL;
+        J_DELETE_LOCAL_REF (profile_level);
+        J_DELETE_LOCAL_REF (profile_level_class);
         if (!valid_codec)
           break;
       }
