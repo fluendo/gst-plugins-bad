@@ -347,11 +347,10 @@ gst_amc_audio_dec_set_property (GObject * object, guint prop_id,
   }
 }
 
-
 static gboolean
-gst_amc_audio_dec_sink_event (GstPad * pad, GstEvent * event)
+gst_amc_audio_dec_event (GstAudioDecoder *dec, GstEvent *event)
 {
-  gboolean handled = FALSE, res = FALSE;
+  gboolean handled = FALSE;
 
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_CUSTOM_DOWNSTREAM:
@@ -361,11 +360,10 @@ gst_amc_audio_dec_sink_event (GstPad * pad, GstEvent * event)
        * it is an error
        */
       if (fluc_drm_is_event (event)) {
-        GstAmcAudioDec *self = GST_AMC_AUDIO_DEC (gst_pad_get_parent (pad));
+        GstAmcAudioDec *self = GST_AMC_AUDIO_DEC (dec);
         gst_amc_handle_drm_event ((GstElement *) self, event,
             &self->crypto_ctx);
         handled = TRUE;
-        gst_object_unref (self);
       }
       break;
 
@@ -373,13 +371,8 @@ gst_amc_audio_dec_sink_event (GstPad * pad, GstEvent * event)
       break;
   }
 
-  if (!handled)
-    res = gst_pad_event_default (pad, event);
-  else
-    gst_event_unref (event);
-  return res;
+  return handled;
 }
-
 
 static void
 gst_amc_audio_dec_class_init (GstAmcAudioDecClass * klass)
@@ -403,6 +396,7 @@ gst_amc_audio_dec_class_init (GstAmcAudioDecClass * klass)
   audiodec_class->set_format = GST_DEBUG_FUNCPTR (gst_amc_audio_dec_set_format);
   audiodec_class->handle_frame =
       GST_DEBUG_FUNCPTR (gst_amc_audio_dec_handle_frame);
+  audiodec_class->event = GST_DEBUG_FUNCPTR (gst_amc_audio_dec_event);
 
   /* FIXME this will be handled differently in the future.
    * 1. We need an interface that OPE will call, similar to xoverlay
@@ -430,9 +424,6 @@ gst_amc_audio_dec_init (GstAmcAudioDec * self, GstAmcAudioDecClass * klass)
 
   self->drain_lock = g_mutex_new ();
   self->drain_cond = g_cond_new ();
-
-  gst_pad_set_event_function (GST_AUDIO_DECODER_SINK_PAD (self),
-      GST_DEBUG_FUNCPTR (gst_amc_audio_dec_sink_event));
 }
 
 static gboolean
