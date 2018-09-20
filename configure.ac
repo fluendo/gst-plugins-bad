@@ -141,6 +141,12 @@ dnl check for libm, for sin() etc.
 AC_CHECK_LIBM
 AC_SUBST(LIBM)
 
+dnl check for flu-codec-sdk
+AG_GST_PKG_CHECK_MODULES(FLUC, flu-codec-sdk)
+if test "x$HAVE_FLUC" = "xno"; then
+  AC_MSG_ERROR(you do not have the fluc library installed)
+fi
+
 AC_FUNC_MMAP
 
 dnl *** checks for header files ***
@@ -720,11 +726,13 @@ int main () {
 dnl *** Android Media ***
 translit(dnm, m, l) AM_CONDITIONAL(USE_ANDROID_MEDIA, true)
 HAVE_ANDROID_MEDIA="no"
+NEED_CURL="no"
 AG_GST_CHECK_FEATURE(ANDROID_MEDIA, [Android Media], androidmedia, [
   case "$host" in
     *android*)
       AC_CHECK_HEADER(jni.h, HAVE_ANDROID_MEDIA="yes", HAVE_ANDROID_MEDIA="no")
       AC_DEFINE(HAVE_ANDROID, 1, [Define if building for Android])
+      NEED_CURL="yes"
       ;;
     *)
       HAVE_ANDROID_MEDIA="no"
@@ -952,19 +960,25 @@ AG_GST_CHECK_FEATURE(COG, [Cog plugin], cog, [
 
 dnl *** Curl ***
 translit(dnm, m, l) AM_CONDITIONAL(USE_CURL, true)
-AG_GST_CHECK_FEATURE(CURL, [Curl plugin], curl, [
-  PKG_CHECK_MODULES(CURL, libcurl >= 7.21.0, [
-    HAVE_CURL="yes"
-    AC_CHECK_HEADERS([unistd.h sys/socket.h sys/types.h netinet/in.h netinet/ip.h netinet/tcp.h fcntl.h],
-        [ ], [HAVE_CURL="no"])
-    AC_MSG_CHECKING([for socket support needed by curlsink])
-    AC_MSG_RESULT($HAVE_CURL)
-  ], [
-    HAVE_CURL="no"
-  ])
-  AC_SUBST(CURL_CFLAGS)
-  AC_SUBST(CURL_LIBS)
-])
+AG_GST_CHECK_FEATURE(CURL, [Curl plugin], curl, [NEED_CURL="yes"])
+
+if test "x$NEED_CURL" = "xyes"; then
+   PKG_CHECK_MODULES(CURL, libcurl >= 7.21.0, [
+                           HAVE_CURL="yes"
+                           AC_CHECK_HEADERS([unistd.h sys/socket.h sys/types.h netinet/in.h netinet/ip.h netinet/tcp.h fcntl.h],
+                           [ ], [HAVE_CURL="no"])
+                           AC_MSG_CHECKING([for socket support needed by curlsink])
+                           AC_MSG_RESULT($HAVE_CURL)
+   ], [
+       HAVE_CURL="no"
+   ])
+   AC_SUBST(CURL_CFLAGS)
+   AC_SUBST(CURL_LIBS)
+fi
+
+
+
+dnl ])
 
 dnl *** dc1394  ***
 translit(dnm, m, l) AM_CONDITIONAL(USE_DC1394, true)

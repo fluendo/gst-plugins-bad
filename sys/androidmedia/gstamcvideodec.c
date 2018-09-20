@@ -45,7 +45,7 @@
 
 GST_DEBUG_CATEGORY_STATIC (gst_amc_video_dec_debug_category);
 #define GST_CAT_DEFAULT gst_amc_video_dec_debug_category
-#define DEFAULT_DIRECT_RENDERING TRUE
+#define DEFAULT_DIRECT_RENDERING FALSE
 
 typedef struct _BufferIdentification BufferIdentification;
 struct _BufferIdentification
@@ -92,7 +92,8 @@ static GstFlowReturn gst_amc_video_dec_drain (GstAmcVideoDec * self);
 
 enum
 {
-  PROP_0
+  PROP_0,
+  PROP_DRM_AGENT_HANDLE
 };
 
 /* class initialization */
@@ -346,6 +347,21 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
     }
   }
 
+  // Append the x-cenc caps
+  if (ret) {
+    GstCaps *cenc_caps = gst_caps_new_empty ();
+    guint i;
+    for (i = 0; i < gst_caps_get_size (ret); ++i) {
+      GstStructure *str = gst_structure_copy (gst_caps_get_structure (ret, i));
+      const gchar *real_media_type = g_strdup (gst_structure_get_name (str));
+      gst_structure_set_name (str, "application/x-cenc");
+      gst_structure_set (str, "real-caps", G_TYPE_STRING, real_media_type,
+          NULL);
+      gst_caps_append_structure (cenc_caps, str);
+    }
+    gst_caps_append (ret, cenc_caps);
+  }
+
   return ret;
 }
 
@@ -461,6 +477,68 @@ gst_amc_video_dec_base_init (gpointer g_class)
   g_free (longname);
 }
 
+
+static void
+gst_amc_video_dec_get_property (GObject * object, guint prop_id, GValue * value,
+    GParamSpec * pspec)
+{
+  GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
+  switch (prop_id) {
+    case PROP_DRM_AGENT_HANDLE:
+      g_value_set_pointer (value, (gpointer) thiz->crypto_ctx.mcrypto);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+
+static void
+gst_amc_video_dec_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec)
+{
+  GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
+  switch (prop_id) {
+    case PROP_DRM_AGENT_HANDLE:
+      thiz->crypto_ctx.mcrypto = g_value_get_pointer (value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+
+static gboolean
+gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
+{
+  gboolean handled = FALSE, res = FALSE;
+
+  switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_CUSTOM_DOWNSTREAM:
+      /* We need to handle the protection event. On such events we receive
+       * the payload required to initialize the protection system.
+       * We can receive as many events but before the flow, otherwise
+       * it is an error
+       */
+      if (fluc_drm_is_event (event)) {
+        GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
+        gst_amc_handle_drm_event ((GstElement *) self, event,
+            &self->crypto_ctx);
+        handled = TRUE;
+        gst_object_unref (self);
+      }
+      break;
+    default:
+      break;
+  }
+
+  if (handled)
+    gst_event_unref (event);
+  return handled;
+}
+
 static void
 gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
 {
@@ -482,6 +560,26 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
   videodec_class->handle_frame =
       GST_DEBUG_FUNCPTR (gst_amc_video_dec_handle_frame);
   videodec_class->finish = GST_DEBUG_FUNCPTR (gst_amc_video_dec_finish);
+
+  videodec_class->sink_event = GST_DEBUG_FUNCPTR (gst_amc_video_dec_sink_event);
+
+
+  /* FIXME this will be handled differently in the future.
+   * 1. We need an interface that OPE will call, similar to xoverlay
+   * 2. We need to not export this as a property, but an interface method
+   * 3. All elements that decrypt must implement this interface, mainly:
+   *    fludrmdecrypt
+   *    flumtksink
+   */
+  g_object_class_install_property (gobject_class, PROP_DRM_AGENT_HANDLE,
+      g_param_spec_pointer ("drm-agent-handle", "DRM Agent handle",
+          "The DRM Agent handle to use for decrypting",
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  gobject_class->set_property =
+      GST_DEBUG_FUNCPTR (gst_amc_video_dec_set_property);
+  gobject_class->get_property =
+      GST_DEBUG_FUNCPTR (gst_amc_video_dec_get_property);
 }
 
 static void
@@ -521,7 +619,7 @@ gst_amc_video_dec_close (GstVideoDecoder * decoder)
 
   if (self->codec) {
     gst_amc_codec_release (self->codec);
-    gst_amc_codec_free (self->codec);
+    gst_amc_codec_free (self->codec, &self->crypto_ctx);
   }
   self->codec = NULL;
 
@@ -694,7 +792,8 @@ _find_nearest_frame (GstAmcVideoDec * self, GstClockTime reference_timestamp)
 }
 
 static gboolean
-gst_amc_video_dec_set_src_caps (GstAmcVideoDec * self, GstAmcFormat * format)
+gst_amc_video_dec_set_src_caps (GstAmcVideoDec * self,
+    const GstAmcFormat * format)
 {
   GstVideoCodecState *output_state;
   GstAmcVideoDecClass *klass;
@@ -1084,22 +1183,22 @@ gst_amc_video_dec_format_changed (GstAmcVideoDec * self)
 {
   GstAmcFormat *format;
   gchar *format_string;
+  gboolean ret;
 
   format = gst_amc_codec_get_output_format (self->codec);
   if (!format)
     return FALSE;
 
   format_string = gst_amc_format_to_string (format);
-  GST_DEBUG_OBJECT (self, "Got new output format: %s", format_string);
+  GST_ERROR_OBJECT (self, "### Format changed, new output format: %s",
+      format_string);
   g_free (format_string);
 
-  if (!gst_amc_video_dec_set_src_caps (self, format)) {
-    gst_amc_format_free (format);
-    return FALSE;
-  }
+  ret = gst_amc_video_dec_set_src_caps (self, format);
   gst_amc_format_free (format);
-  self->output_configured = TRUE;
-  return TRUE;
+
+  self->output_configured = ret;
+  return ret;
 }
 
 static gboolean
@@ -1458,7 +1557,8 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   gboolean is_format_change = FALSE;
   gboolean needs_disable = FALSE;
   gchar *format_string;
-  jobject jsurface = NULL;
+  jobject jsurface = NULL, mcrypto = NULL;
+  GstAmcCrypto *crypto_ctx;
 
   self = GST_AMC_VIDEO_DEC (decoder);
   klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
@@ -1538,7 +1638,17 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
       format_string, self->surface);
   g_free (format_string);
 
-  if (!gst_amc_codec_configure (self->codec, format, jsurface, 0)) {
+  // FIXME: crypto_ctx.mcrypto (from the event) will be lost if
+  // media stream will reconfigure it's format
+
+  /* We decide that stream is encrypted if we eather received and parsed
+     drm event, eather received crypto ctx from user. It may be not completely correct.
+     Other way - is to base on caps of sinkpad (if they're x-cenc) */
+  if (self->crypto_ctx.mcrypto)
+    self->is_encrypted = TRUE;
+
+  if (!gst_amc_codec_configure (self->codec, format, jsurface,
+          self->crypto_ctx.mcrypto, 0)) {
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }
@@ -1683,8 +1793,14 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
 
     if (self->downstream_flow_ret != GST_FLOW_OK) {
       memset (&buffer_info, 0, sizeof (buffer_info));
-      gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info);
-      goto downstream_error;
+
+      if (self->is_encrypted)
+        gst_amc_codec_queue_secure_input_buffer (self->codec, idx,
+                                                 &buffer_info, frame->input_buffer);
+      else
+        gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info);
+
+          goto downstream_error;
     }
 
     /* Now handle the frame */
@@ -1731,7 +1847,14 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
         "Queueing buffer %d: size %d time %" G_GINT64_FORMAT " flags 0x%08x",
         idx, buffer_info.size, buffer_info.presentation_time_us,
         buffer_info.flags);
-    if (!gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info))
+
+
+    if (self->is_encrypted) {
+      if (!gst_amc_codec_queue_secure_input_buffer (self->codec, idx,
+              &buffer_info, frame->input_buffer))
+        goto queue_error;
+    } else
+        if (!gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info))
       goto queue_error;
   }
 
@@ -1811,6 +1934,7 @@ gst_amc_video_dec_finish (GstVideoDecoder * decoder)
         gst_util_uint64_scale (self->last_upstream_ts, 1, GST_USECOND);
     buffer_info.flags |= BUFFER_FLAG_END_OF_STREAM;
 
+    /* FIXME: not sure if we shouldn't call a secure_input_buffer */
     if (gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info))
       GST_DEBUG_OBJECT (self, "Sent EOS to the codec");
     else
@@ -1868,9 +1992,9 @@ gst_amc_video_dec_drain (GstAmcVideoDec * self)
     buffer_info.flags |= BUFFER_FLAG_END_OF_STREAM;
 
     if (gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info)) {
-      GST_DEBUG_OBJECT (self, "Waiting until codec is drained");
+      GST_ERROR_OBJECT (self, ";;; Waiting until codec is drained");
       g_cond_wait (self->drain_cond, self->drain_lock);
-      GST_DEBUG_OBJECT (self, "Drained codec");
+      GST_ERROR_OBJECT (self, "Drained codec");
       ret = GST_FLOW_OK;
     } else {
       GST_ERROR_OBJECT (self, "Failed to queue input buffer");
