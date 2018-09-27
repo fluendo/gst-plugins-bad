@@ -506,14 +506,14 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
       media_drm.constructor, juuid);
   AMC_CHK (media_drm_obj);
 
-  J_CALL_OBJ (jsession_id/* = */, media_drm_obj, media_drm.open_session);
+  J_CALL_OBJ (jsession_id /* = */ , media_drm_obj, media_drm.open_session);
   AMC_CHK (jsession_id);
 
   // For all other systemids it's "video/mp4" or "audio/mp4"
   jmime = (*env)->NewStringUTF (env, "cenc");
   AMC_CHK (jmime);
 
-  J_CALL_OBJ (request/* = */, media_drm_obj, media_drm.get_key_request,
+  J_CALL_OBJ (request /* = */ , media_drm_obj, media_drm.get_key_request,
       jsession_id, jinit_data, jmime, KEY_TYPE_STREAMING, NULL);
   AMC_CHK (request);
 
@@ -522,14 +522,14 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   jsize req_data_len;
   gchar *req_data_utf8;
   jstring jdef_url;
-  J_CALL_OBJ (jdef_url/* = */, request,
+  J_CALL_OBJ (jdef_url /* = */ , request,
       media_drm_key_request.get_default_url);
 
   def_url = gst_amc_get_string_utf8 (env, jdef_url);
   AMC_CHK (def_url);
   GST_ERROR ("### default url is: [%s]", def_url);
 
-  J_CALL_OBJ (jreq_data/* = */, request, media_drm_key_request.get_data);
+  J_CALL_OBJ (jreq_data /* = */ , request, media_drm_key_request.get_data);
   AMC_CHK (jreq_data);
 
   req_data_len = (*env)->GetArrayLength (env, jreq_data);
@@ -560,7 +560,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
       jbyte_arr_from_data (env, key_response, key_response_size);
 
   jobject tmp;
-  J_CALL_OBJ (tmp/* = */, media_drm_obj,
+  J_CALL_OBJ (tmp /* = */ , media_drm_obj,
       media_drm.provide_key_response, jsession_id, jkey_response);
 
   J_DELETE_LOCAL_REF (tmp);
@@ -595,13 +595,13 @@ gst_amc_codec_new (const gchar * name)
   jstring name_str;
   jobject object = NULL;
   JNIEnv *env = gst_jni_get_env ();
-  
-  g_return_val_if_fail (name != NULL, NULL);
+  AMC_CHK (name);
 
   name_str = (*env)->NewStringUTF (env, name);
   AMC_CHK (name_str);
 
-  J_CALL_STATIC_OBJ (object/* = */, media_codec, create_by_codec_name, name_str);
+  J_CALL_STATIC_OBJ (object /* = */ , media_codec, create_by_codec_name,
+      name_str);
 
   codec = g_slice_new0 (GstAmcCodec);
   codec->object = (*env)->NewGlobalRef (env, object);
@@ -675,7 +675,7 @@ gst_amc_codec_get_output_format (GstAmcCodec * codec)
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (codec);
 
-  J_CALL_OBJ (object/* = */,codec->object, media_codec.get_output_format);
+  J_CALL_OBJ (object /* = */ , codec->object, media_codec.get_output_format);
 
   ret = g_slice_new0 (GstAmcFormat);
   ret->object = (*env)->NewGlobalRef (env, object);
@@ -768,7 +768,8 @@ gst_amc_codec_get_output_buffers (GstAmcCodec * codec, gsize * n_buffers)
   AMC_CHK (codec && n_buffers);
   *n_buffers = 0;
 
-  J_CALL_OBJ (output_buffers/* = */, codec->object, media_codec.get_output_buffers);
+  J_CALL_OBJ (output_buffers /* = */ , codec->object,
+      media_codec.get_output_buffers);
   AMC_CHK (output_buffers);
 
   n_output_buffers = (*env)->GetArrayLength (env, output_buffers);
@@ -813,7 +814,8 @@ gst_amc_codec_get_input_buffers (GstAmcCodec * codec, gsize * n_buffers)
 
   *n_buffers = 0;
 
-  J_CALL_OBJ (input_buffers/* = */, codec->object, media_codec.get_input_buffers);
+  J_CALL_OBJ (input_buffers /* = */ , codec->object,
+      media_codec.get_input_buffers);
   AMC_CHK (input_buffers);
 
   n_input_buffers = (*env)->GetArrayLength (env, input_buffers);
@@ -853,7 +855,8 @@ gst_amc_codec_dequeue_input_buffer (GstAmcCodec * codec, gint64 timeoutUs)
   JNIEnv *env = gst_jni_get_env ();
   g_return_val_if_fail (codec != NULL, G_MININT);
 
-  J_CALL_INT (ret/* = */, codec->object, media_codec.dequeue_input_buffer, timeoutUs);
+  J_CALL_INT (ret /* = */ , codec->object, media_codec.dequeue_input_buffer,
+      timeoutUs);
 error:
   return ret;
 }
@@ -903,7 +906,7 @@ gst_amc_codec_dequeue_output_buffer (GstAmcCodec * codec,
       media_codec_buffer_info.constructor);
   AMC_CHK (info_o);
 
-  J_CALL_INT (buf_idx/* = */, codec->object,
+  J_CALL_INT (buf_idx /* = */ , codec->object,
       media_codec.dequeue_output_buffer, info_o, timeoutUs);
 
   AMC_CHK (gst_amc_codec_fill_buffer_info (env, info_o, info));
@@ -1049,7 +1052,7 @@ gst_amc_format_new_audio (const gchar * mime, gint sample_rate, gint channels)
     goto error;
 
   format = g_slice_new0 (GstAmcFormat);
-  J_CALL_STATIC_OBJ (object/* = */, media_format, create_audio_format,
+  J_CALL_STATIC_OBJ (object /* = */ , media_format, create_audio_format,
       mime_str, sample_rate, channels);
   AMC_CHK (object);
 
@@ -1083,7 +1086,8 @@ gst_amc_format_new_video (const gchar * mime, gint width, gint height)
     goto error;
 
   format = g_slice_new0 (GstAmcFormat);
-  J_CALL_STATIC_OBJ (object/* = */, media_format, create_video_format, mime_str, width,
+  J_CALL_STATIC_OBJ (object /* = */ , media_format, create_video_format,
+      mime_str, width,
       height);
 
   AMC_CHK (object);
@@ -1123,7 +1127,7 @@ gst_amc_format_to_string (GstAmcFormat * format)
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (format);
 
-  J_CALL_OBJ (v_str/* = */, format->object, media_format.to_string);
+  J_CALL_OBJ (v_str /* = */ , format->object, media_format.to_string);
   ret = gst_amc_get_string_utf8 (env, v_str);
 error:
   J_DELETE_LOCAL_REF (v_str);
@@ -1141,7 +1145,8 @@ gst_amc_format_contains_key (GstAmcFormat * format, const gchar * key)
   key_str = (*env)->NewStringUTF (env, key);
   AMC_CHK (key_str);
 
-  J_CALL_BOOL (ret/* = */,format->object, media_format.contains_key, key_str);
+  J_CALL_BOOL (ret /* = */ , format->object, media_format.contains_key,
+      key_str);
 error:
   J_DELETE_LOCAL_REF (key_str);
   return ret;
@@ -1159,7 +1164,8 @@ gst_amc_format_get_float (GstAmcFormat * format, const gchar * key,
   key_str = (*env)->NewStringUTF (env, key);
   AMC_CHK (key_str);
 
-  J_CALL_FLOAT (*value/* = */, format->object, media_format.get_float, key_str);
+  J_CALL_FLOAT (*value /* = */ , format->object, media_format.get_float,
+      key_str);
 
   ret = TRUE;
 error:
@@ -1195,7 +1201,8 @@ gst_amc_format_get_int (const GstAmcFormat * format, const gchar * key,
   key_str = (*env)->NewStringUTF (env, key);
   AMC_CHK (key_str);
 
-  J_CALL_INT (*value/* = */, format->object, media_format.get_integer, key_str);
+  J_CALL_INT (*value /* = */ , format->object, media_format.get_integer,
+      key_str);
 
   ret = TRUE;
 error:
@@ -1233,7 +1240,7 @@ gst_amc_format_get_string (GstAmcFormat * format, const gchar * key,
   key_str = (*env)->NewStringUTF (env, key);
   AMC_CHK (key_str);
 
-  J_CALL_OBJ (v_str/* = */, format->object, media_format.get_string, key_str);
+  J_CALL_OBJ (v_str /* = */ , format->object, media_format.get_string, key_str);
 
   *value = gst_amc_get_string_utf8 (env, v_str);
   AMC_CHK (*value);
@@ -1283,7 +1290,8 @@ gst_amc_format_get_buffer (GstAmcFormat * format, const gchar * key,
   key_str = (*env)->NewStringUTF (env, key);
   AMC_CHK (key_str);
 
-  J_CALL_OBJ (v/* = */,format->object, media_format.get_byte_buffer, key_str);
+  J_CALL_OBJ (v /* = */ , format->object, media_format.get_byte_buffer,
+      key_str);
 
   data = (*env)->GetDirectBufferAddress (env, v);
   AMC_CHK (data);
@@ -1729,7 +1737,7 @@ juuid_from_utf8 (JNIEnv * env, const gchar * uuid_utf8)
   juuid_string = (*env)->NewStringUTF (env, uuid_utf8);
   AMC_CHK (juuid_string);
 
-  J_CALL_STATIC_OBJ (juuid/* = */, uuid, from_string, juuid_string);
+  J_CALL_STATIC_OBJ (juuid /* = */ , uuid, from_string, juuid_string);
   AMC_CHK (juuid);
 error:
   J_DELETE_LOCAL_REF (juuid_string);
@@ -1798,7 +1806,8 @@ is_protection_system_id_supported (const gchar * uuid_utf8)
   juuid = juuid_from_utf8 (env, uuid_utf8);
   AMC_CHK (juuid);
 
-  J_CALL_STATIC_BOOLEAN (jis_supported/* = */, media_crypto, is_crypto_scheme_supported, juuid);
+  J_CALL_STATIC_BOOLEAN (jis_supported /* = */ , media_crypto,
+      is_crypto_scheme_supported, juuid);
 error:
   J_DELETE_LOCAL_REF (juuid);
   GST_ERROR ("Protection scheme %s (%s) is%s supported by device",
@@ -1821,7 +1830,7 @@ log_known_supported_protection_schemes (void)
 static gboolean
 scan_codecs (GstPlugin * plugin)
 {
-  gboolean ret = TRUE;
+  gboolean ret = FALSE;
   JNIEnv *env;
   jclass codec_list_class = NULL;
   jmethodID get_codec_count_id, get_codec_info_at_id;
@@ -1911,33 +1920,19 @@ scan_codecs (GstPlugin * plugin)
   env = gst_jni_get_env ();
 
   codec_list_class = (*env)->FindClass (env, "android/media/MediaCodecList");
-  if (!codec_list_class) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get codec list class");
-    goto done;
-  }
+  AMC_CHK (codec_list_class);
 
   get_codec_count_id =
       (*env)->GetStaticMethodID (env, codec_list_class, "getCodecCount", "()I");
   get_codec_info_at_id =
       (*env)->GetStaticMethodID (env, codec_list_class, "getCodecInfoAt",
       "(I)Landroid/media/MediaCodecInfo;");
-  if (!get_codec_count_id || !get_codec_info_at_id) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get codec list method IDs");
-    goto done;
-  }
+  AMC_CHK (get_codec_count_id && get_codec_info_at_id);
 
+  // J_CALL_STATIC_INT
   codec_count =
       (*env)->CallStaticIntMethod (env, codec_list_class, get_codec_count_id);
-  if ((*env)->ExceptionCheck (env)) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get number of available codecs");
-    goto done;
-  }
+  J_EXCEPTION_CHECK ("codec_list_class->get_codec_count_id");
 
   GST_LOG ("Found %d available codecs", codec_count);
 
@@ -2438,7 +2433,8 @@ scan_codecs (GstPlugin * plugin)
     save_codecs (plugin, new_cache_data);
   }
 
-done:
+  ret = TRUE;
+error:
   J_DELETE_LOCAL_REF (codec_list_class);
   return ret;
 }
