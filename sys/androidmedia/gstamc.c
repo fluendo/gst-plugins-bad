@@ -1637,13 +1637,9 @@ get_cache_file (void)
 static const GstStructure *
 load_codecs (GstPlugin * plugin)
 {
+#ifdef GST_PLUGIN_BUILD_STATIC
   const GstStructure *cache_data = NULL;
-#ifdef GST_PLUGIN_BUILD_STATIC
-  gchar *cache_file;
-#endif
-
-#ifdef GST_PLUGIN_BUILD_STATIC
-  cache_file = get_cache_file ();
+  gchar *cache_file = get_cache_file ();
   if (cache_file) {
     gchar *cache_contents;
 
@@ -1654,10 +1650,10 @@ load_codecs (GstPlugin * plugin)
     }
     g_free (cache_file);
   }
-#else
-  cache_data = gst_plugin_get_cache_data (plugin);
-#endif
   return cache_data;
+#else
+  return gst_plugin_get_cache_data (plugin);
+#endif
 }
 
 static void
