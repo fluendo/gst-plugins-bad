@@ -1203,7 +1203,7 @@ gst_amc_audio_dec_handle_frame (GstAudioDecoder * decoder, GstBuffer * inbuf)
       memset (&buffer_info, 0, sizeof (buffer_info));
       if (self->is_encrypted)
         gst_amc_codec_queue_secure_input_buffer (self->codec, idx,
-                                                 &buffer_info, inbuf);
+            &buffer_info, inbuf);
       else
         gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info);
       goto downstream_error;
