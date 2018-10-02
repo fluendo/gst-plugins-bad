@@ -115,22 +115,36 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
       gint j;
       GstStructure *tmp, *tmp2;
       gboolean have_profile = FALSE;
-      GValue va = { 0, };
-      GValue v = { 0, };
+      GValue va = { 0 };
+      GValue v = { 0 };
+      GValue mpegvers = { 0 };
+      GValue mpegver = { 0 };
+
+      g_value_init (&mpegvers, GST_TYPE_LIST);
+      g_value_init (&mpegver, G_TYPE_INT);
 
       g_value_init (&va, GST_TYPE_LIST);
       g_value_init (&v, G_TYPE_STRING);
+
       g_value_set_string (&v, "raw");
       gst_value_list_append_value (&va, &v);
       g_value_set_string (&v, "adts");
       gst_value_list_append_value (&va, &v);
       g_value_unset (&v);
 
+      g_value_set_int (&mpegver, 2);
+      gst_value_list_append_value (&mpegvers, &mpegver);
+      g_value_set_int (&mpegver, 4);
+      gst_value_list_append_value (&mpegvers, &mpegver);
+
       tmp = gst_structure_new ("audio/mpeg",
-          "mpegversion", G_TYPE_INT, 4,
           "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
           "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT,
           "framed", G_TYPE_BOOLEAN, TRUE, NULL);
+
+      gst_structure_set_value (tmp, "mpegversion", &mpegvers);
+      g_value_unset (&mpegvers);
+
       gst_structure_set_value (tmp, "stream-format", &va);
       g_value_unset (&va);
 
@@ -239,7 +253,7 @@ caps_to_mime (GstCaps * caps)
       return NULL;
 
     if (mpegversion == 1) {
-      gint layer;
+      gint layer = 0;
 
       if (!gst_structure_get_int (s, "layer", &layer) || layer == 3)
         return "audio/mpeg";
@@ -904,7 +918,7 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
   GstAmcAudioDec *self;
   GstStructure *s;
   GstAmcFormat *format;
-  const gchar *mime;
+  const gchar *mime, *stream_format;
   gboolean is_format_change = FALSE;
   gboolean needs_disable = FALSE;
   gchar *format_string;
@@ -969,6 +983,10 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
     GST_ERROR_OBJECT (self, "Failed to create audio format");
     return FALSE;
   }
+
+  stream_format = gst_structure_get_string (s, "stream-format");
+  if (!g_strcmp0 (stream_format, "adts"))
+    gst_amc_format_set_int (format, "is-adts", 1);
 
   /* FIXME: These buffers needs to be valid until the codec is stopped again */
   g_list_foreach (self->codec_datas, (GFunc) gst_buffer_unref, NULL);
@@ -1176,7 +1194,7 @@ gst_amc_audio_dec_handle_frame (GstAudioDecoder * decoder, GstBuffer * inbuf)
       memset (&buffer_info, 0, sizeof (buffer_info));
       if (self->is_encrypted)
         gst_amc_codec_queue_secure_input_buffer (self->codec, idx,
-                                                 &buffer_info, inbuf);
+            &buffer_info, inbuf);
       else
         gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info);
       goto downstream_error;

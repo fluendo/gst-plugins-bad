@@ -11,6 +11,7 @@ libgstandroidmedia_la_SOURCES = \
 
 noinst_HEADERS = \
 	gstamc.h \
+	gstamcmacro.h \
 	gstamc-constants.h \
 	gstamcaudiodec.h \
 	gstamcvideodec.h \
