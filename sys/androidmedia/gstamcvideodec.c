@@ -1204,6 +1204,7 @@ gst_amc_video_dec_format_changed (GstAmcVideoDec * self)
 static gboolean
 gst_amc_video_dec_output_buffers_changed (GstAmcVideoDec * self)
 {
+  // FIXME Here's the hang of direct rendering of dash ??
   GstAmcVideoDecClass *klass;
 
   klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
@@ -1796,11 +1797,11 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
 
       if (self->is_encrypted)
         gst_amc_codec_queue_secure_input_buffer (self->codec, idx,
-                                                 &buffer_info, frame->input_buffer);
+            &buffer_info, frame->input_buffer);
       else
         gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info);
 
-          goto downstream_error;
+      goto downstream_error;
     }
 
     /* Now handle the frame */
