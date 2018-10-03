@@ -1614,7 +1614,8 @@ gst_h264_parse_pre_push_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
                   GST_BUFFER_DATA (codec_nal), GST_BUFFER_SIZE (codec_nal));
               h264parse->last_report = new_ts;
 
-              clean_offset += h264parse->nal_length_size + GST_BUFFER_SIZE (codec_nal);
+              clean_offset +=
+                  h264parse->nal_length_size + GST_BUFFER_SIZE (codec_nal);
             }
           }
           for (i = 0; i < GST_H264_MAX_PPS_COUNT; i++) {
@@ -1632,7 +1633,8 @@ gst_h264_parse_pre_push_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
                   GST_BUFFER_DATA (codec_nal), GST_BUFFER_SIZE (codec_nal));
               h264parse->last_report = new_ts;
 
-              clean_offset += h264parse->nal_length_size + GST_BUFFER_SIZE (codec_nal);
+              clean_offset +=
+                  h264parse->nal_length_size + GST_BUFFER_SIZE (codec_nal);
             }
           }
           ok &= gst_byte_writer_put_data (&bw,
@@ -1640,18 +1642,19 @@ gst_h264_parse_pre_push_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
               GST_BUFFER_SIZE (buffer) - h264parse->idr_pos);
 
           clean_offset += nls;
-          
+
           /* collect result and push */
           new_buf = gst_byte_writer_reset_and_get_buffer (&bw);
 
           /* Sanity check there: new buffer size must exactly match old buffer + offset */
           if (h264parse->cenc &&
-              clean_offset + h264parse->orig_buffer_size != GST_BUFFER_SIZE (new_buf)) {
+              clean_offset + h264parse->orig_buffer_size !=
+              GST_BUFFER_SIZE (new_buf)) {
             GST_ERROR_OBJECT (h264parse, "ClearBytes offset is counted wrong");
             gst_byte_writer_free (&bw);
             return GST_FLOW_ERROR;
           }
-          
+
           gst_buffer_copy_metadata (new_buf, buffer, GST_BUFFER_COPY_ALL);
           /* should already be keyframe/IDR, but it may not have been,
            * so mark it as such to avoid being discarded by picky decoder */
@@ -1659,36 +1662,40 @@ gst_h264_parse_pre_push_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
 
           /* Replace with a DRM buffer if there is cenc information */
           if (h264parse->cenc) {
-            GstStructure * s = h264parse->cenc;
+            GstStructure *s = h264parse->cenc;
             guint n_subsamples = 0;
-            gboolean ok = gst_structure_get_uint (s, "subsample_count", &n_subsamples);
+            gboolean ok =
+                gst_structure_get_uint (s, "subsample_count", &n_subsamples);
             if (!ok) {
               GST_ERROR_OBJECT (h264parse, "subsample_count field not found");
               gst_byte_writer_free (&bw);
               return GST_FLOW_ERROR;
             }
-              
+
             if (n_subsamples) {
-              GValue * subsamps = gst_structure_get_value(s, "subsamples");
+              FlucDrmCencSencEntry *subsamples_buf_mem;
+              GstBuffer *subsamps_buf;
+              const GValue *subsamps =
+                  gst_structure_get_value (s, "subsamples");
               if (!subsamps) {
                 GST_ERROR_OBJECT (h264parse, "subsamples field not found");
                 gst_byte_writer_free (&bw);
                 return GST_FLOW_ERROR;
               }
 
-              GstBuffer * subsamps_buf = gst_value_get_buffer (subsamps);
-              FlucDrmCencSencEntry * subsamples_buf_mem =
-                (FlucDrmCencSencEntry *)GST_BUFFER_DATA (subsamps_buf);
+              subsamps_buf = gst_value_get_buffer (subsamps);
+              subsamples_buf_mem =
+                  (FlucDrmCencSencEntry *) GST_BUFFER_DATA (subsamps_buf);
 
               /* Writing the SPS/PPS as bytes of clear data */
               subsamples_buf_mem[0].clear += clean_offset;
             }
-            
-            
+
+
             new_buf = fluc_drm_buffer_new_from (new_buf, h264parse->cenc);
             h264parse->cenc = NULL;
           }
-          
+
           gst_buffer_replace (&frame->buffer, new_buf);
           gst_buffer_unref (new_buf);
           /* some result checking seems to make some compilers happy */

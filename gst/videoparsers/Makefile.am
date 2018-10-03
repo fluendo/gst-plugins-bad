@@ -7,6 +7,7 @@ libgstvideoparsersbad_la_SOURCES = plugin.c \
 	gstmpegvideoparse.c gstmpeg4videoparse.c
 
 libgstvideoparsersbad_la_CFLAGS = \
+	-Wall -Werror \
 	$(GST_PLUGINS_BAD_CFLAGS) $(GST_PLUGINS_BASE_CFLAGS) \
 	-DGST_USE_UNSTABLE_API \
 	$(GST_BASE_CFLAGS) $(GST_CFLAGS) $(FLUC_CFLAGS)\
