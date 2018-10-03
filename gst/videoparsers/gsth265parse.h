@@ -46,7 +46,8 @@ typedef struct _GstH265ParseClass GstH265ParseClass;
 struct _GstH265Parse
 {
   GstBaseParse baseparse;
-
+  GstPadChainFunction parse_chain;
+  
   /* stream */
   gint width, height;
   gint fps_num, fps_den;

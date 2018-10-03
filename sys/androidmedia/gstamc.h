@@ -156,34 +156,25 @@ void gst_amc_format_set_buffer (GstAmcFormat * format, const gchar * key,
     GstBuffer * value);
 
 GstVideoFormat gst_amc_color_format_to_video_format (gint color_format);
-gint gst_amc_video_format_to_color_format (GstVideoFormat video_format);
 
 const gchar *gst_amc_avc_profile_to_string (gint profile,
     const gchar ** alternative);
-gint gst_amc_avc_profile_from_string (const gchar * profile);
 const gchar *gst_amc_avc_level_to_string (gint level);
-gint gst_amc_avc_level_from_string (const gchar * level);
 
 const gchar *gst_amc_hevc_profile_to_string (gint profile);
-gint gst_amc_hevc_profile_from_string (const gchar * profile);
-const gchar *gst_amc_hevc_level_to_string (gint level);
-gint gst_amc_hevc_level_from_string (const gchar * level);
+
+gboolean
+gst_amc_hevc_level_to_string (gint id, const gchar ** level,
+    const gchar ** tier);
 
 gint gst_amc_h263_profile_to_gst_id (gint profile);
-gint gst_amc_h263_profile_from_gst_id (gint profile);
 gint gst_amc_h263_level_to_gst_id (gint level);
-gint gst_amc_h263_level_from_gst_id (gint level);
 const gchar *gst_amc_mpeg4_profile_to_string (gint profile);
-gint gst_amc_avc_mpeg4_profile_from_string (const gchar * profile);
 const gchar *gst_amc_mpeg4_level_to_string (gint level);
-gint gst_amc_mpeg4_level_from_string (const gchar * level);
 const gchar *gst_amc_aac_profile_to_string (gint profile);
-gint gst_amc_aac_profile_from_string (const gchar * profile);
 
 GstAudioChannelPosition *gst_amc_audio_channel_mask_to_positions (guint32
     channel_mask, gint channels);
-guint32 gst_amc_audio_channel_mask_from_positions (GstAudioChannelPosition *
-    positions, gint channels);
 
 GstQuery *gst_amc_query_new_surface (void);
 gpointer gst_amc_query_parse_surface (GstQuery * query);
@@ -203,7 +194,8 @@ gboolean hack_pssh_initdata (guchar * payload, gsize payload_size,
     gsize * new_payload_size);
 
 gboolean sysid_is_clearkey (const gchar * sysid);
-void gst_amc_handle_drm_event (GstElement * self, GstEvent * event, GstAmcCrypto * crypto_ctx);
+void gst_amc_handle_drm_event (GstElement * self, GstEvent * event,
+    GstAmcCrypto * crypto_ctx);
 
 G_END_DECLS
 #endif /* __GST_AMC_H__ */

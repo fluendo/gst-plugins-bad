@@ -338,17 +338,23 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
           "width", GST_TYPE_INT_RANGE, 16, 4096,
           "height", GST_TYPE_INT_RANGE, 16, 4096,
           "framerate", GST_TYPE_FRACTION_RANGE, 0, 1, G_MAXINT, 1,
-          "stream-format", G_TYPE_STRING, "byte-stream", NULL);
+          "stream-format", G_TYPE_STRING, "byte-stream",
+          "alignment", G_TYPE_STRING, "au",
+          "parsed", G_TYPE_BOOLEAN, TRUE, NULL);
 
       if (type->n_profile_levels) {
         for (j = type->n_profile_levels - 1; j >= 0; j--) {
-          const gchar *profile, *level;
+          const gchar *profile;
           gint k;
-          GValue va = { 0, };
-          GValue v = { 0, };
+          GValue va = { 0 };
+          GValue v = { 0 };
+          GValue ta = { 0 };
+          GValue t = { 0 };
 
           g_value_init (&va, GST_TYPE_LIST);
           g_value_init (&v, G_TYPE_STRING);
+          g_value_init (&ta, GST_TYPE_LIST);
+          g_value_init (&t, G_TYPE_STRING);
 
           profile =
               gst_amc_hevc_profile_to_string (type->profile_levels[j].profile);
@@ -360,9 +366,13 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
           }
 
           for (k = 1; k <= type->profile_levels[j].level && k != 0; k <<= 1) {
-            level = gst_amc_hevc_level_to_string (k);
-            if (!level)
+            const gchar *level, *tier;
+            if (!gst_amc_hevc_level_to_string (k, &tier, &level))
               continue;
+
+            g_value_set_string (&t, tier);
+            gst_value_list_append_value (&ta, &t);
+            g_value_reset (&t);
 
             g_value_set_string (&v, level);
             gst_value_list_append_value (&va, &v);
@@ -372,8 +382,11 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
           tmp2 = gst_structure_copy (tmp);
           gst_structure_set (tmp2, "profile", G_TYPE_STRING, profile, NULL);
           gst_structure_set_value (tmp2, "level", &va);
+          gst_structure_set_value (tmp2, "tier", &ta);
+          g_value_unset (&ta);
           g_value_unset (&va);
           g_value_unset (&v);
+          g_value_unset (&t);
           gst_caps_merge_structure (ret, tmp2);
           have_profile_level = TRUE;
         }
