@@ -21,6 +21,7 @@ noinst_HEADERS = \
 	video/gstvideoutils.h
 
 libgstandroidmedia_la_CFLAGS = \
+	-Wall -Werror -Wno-deprecated-declarations \
 	$(GST_PLUGINS_BASE_CFLAGS) \
 	$(GST_BASE_CFLAGS) \
 	$(GST_CFLAGS) \

@@ -25,6 +25,7 @@
 #include <gst/video/video.h>
 #include <gst/audio/multichannel.h>
 #include <jni.h>
+#include <fluc/drm/flucdrm.h>
 
 G_BEGIN_DECLS
 typedef struct _GstAmcCodecInfo GstAmcCodecInfo;
