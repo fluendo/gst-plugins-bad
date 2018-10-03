@@ -38,8 +38,6 @@
 
 #include <curl/curl.h>
 
-#include <fluc/drm/flucdrm.h>
-
 /* Macros have next rules:
    J_CALL_<TYPE> (), J_CALL_STATIC_<TYPE> () - first parameter is a variable
    to write to, if it's not J_CALL_VOID () or J_CALL_STATIC_VOID ().
@@ -308,10 +306,10 @@ gst_amc_curl_write_memory_callback (void *contents, size_t size, size_t nmemb,
 
 static gboolean
 gst_amc_curl_post_request (const char *url, const char *post,
-    size_t * post_size, char **response_data, size_t * response_size)
+    size_t post_size, char **response_data, size_t * response_size)
 {
   CURL *curl;
-  struct curl_slist *slist;
+  struct curl_slist *slist = NULL;
   GstAmcCurlWriteData chunk;
   CURLcode res;
 
@@ -431,7 +429,7 @@ hack_pssh_initdata (guchar * payload, gsize payload_size,
 
 
 static void
-gst_amc_log_big (gchar * pref, gchar * text, gsize size)
+gst_amc_log_big (const gchar * pref, gchar * text, gsize size)
 {
   jsize i;
   GST_ERROR ("### start logging %s of size %d", pref, size);
@@ -457,7 +455,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
   static jint KEY_TYPE_STREAMING = 1;
   jstring jmime;
   guchar *complete_pssh_payload;
-  gchar *def_url = NULL, *key_response = NULL;
+  gchar *def_url = NULL;
   gsize complete_pssh_payload_size;
 
   fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
@@ -527,7 +525,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
 
     req_data_utf8 = g_malloc0 (req_data_len + 1);
     (*env)->GetByteArrayRegion (env, jreq_data, 0, req_data_len,
-        (guchar *) req_data_utf8);
+        (jbyte *) req_data_utf8);
     J_EXCEPTION_CHECK ("GetByteArrayRegion");
 
     gst_amc_log_big ("req", req_data_utf8, req_data_len);
@@ -537,6 +535,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
       size_t key_response_size = 0;
       jbyteArray jkey_response;
       jobject tmp;
+      gchar *key_response = NULL;       // leak
 
       // FIXME: if clearkey --> reencode request and response base64/base64url
 
@@ -549,7 +548,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
       gst_amc_log_big ("resp", key_response, key_response_size);
 
       jkey_response =
-          jbyte_arr_from_data (env, key_response, key_response_size);
+          jbyte_arr_from_data (env, (guchar *) key_response, key_response_size);
       AMC_CHK (jkey_response);
 
       J_CALL_OBJ (tmp /* = */ , media_drm_obj,
@@ -557,6 +556,7 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
 
       J_DELETE_LOCAL_REF (tmp);
       J_DELETE_LOCAL_REF (jkey_response);
+      g_free (key_response);    // <--- move to errlabel
     }
   }
   /* Create MediaCrypto object */
@@ -574,7 +574,6 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
 error:
   J_DELETE_LOCAL_REF (juuid);
   J_DELETE_LOCAL_REF (jinit_data);
-  g_free (key_response);
   g_free (def_url);
 
   return crypto_ctx->mdrm && crypto_ctx->mcrypto && crypto_ctx->mdrm_session_id;
@@ -585,7 +584,7 @@ GstAmcCodec *
 gst_amc_codec_new (const gchar * name)
 {
   GstAmcCodec *codec = NULL;
-  jstring name_str;
+  jstring name_str = NULL;
   jobject object = NULL;
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (name);
@@ -753,7 +752,7 @@ GstAmcBuffer *
 gst_amc_codec_get_output_buffers (GstAmcCodec * codec, gsize * n_buffers)
 {
   jobject output_buffers = NULL;
-  jsize n_output_buffers;
+  jsize n_output_buffers = 0;
   GstAmcBuffer *ret = NULL;
   jsize i;
   JNIEnv *env = gst_jni_get_env ();
@@ -799,7 +798,7 @@ GstAmcBuffer *
 gst_amc_codec_get_input_buffers (GstAmcCodec * codec, gsize * n_buffers)
 {
   jobject input_buffers = NULL;
-  jsize n_input_buffers;
+  jsize n_input_buffers = 0;
   GstAmcBuffer *ret = NULL;
   jsize i;
   JNIEnv *env = gst_jni_get_env ();
@@ -988,7 +987,7 @@ gboolean
 gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
     const GstAmcBufferInfo * info)
 {
-  gboolean ret = TRUE;
+  gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
 
   g_return_val_if_fail (codec != NULL, FALSE);
@@ -996,28 +995,26 @@ gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
 
   J_CALL_VOID (codec->object, media_codec.queue_input_buffer,
       index, info->offset, info->size, info->presentation_time_us, info->flags);
-done:
-  return ret;
+
+  ret = TRUE;
 error:
-  ret = FALSE;
-  goto error;
+  return ret;
 }
 
 static gboolean
 gst_amc_codec_release_output_buffer_full (GstAmcCodec * codec, gint index,
     gboolean render)
 {
-  gboolean ret = TRUE;
+  gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
   g_return_val_if_fail (codec != NULL, FALSE);
 
   J_CALL_VOID (codec->object, media_codec.release_output_buffer,
       index, render ? JNI_TRUE : JNI_FALSE);
-done:
-  return ret;
+
+  ret = TRUE;
 error:
-  ret = FALSE;
-  goto done;
+  return ret;
 }
 
 gboolean
@@ -1036,7 +1033,7 @@ GstAmcFormat *
 gst_amc_format_new_audio (const gchar * mime, gint sample_rate, gint channels)
 {
   GstAmcFormat *format = NULL;
-  jstring mime_str;
+  jstring mime_str = NULL;
   jobject object = NULL;
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (mime);
@@ -1070,7 +1067,7 @@ GstAmcFormat *
 gst_amc_format_new_video (const gchar * mime, gint width, gint height)
 {
   GstAmcFormat *format = NULL;
-  jstring mime_str;
+  jstring mime_str = NULL;
   jobject object = NULL;
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (mime);
@@ -1115,7 +1112,6 @@ gchar *
 gst_amc_format_to_string (GstAmcFormat * format)
 {
   jstring v_str = NULL;
-  const gchar *v = NULL;
   gchar *ret = NULL;
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (format);
@@ -1787,8 +1783,8 @@ is_protection_system_id_supported (const gchar * uuid_utf8)
   jobject juuid = NULL;
   jboolean jis_supported = FALSE;
   JNIEnv *env = gst_jni_get_env ();
-  gboolean cached_supported;
-  gboolean found;
+  gboolean cached_supported = FALSE;
+  gboolean found = FALSE;
   const gchar *sysid_name =
       detect_known_protection_name (uuid_utf8, &cached_supported, &found);
   if (found) {
@@ -2108,7 +2104,7 @@ scan_codecs (GstPlugin * plugin)
     for (j = 0; j < n_supported_types; j++) {
       GstAmcCodecType *gst_codec_type;
       jobject supported_type = NULL;
-      const gchar *supported_type_str = NULL;
+      gchar *supported_type_str = NULL;
       jobject capabilities = NULL;
       jclass capabilities_class = NULL;
       jfieldID color_formats_id, profile_levels_id;
@@ -2304,6 +2300,9 @@ scan_codecs (GstPlugin * plugin)
       J_DELETE_LOCAL_REF (capabilities);
       J_DELETE_LOCAL_REF (capabilities_class);
       J_DELETE_LOCAL_REF (supported_type);
+
+      if (supported_type_str)
+        g_free (supported_type_str);
 
       if (!valid_codec)
         break;

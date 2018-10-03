@@ -571,7 +571,7 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
 static gboolean
 gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
 {
-  gboolean handled = FALSE, res = FALSE;
+  gboolean handled = FALSE;
 
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_CUSTOM_DOWNSTREAM:
@@ -1146,7 +1146,6 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
     case COLOR_QCOM_FormatYUV420PackedSemiPlanar64x32Tile2m8ka:{
       gint width = self->width;
       gint height = self->height;
-      gint src_stride = self->stride;
       gint dest_luma_stride = GST_VIDEO_INFO_COMP_STRIDE (info, 0);
       gint dest_chroma_stride = GST_VIDEO_INFO_COMP_STRIDE (info, 1);
       guint8 *src = buf->data + buffer_info->offset;
@@ -1341,12 +1340,10 @@ retry:
    * set
    */
   if (!self->output_configured && klass->direct_rendering) {
-    gint color_format;
     GstVideoFormat gst_format;
     GstVideoCodecState *output_state;
 
     gst_format = GST_VIDEO_FORMAT_ENCODED;
-    color_format = COLOR_FormatSurface;
 
     GST_INFO_OBJECT (self, "Received a buffer without output configuration");
     output_state = gst_video_decoder_set_output_state (GST_VIDEO_DECODER (self),
@@ -1616,8 +1613,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   gboolean is_format_change = FALSE;
   gboolean needs_disable = FALSE;
   gchar *format_string;
-  jobject jsurface = NULL, mcrypto = NULL;
-  GstAmcCrypto *crypto_ctx;
+  jobject jsurface = NULL;
 
   self = GST_AMC_VIDEO_DEC (decoder);
   klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
