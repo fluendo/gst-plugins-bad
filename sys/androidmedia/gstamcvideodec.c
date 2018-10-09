@@ -329,6 +329,62 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
           "framerate", GST_TYPE_FRACTION_RANGE, 0, 1, G_MAXINT, 1, NULL);
 
       gst_caps_merge_structure (ret, tmp);
+    } else if (strcmp (type->mime, "video/hevc") == 0) {
+      gint j;
+      GstStructure *tmp, *tmp2;
+      gboolean have_profile_level = FALSE;
+
+      tmp = gst_structure_new ("video/x-h265",
+          "width", GST_TYPE_INT_RANGE, 16, 4096,
+          "height", GST_TYPE_INT_RANGE, 16, 4096,
+          "framerate", GST_TYPE_FRACTION_RANGE, 0, 1, G_MAXINT, 1,
+          "stream-format", G_TYPE_STRING, "byte-stream", NULL);
+
+      if (type->n_profile_levels) {
+        for (j = type->n_profile_levels - 1; j >= 0; j--) {
+          const gchar *profile, *level;
+          gint k;
+          GValue va = { 0, };
+          GValue v = { 0, };
+
+          g_value_init (&va, GST_TYPE_LIST);
+          g_value_init (&v, G_TYPE_STRING);
+
+          profile =
+              gst_amc_hevc_profile_to_string (type->profile_levels[j].profile);
+
+          if (!profile) {
+            GST_ERROR ("Unable to map HEVC profile 0x%08x",
+                type->profile_levels[j].profile);
+            continue;
+          }
+
+          for (k = 1; k <= type->profile_levels[j].level && k != 0; k <<= 1) {
+            level = gst_amc_hevc_level_to_string (k);
+            if (!level)
+              continue;
+
+            g_value_set_string (&v, level);
+            gst_value_list_append_value (&va, &v);
+            g_value_reset (&v);
+          }
+
+          tmp2 = gst_structure_copy (tmp);
+          gst_structure_set (tmp2, "profile", G_TYPE_STRING, profile, NULL);
+          gst_structure_set_value (tmp2, "level", &va);
+          g_value_unset (&va);
+          g_value_unset (&v);
+          gst_caps_merge_structure (ret, tmp2);
+          have_profile_level = TRUE;
+        }
+      }
+
+      if (!have_profile_level) {
+        gst_caps_merge_structure (ret, tmp);
+      } else {
+        gst_structure_free (tmp);
+      }
+
     } else if (strcmp (type->mime, "video/mpeg2") == 0) {
       GstStructure *tmp;
 
@@ -391,6 +447,8 @@ caps_to_mime (GstCaps * caps)
     return "video/3gpp";
   } else if (strcmp (name, "video/x-h264") == 0) {
     return "video/avc";
+  } else if (strcmp (name, "video/x-h265") == 0) {
+    return "video/hevc";
   } else if (strcmp (name, "video/x-vp8") == 0) {
     return "video/x-vnd.on2.vp8";
   } else if (strcmp (name, "video/x-divx") == 0) {
@@ -513,7 +571,7 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
 static gboolean
 gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
 {
-  gboolean handled = FALSE, res = FALSE;
+  gboolean handled = FALSE;
 
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_CUSTOM_DOWNSTREAM:
@@ -1088,7 +1146,6 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
     case COLOR_QCOM_FormatYUV420PackedSemiPlanar64x32Tile2m8ka:{
       gint width = self->width;
       gint height = self->height;
-      gint src_stride = self->stride;
       gint dest_luma_stride = GST_VIDEO_INFO_COMP_STRIDE (info, 0);
       gint dest_chroma_stride = GST_VIDEO_INFO_COMP_STRIDE (info, 1);
       guint8 *src = buf->data + buffer_info->offset;
@@ -1283,12 +1340,10 @@ retry:
    * set
    */
   if (!self->output_configured && klass->direct_rendering) {
-    gint color_format;
     GstVideoFormat gst_format;
     GstVideoCodecState *output_state;
 
     gst_format = GST_VIDEO_FORMAT_ENCODED;
-    color_format = COLOR_FormatSurface;
 
     GST_INFO_OBJECT (self, "Received a buffer without output configuration");
     output_state = gst_video_decoder_set_output_state (GST_VIDEO_DECODER (self),
@@ -1558,8 +1613,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   gboolean is_format_change = FALSE;
   gboolean needs_disable = FALSE;
   gchar *format_string;
-  jobject jsurface = NULL, mcrypto = NULL;
-  GstAmcCrypto *crypto_ctx;
+  jobject jsurface = NULL;
 
   self = GST_AMC_VIDEO_DEC (decoder);
   klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
