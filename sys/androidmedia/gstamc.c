@@ -1869,7 +1869,7 @@ scan_codecs (GstPlugin * plugin)
         mime = gst_structure_get_string (sts, "mime");
         gst_codec_type->mime = g_strdup (mime);
 
-        GST_ERROR ("&&& Found mime: %s", mime);
+        //GST_ERROR ("&&& Found mime: %s", mime);
 
         cfarr = gst_structure_get_value (sts, "color-formats");
         n3 = gst_value_array_get_size (cfarr);
@@ -1900,9 +1900,9 @@ scan_codecs (GstPlugin * plugin)
           gst_codec_type->profile_levels[k].profile = g_value_get_int (p);
           gst_codec_type->profile_levels[k].level = g_value_get_int (l);
 
-          GST_ERROR ("&&& Found levels for %s: prof = %d, lev = %d",
-              mime, gst_codec_type->profile_levels[k].profile,
-              gst_codec_type->profile_levels[k].level);
+          //GST_ERROR ("&&& Found levels for %s: prof = %d, lev = %d",
+          //    mime, gst_codec_type->profile_levels[k].profile,
+          //    gst_codec_type->profile_levels[k].level);
         }
       }
 
@@ -2500,33 +2500,22 @@ gst_amc_color_format_to_video_format (gint color_format)
   return GST_VIDEO_FORMAT_UNKNOWN;
 }
 
-gint
-gst_amc_video_format_to_color_format (GstVideoFormat video_format)
-{
-  gint i;
-
-  for (i = 0; i < G_N_ELEMENTS (color_format_mapping_table); i++) {
-    if (color_format_mapping_table[i].video_format == video_format)
-      return color_format_mapping_table[i].color_format;
-  }
-
-  return -1;
-}
-
-static const struct
-{
-  gint id;
-  const gchar *str;
-} hevc_profile_mapping_table[] = {
-  {
-  HEVCProfileMain, "main"}, {
-  HEVCProfileMain10, "main10"}, {
-  HEVCProfileMain10HDR10, "main10hdr10"}
-};
 
 const gchar *
 gst_amc_hevc_profile_to_string (gint profile)
 {
+  static const struct
+  {
+    gint id;
+    const gchar *str;
+  } hevc_profile_mapping_table[] = {
+    {
+    HEVCProfileMain, "main"}, {
+    HEVCProfileMain10, "main10"}, {
+    HEVCProfileMain10HDR10, "main10hdr10"}
+  };
+
+
   gint i;
   for (i = 0; i < G_N_ELEMENTS (hevc_profile_mapping_table); i++)
     if (hevc_profile_mapping_table[i].id == profile)
@@ -2534,79 +2523,57 @@ gst_amc_hevc_profile_to_string (gint profile)
   return NULL;
 }
 
-gint
-gst_amc_hevc_profile_from_string (const gchar * profile)
-{
-  gint i;
-  g_return_val_if_fail (profile != NULL, -1);
-  for (i = 0; i < G_N_ELEMENTS (hevc_profile_mapping_table); i++) {
-    if (strcmp (hevc_profile_mapping_table[i].str, profile) == 0)
-      return hevc_profile_mapping_table[i].id;
-  }
-  return -1;
-}
 
-static const struct
+gboolean
+gst_amc_hevc_level_to_string (gint id, const gchar ** level,
+    const gchar ** tier)
 {
-  gint id;
-  const gchar *str;
-} hevc_level_mapping_table[] = {
+  static const struct
   {
-  HEVCMainTierLevel1, "0x1"}, {
-  HEVCHighTierLevel1, "0x2"}, {
-  HEVCMainTierLevel2, "0x4"}, {
-  HEVCHighTierLevel2, "0x8"}, {
-  HEVCMainTierLevel21, "0x10"}, {
-  HEVCHighTierLevel21, "0x20"}, {
-  HEVCMainTierLevel3, "0x40"}, {
-  HEVCHighTierLevel3, "0x80"}, {
-  HEVCMainTierLevel31, "0x100"}, {
-  HEVCHighTierLevel31, "0x200"}, {
-  HEVCMainTierLevel4, "0x400"}, {
-  HEVCHighTierLevel4, "0x800"}, {
-  HEVCMainTierLevel41, "0x1000"}, {
-  HEVCHighTierLevel41, "0x2000"}, {
-  HEVCMainTierLevel5, "0x4000"}, {
-  HEVCHighTierLevel5, "0x8000"}, {
-  HEVCMainTierLevel51, "0x10000"}, {
-  HEVCHighTierLevel51, "0x20000"}, {
-  HEVCMainTierLevel52, "0x40000"}, {
-  HEVCHighTierLevel52, "0x80000"}, {
-  HEVCMainTierLevel6, "0x100000"}, {
-  HEVCHighTierLevel6, "0x200000"}, {
-  HEVCMainTierLevel61, "0x400000"}, {
-  HEVCHighTierLevel61, "0x800000"}, {
-  HEVCMainTierLevel62, "0x1000000"}, {
-  HEVCHighTierLevel62, "0x2000000"}
-};
+    gint id;
+    const gchar *tier, *level;
+  } hevc_level_mapping_table[] = {
+    {
+    HEVCMainTierLevel1, "1", "main"}, {
+    HEVCHighTierLevel1, "1", "high"}, {
+    HEVCMainTierLevel2, "2", "main"}, {
+    HEVCHighTierLevel2, "2", "high"}, {
+    HEVCMainTierLevel21, "2.1", "main"}, {
+    HEVCHighTierLevel21, "2.1", "high"}, {
+    HEVCMainTierLevel3, "3", "main"}, {
+    HEVCHighTierLevel3, "3", "high"}, {
+    HEVCMainTierLevel31, "3.1", "main"}, {
+    HEVCHighTierLevel31, "3.1", "high"}, {
+    HEVCMainTierLevel4, "4", "main"}, {
+    HEVCHighTierLevel4, "4", "high"}, {
+    HEVCMainTierLevel41, "4.1", "main"}, {
+    HEVCHighTierLevel41, "4.1", "high"}, {
+    HEVCMainTierLevel5, "5", "main"}, {
+    HEVCHighTierLevel5, "5", "high"}, {
+    HEVCMainTierLevel51, "5.1", "main"}, {
+    HEVCHighTierLevel51, "5.1", "high"}, {
+    HEVCMainTierLevel52, "5.2", "main"}, {
+    HEVCHighTierLevel52, "5.2", "high"}, {
+    HEVCMainTierLevel6, "6", "main"}, {
+    HEVCHighTierLevel6, "6", "high"}, {
+    HEVCMainTierLevel61, "6.1", "main"}, {
+    HEVCHighTierLevel61, "6.1", "high"}, {
+    HEVCMainTierLevel62, "6.2", "main"}, {
+    HEVCHighTierLevel62, "6.2", "high"}
+  };
 
-const gchar *
-gst_amc_hevc_level_to_string (gint level)
-{
   gint i;
 
-  for (i = 0; i < G_N_ELEMENTS (hevc_level_mapping_table); i++) {
-    if (hevc_level_mapping_table[i].id == level)
-      return hevc_level_mapping_table[i].str;
-  }
+  for (i = 0; i < G_N_ELEMENTS (hevc_level_mapping_table); i++)
+    if (hevc_level_mapping_table[i].id == id) {
+      *level = hevc_level_mapping_table[i].level;
+      *tier = hevc_level_mapping_table[i].tier;
+      return TRUE;
+    }
 
-  return NULL;
+  return FALSE;
 }
 
-gint
-gst_amc_hevc_level_from_string (const gchar * level)
-{
-  gint i;
-
-  g_return_val_if_fail (level != NULL, -1);
-
-  for (i = 0; i < G_N_ELEMENTS (hevc_level_mapping_table); i++) {
-    if (strcmp (hevc_level_mapping_table[i].str, level) == 0)
-      return hevc_level_mapping_table[i].id;
-  }
-
-  return -1;
-}
 
 static const struct
 {
@@ -2639,20 +2606,6 @@ gst_amc_avc_profile_to_string (gint profile, const gchar ** alternative)
   return NULL;
 }
 
-gint
-gst_amc_avc_profile_from_string (const gchar * profile)
-{
-  gint i;
-
-  g_return_val_if_fail (profile != NULL, -1);
-
-  for (i = 0; i < G_N_ELEMENTS (avc_profile_mapping_table); i++) {
-    if (strcmp (avc_profile_mapping_table[i].str, profile) == 0)
-      return avc_profile_mapping_table[i].id;
-  }
-
-  return -1;
-}
 
 static const struct
 {
@@ -2691,20 +2644,6 @@ gst_amc_avc_level_to_string (gint level)
   return NULL;
 }
 
-gint
-gst_amc_avc_level_from_string (const gchar * level)
-{
-  gint i;
-
-  g_return_val_if_fail (level != NULL, -1);
-
-  for (i = 0; i < G_N_ELEMENTS (avc_level_mapping_table); i++) {
-    if (strcmp (avc_level_mapping_table[i].str, level) == 0)
-      return avc_level_mapping_table[i].id;
-  }
-
-  return -1;
-}
 
 static const struct
 {
@@ -2736,18 +2675,6 @@ gst_amc_h263_profile_to_gst_id (gint profile)
   return -1;
 }
 
-gint
-gst_amc_h263_profile_from_gst_id (gint profile)
-{
-  gint i;
-
-  for (i = 0; i < G_N_ELEMENTS (h263_profile_mapping_table); i++) {
-    if (h263_profile_mapping_table[i].gst_id == profile)
-      return h263_profile_mapping_table[i].id;
-  }
-
-  return -1;
-}
 
 static const struct
 {
@@ -2777,18 +2704,6 @@ gst_amc_h263_level_to_gst_id (gint level)
   return -1;
 }
 
-gint
-gst_amc_h263_level_from_gst_id (gint level)
-{
-  gint i;
-
-  for (i = 0; i < G_N_ELEMENTS (h263_level_mapping_table); i++) {
-    if (h263_level_mapping_table[i].gst_id == level)
-      return h263_level_mapping_table[i].id;
-  }
-
-  return -1;
-}
 
 static const struct
 {
@@ -2827,20 +2742,6 @@ gst_amc_mpeg4_profile_to_string (gint profile)
   return NULL;
 }
 
-gint
-gst_amc_avc_mpeg4_profile_from_string (const gchar * profile)
-{
-  gint i;
-
-  g_return_val_if_fail (profile != NULL, -1);
-
-  for (i = 0; i < G_N_ELEMENTS (mpeg4_profile_mapping_table); i++) {
-    if (strcmp (mpeg4_profile_mapping_table[i].str, profile) == 0)
-      return mpeg4_profile_mapping_table[i].id;
-  }
-
-  return -1;
-}
 
 static const struct
 {
@@ -2870,20 +2771,6 @@ gst_amc_mpeg4_level_to_string (gint level)
   return NULL;
 }
 
-gint
-gst_amc_mpeg4_level_from_string (const gchar * level)
-{
-  gint i;
-
-  g_return_val_if_fail (level != NULL, -1);
-
-  for (i = 0; i < G_N_ELEMENTS (mpeg4_level_mapping_table); i++) {
-    if (strcmp (mpeg4_level_mapping_table[i].str, level) == 0)
-      return mpeg4_level_mapping_table[i].id;
-  }
-
-  return -1;
-}
 
 static const struct
 {
@@ -2910,20 +2797,6 @@ gst_amc_aac_profile_to_string (gint profile)
   return NULL;
 }
 
-gint
-gst_amc_aac_profile_from_string (const gchar * profile)
-{
-  gint i;
-
-  g_return_val_if_fail (profile != NULL, -1);
-
-  for (i = 0; i < G_N_ELEMENTS (aac_profile_mapping_table); i++) {
-    if (strcmp (aac_profile_mapping_table[i].str, profile) == 0)
-      return aac_profile_mapping_table[i].id;
-  }
-
-  return -1;
-}
 
 static const struct
 {
@@ -3024,37 +2897,6 @@ gst_amc_audio_channel_mask_to_positions (guint32 channel_mask, gint channels)
   return pos;
 }
 
-guint32
-gst_amc_audio_channel_mask_from_positions (GstAudioChannelPosition * positions,
-    gint channels)
-{
-  gint i, j;
-  guint32 channel_mask = 0;
-
-  if (channels == 1 && !positions)
-    return CHANNEL_OUT_FRONT_CENTER;
-  if (channels == 2 && !positions)
-    return CHANNEL_OUT_FRONT_LEFT | CHANNEL_OUT_FRONT_RIGHT;
-
-  for (i = 0; i < channels; i++) {
-    if (positions[i] == GST_AUDIO_CHANNEL_POSITION_INVALID)
-      return 0;
-
-    for (j = 0; j < G_N_ELEMENTS (channel_mapping_table); j++) {
-      if (channel_mapping_table[j].pos == positions[i]) {
-        channel_mask |= channel_mapping_table[j].mask;
-        break;
-      }
-    }
-
-    if (j == G_N_ELEMENTS (channel_mapping_table)) {
-      GST_ERROR ("Unable to map channel position %d", positions[i]);
-      return 0;
-    }
-  }
-
-  return channel_mask;
-}
 
 static gchar *
 create_type_name (const gchar * parent_name, const gchar * codec_name)

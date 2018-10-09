@@ -1,8 +1,8 @@
 lib_LTLIBRARIES = libgstcodecparsers-@GST_MAJORMINOR@.la
 
 libgstcodecparsers_@GST_MAJORMINOR@_la_SOURCES = \
-	gstmpegvideoparser.c gsth264parser.c gstvc1parser.c gstmpeg4parser.c \
-	parserutils.c
+	gstmpegvideoparser.c gsth264parser.c gsth265parser.c gstvc1parser.c \
+	gstmpeg4parser.c parserutils.c nalutils.c
 
 libgstcodecparsers_@GST_MAJORMINOR@includedir = \
 	$(includedir)/gstreamer-@GST_MAJORMINOR@/gst/codecparsers
@@ -10,7 +10,8 @@ libgstcodecparsers_@GST_MAJORMINOR@includedir = \
 noinst_HEADERS = parserutils.h
 
 libgstcodecparsers_@GST_MAJORMINOR@include_HEADERS = \
-	gstmpegvideoparser.h gsth264parser.h gstvc1parser.h gstmpeg4parser.h
+	gstmpegvideoparser.h gsth264parser.h gsth265parser.h \
+	gstvc1parser.h gstmpeg4parser.h nalutils.h
 
 libgstcodecparsers_@GST_MAJORMINOR@_la_CFLAGS = \
 	$(GST_PLUGINS_BAD_CFLAGS) \
