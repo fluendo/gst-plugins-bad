@@ -38,8 +38,6 @@
 
 #include <curl/curl.h>
 
-#include <fluc/drm/flucdrm.h>
-
 /* Macros have next rules:
    J_CALL_<TYPE> (), J_CALL_STATIC_<TYPE> () - first parameter is a variable
    to write to, if it's not J_CALL_VOID () or J_CALL_STATIC_VOID ().
@@ -196,7 +194,7 @@ gst_amc_get_crypto_info (const GstStructure * s, gsize bufsize)
   jbyteArray j_kid = NULL, j_iv = NULL;
   jobject crypto_info = NULL, crypto_info_ret = NULL;
   JNIEnv *env = gst_jni_get_env ();
-  
+
   ok = gst_structure_get_uint (s, "subsample_count", &n_subsamples);
   AMC_CHK (ok && n_subsamples);
 
@@ -308,10 +306,10 @@ gst_amc_curl_write_memory_callback (void *contents, size_t size, size_t nmemb,
 
 static gboolean
 gst_amc_curl_post_request (const char *url, const char *post,
-    size_t * post_size, char **response_data, size_t * response_size)
+    size_t post_size, char **response_data, size_t * response_size)
 {
   CURL *curl;
-  struct curl_slist *slist;
+  struct curl_slist *slist = NULL;
   GstAmcCurlWriteData chunk;
   CURLcode res;
 
@@ -430,11 +428,11 @@ hack_pssh_initdata (guchar * payload, gsize payload_size,
 }
 
 
-void
-gst_amc_log_big (gchar * pref, gchar * text, gsize size)
+static void
+gst_amc_log_big (const gchar * pref, gchar * text, gsize size)
 {
-  GST_ERROR ("### start logging %s of size %d", pref, size);
   jsize i;
+  GST_ERROR ("### start logging %s of size %d", pref, size);
   for (i = 0; i < size; i += 700) {
     gchar chunk[701];
     snprintf (chunk, 701, "%s", text + i);
@@ -452,11 +450,12 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
       NULL;
   jbyteArray jsession_id = NULL, jinit_data = NULL;
   JNIEnv *env = gst_jni_get_env ();
-  guchar *payload;
-  gsize payload_size;
+//  guchar *payload;
+//  gsize payload_size;
   static jint KEY_TYPE_STREAMING = 1;
   jstring jmime;
-  gchar *complete_pssh_payload, *def_url = NULL;
+  guchar *complete_pssh_payload;
+  gchar *def_url = NULL;
   gsize complete_pssh_payload_size;
 
   fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
@@ -504,55 +503,62 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
       jsession_id, jinit_data, jmime, KEY_TYPE_STREAMING, NULL);
   AMC_CHK (request);
 
-  /* getKeyRequest */
-  jbyteArray jreq_data;
-  jsize req_data_len;
-  gchar *req_data_utf8;
-  jstring jdef_url;
-  J_CALL_OBJ (jdef_url /* = */ , request,
-      media_drm_key_request.get_default_url);
+  {
+    /* getKeyRequest */
+    jbyteArray jreq_data;
+    jsize req_data_len;
+    gchar *req_data_utf8;       // leaks
+    jstring jdef_url;
+    J_CALL_OBJ (jdef_url /* = */ , request,
+        media_drm_key_request.get_default_url);
 
-  def_url = gst_amc_get_string_utf8 (env, jdef_url);
-  AMC_CHK (def_url);
-  GST_ERROR ("### default url is: [%s]", def_url);
+    def_url = gst_amc_get_string_utf8 (env, jdef_url);
+    AMC_CHK (def_url);
+    GST_ERROR ("### default url is: [%s]", def_url);
 
-  J_CALL_OBJ (jreq_data /* = */ , request, media_drm_key_request.get_data);
-  AMC_CHK (jreq_data);
+    J_CALL_OBJ (jreq_data /* = */ , request, media_drm_key_request.get_data);
+    AMC_CHK (jreq_data);
 
-  req_data_len = (*env)->GetArrayLength (env, jreq_data);
-  J_EXCEPTION_CHECK ("GetArrayLength");
-  GST_ERROR ("### req_data_len = %d", req_data_len);
+    req_data_len = (*env)->GetArrayLength (env, jreq_data);
+    J_EXCEPTION_CHECK ("GetArrayLength");
+    GST_ERROR ("### req_data_len = %d", req_data_len);
 
-  req_data_utf8 = g_malloc0 (req_data_len + 1);
-  (*env)->GetByteArrayRegion (env, jreq_data, 0, req_data_len, req_data_utf8);
-  J_EXCEPTION_CHECK ("GetByteArrayRegion");
+    req_data_utf8 = g_malloc0 (req_data_len + 1);
+    (*env)->GetByteArrayRegion (env, jreq_data, 0, req_data_len,
+        (jbyte *) req_data_utf8);
+    J_EXCEPTION_CHECK ("GetByteArrayRegion");
 
-  gst_amc_log_big ("req", req_data_utf8, req_data_len);
+    gst_amc_log_big ("req", req_data_utf8, req_data_len);
 
-  /* ProvideKeyResponse */
-  char *key_response = NULL;
-  size_t key_response_size = 0;
+    {
+      /* ProvideKeyResponse */
+      size_t key_response_size = 0;
+      jbyteArray jkey_response;
+      jobject tmp;
+      gchar *key_response = NULL;       // leak
 
-  // FIXME: if clearkey --> reencode request and response base64/base64url
+      // FIXME: if clearkey --> reencode request and response base64/base64url
 
-  if (!gst_amc_curl_post_request (def_url, req_data_utf8, req_data_len,
-          &key_response, &key_response_size)) {
-    GST_ERROR ("Could not post key request to url <%s>", def_url);
-    goto error;
+      if (!gst_amc_curl_post_request (def_url, req_data_utf8, req_data_len,
+              &key_response, &key_response_size)) {
+        GST_ERROR ("Could not post key request to url <%s>", def_url);
+        goto error;
+      }
+
+      gst_amc_log_big ("resp", key_response, key_response_size);
+
+      jkey_response =
+          jbyte_arr_from_data (env, (guchar *) key_response, key_response_size);
+      AMC_CHK (jkey_response);
+
+      J_CALL_OBJ (tmp /* = */ , media_drm_obj,
+          media_drm.provide_key_response, jsession_id, jkey_response);
+
+      J_DELETE_LOCAL_REF (tmp);
+      J_DELETE_LOCAL_REF (jkey_response);
+      g_free (key_response);    // <--- move to errlabel
+    }
   }
-
-  gst_amc_log_big ("resp", key_response, key_response_size);
-
-  jbyteArray jkey_response =
-      jbyte_arr_from_data (env, key_response, key_response_size);
-
-  jobject tmp;
-  J_CALL_OBJ (tmp /* = */ , media_drm_obj,
-      media_drm.provide_key_response, jsession_id, jkey_response);
-
-  J_DELETE_LOCAL_REF (tmp);
-  J_DELETE_LOCAL_REF (jkey_response);
-
   /* Create MediaCrypto object */
   media_crypto_obj = (*env)->NewObject (env, media_crypto.klass,
       media_crypto.constructor, juuid, jsession_id);
@@ -568,7 +574,6 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
 error:
   J_DELETE_LOCAL_REF (juuid);
   J_DELETE_LOCAL_REF (jinit_data);
-  g_free (key_response);
   g_free (def_url);
 
   return crypto_ctx->mdrm && crypto_ctx->mcrypto && crypto_ctx->mdrm_session_id;
@@ -579,7 +584,7 @@ GstAmcCodec *
 gst_amc_codec_new (const gchar * name)
 {
   GstAmcCodec *codec = NULL;
-  jstring name_str;
+  jstring name_str = NULL;
   jobject object = NULL;
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (name);
@@ -747,7 +752,7 @@ GstAmcBuffer *
 gst_amc_codec_get_output_buffers (GstAmcCodec * codec, gsize * n_buffers)
 {
   jobject output_buffers = NULL;
-  jsize n_output_buffers;
+  jsize n_output_buffers = 0;
   GstAmcBuffer *ret = NULL;
   jsize i;
   JNIEnv *env = gst_jni_get_env ();
@@ -793,7 +798,7 @@ GstAmcBuffer *
 gst_amc_codec_get_input_buffers (GstAmcCodec * codec, gsize * n_buffers)
 {
   jobject input_buffers = NULL;
-  jsize n_input_buffers;
+  jsize n_input_buffers = 0;
   GstAmcBuffer *ret = NULL;
   jsize i;
   JNIEnv *env = gst_jni_get_env ();
@@ -982,7 +987,7 @@ gboolean
 gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
     const GstAmcBufferInfo * info)
 {
-  gboolean ret = TRUE;
+  gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
 
   g_return_val_if_fail (codec != NULL, FALSE);
@@ -990,28 +995,26 @@ gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
 
   J_CALL_VOID (codec->object, media_codec.queue_input_buffer,
       index, info->offset, info->size, info->presentation_time_us, info->flags);
-done:
-  return ret;
+
+  ret = TRUE;
 error:
-  ret = FALSE;
-  goto error;
+  return ret;
 }
 
 static gboolean
 gst_amc_codec_release_output_buffer_full (GstAmcCodec * codec, gint index,
     gboolean render)
 {
-  gboolean ret = TRUE;
+  gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
   g_return_val_if_fail (codec != NULL, FALSE);
 
   J_CALL_VOID (codec->object, media_codec.release_output_buffer,
       index, render ? JNI_TRUE : JNI_FALSE);
-done:
-  return ret;
+
+  ret = TRUE;
 error:
-  ret = FALSE;
-  goto done;
+  return ret;
 }
 
 gboolean
@@ -1030,7 +1033,7 @@ GstAmcFormat *
 gst_amc_format_new_audio (const gchar * mime, gint sample_rate, gint channels)
 {
   GstAmcFormat *format = NULL;
-  jstring mime_str;
+  jstring mime_str = NULL;
   jobject object = NULL;
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (mime);
@@ -1064,7 +1067,7 @@ GstAmcFormat *
 gst_amc_format_new_video (const gchar * mime, gint width, gint height)
 {
   GstAmcFormat *format = NULL;
-  jstring mime_str;
+  jstring mime_str = NULL;
   jobject object = NULL;
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (mime);
@@ -1109,7 +1112,6 @@ gchar *
 gst_amc_format_to_string (GstAmcFormat * format)
 {
   jstring v_str = NULL;
-  const gchar *v = NULL;
   gchar *ret = NULL;
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (format);
@@ -1781,8 +1783,8 @@ is_protection_system_id_supported (const gchar * uuid_utf8)
   jobject juuid = NULL;
   jboolean jis_supported = FALSE;
   JNIEnv *env = gst_jni_get_env ();
-  gboolean cached_supported;
-  gboolean found;
+  gboolean cached_supported = FALSE;
+  gboolean found = FALSE;
   const gchar *sysid_name =
       detect_known_protection_name (uuid_utf8, &cached_supported, &found);
   if (found) {
@@ -1867,6 +1869,8 @@ scan_codecs (GstPlugin * plugin)
         mime = gst_structure_get_string (sts, "mime");
         gst_codec_type->mime = g_strdup (mime);
 
+        GST_ERROR ("&&& Found mime: %s", mime);
+
         cfarr = gst_structure_get_value (sts, "color-formats");
         n3 = gst_value_array_get_size (cfarr);
 
@@ -1895,6 +1899,10 @@ scan_codecs (GstPlugin * plugin)
           l = gst_value_array_get_value (plv, 1);
           gst_codec_type->profile_levels[k].profile = g_value_get_int (p);
           gst_codec_type->profile_levels[k].level = g_value_get_int (l);
+
+          GST_ERROR ("&&& Found levels for %s: prof = %d, lev = %d",
+              mime, gst_codec_type->profile_levels[k].profile,
+              gst_codec_type->profile_levels[k].level);
         }
       }
 
@@ -2096,7 +2104,7 @@ scan_codecs (GstPlugin * plugin)
     for (j = 0; j < n_supported_types; j++) {
       GstAmcCodecType *gst_codec_type;
       jobject supported_type = NULL;
-      const gchar *supported_type_str = NULL;
+      gchar *supported_type_str = NULL;
       jobject capabilities = NULL;
       jclass capabilities_class = NULL;
       jfieldID color_formats_id, profile_levels_id;
@@ -2292,6 +2300,9 @@ scan_codecs (GstPlugin * plugin)
       J_DELETE_LOCAL_REF (capabilities);
       J_DELETE_LOCAL_REF (capabilities_class);
       J_DELETE_LOCAL_REF (supported_type);
+
+      if (supported_type_str)
+        g_free (supported_type_str);
 
       if (!valid_codec)
         break;
@@ -2497,6 +2508,101 @@ gst_amc_video_format_to_color_format (GstVideoFormat video_format)
   for (i = 0; i < G_N_ELEMENTS (color_format_mapping_table); i++) {
     if (color_format_mapping_table[i].video_format == video_format)
       return color_format_mapping_table[i].color_format;
+  }
+
+  return -1;
+}
+
+static const struct
+{
+  gint id;
+  const gchar *str;
+} hevc_profile_mapping_table[] = {
+  {
+  HEVCProfileMain, "main"}, {
+  HEVCProfileMain10, "main10"}, {
+  HEVCProfileMain10HDR10, "main10hdr10"}
+};
+
+const gchar *
+gst_amc_hevc_profile_to_string (gint profile)
+{
+  gint i;
+  for (i = 0; i < G_N_ELEMENTS (hevc_profile_mapping_table); i++)
+    if (hevc_profile_mapping_table[i].id == profile)
+      return hevc_profile_mapping_table[i].str;
+  return NULL;
+}
+
+gint
+gst_amc_hevc_profile_from_string (const gchar * profile)
+{
+  gint i;
+  g_return_val_if_fail (profile != NULL, -1);
+  for (i = 0; i < G_N_ELEMENTS (hevc_profile_mapping_table); i++) {
+    if (strcmp (hevc_profile_mapping_table[i].str, profile) == 0)
+      return hevc_profile_mapping_table[i].id;
+  }
+  return -1;
+}
+
+static const struct
+{
+  gint id;
+  const gchar *str;
+} hevc_level_mapping_table[] = {
+  {
+  HEVCMainTierLevel1, "0x1"}, {
+  HEVCHighTierLevel1, "0x2"}, {
+  HEVCMainTierLevel2, "0x4"}, {
+  HEVCHighTierLevel2, "0x8"}, {
+  HEVCMainTierLevel21, "0x10"}, {
+  HEVCHighTierLevel21, "0x20"}, {
+  HEVCMainTierLevel3, "0x40"}, {
+  HEVCHighTierLevel3, "0x80"}, {
+  HEVCMainTierLevel31, "0x100"}, {
+  HEVCHighTierLevel31, "0x200"}, {
+  HEVCMainTierLevel4, "0x400"}, {
+  HEVCHighTierLevel4, "0x800"}, {
+  HEVCMainTierLevel41, "0x1000"}, {
+  HEVCHighTierLevel41, "0x2000"}, {
+  HEVCMainTierLevel5, "0x4000"}, {
+  HEVCHighTierLevel5, "0x8000"}, {
+  HEVCMainTierLevel51, "0x10000"}, {
+  HEVCHighTierLevel51, "0x20000"}, {
+  HEVCMainTierLevel52, "0x40000"}, {
+  HEVCHighTierLevel52, "0x80000"}, {
+  HEVCMainTierLevel6, "0x100000"}, {
+  HEVCHighTierLevel6, "0x200000"}, {
+  HEVCMainTierLevel61, "0x400000"}, {
+  HEVCHighTierLevel61, "0x800000"}, {
+  HEVCMainTierLevel62, "0x1000000"}, {
+  HEVCHighTierLevel62, "0x2000000"}
+};
+
+const gchar *
+gst_amc_hevc_level_to_string (gint level)
+{
+  gint i;
+
+  for (i = 0; i < G_N_ELEMENTS (hevc_level_mapping_table); i++) {
+    if (hevc_level_mapping_table[i].id == level)
+      return hevc_level_mapping_table[i].str;
+  }
+
+  return NULL;
+}
+
+gint
+gst_amc_hevc_level_from_string (const gchar * level)
+{
+  gint i;
+
+  g_return_val_if_fail (level != NULL, -1);
+
+  for (i = 0; i < G_N_ELEMENTS (hevc_level_mapping_table); i++) {
+    if (strcmp (hevc_level_mapping_table[i].str, level) == 0)
+      return hevc_level_mapping_table[i].id;
   }
 
   return -1;

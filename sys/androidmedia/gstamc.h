@@ -25,6 +25,7 @@
 #include <gst/video/video.h>
 #include <gst/audio/multichannel.h>
 #include <jni.h>
+#include <fluc/drm/flucdrm.h>
 
 G_BEGIN_DECLS
 typedef struct _GstAmcCodecInfo GstAmcCodecInfo;
@@ -162,6 +163,12 @@ const gchar *gst_amc_avc_profile_to_string (gint profile,
 gint gst_amc_avc_profile_from_string (const gchar * profile);
 const gchar *gst_amc_avc_level_to_string (gint level);
 gint gst_amc_avc_level_from_string (const gchar * level);
+
+const gchar *gst_amc_hevc_profile_to_string (gint profile);
+gint gst_amc_hevc_profile_from_string (const gchar * profile);
+const gchar *gst_amc_hevc_level_to_string (gint level);
+gint gst_amc_hevc_level_from_string (const gchar * level);
+
 gint gst_amc_h263_profile_to_gst_id (gint profile);
 gint gst_amc_h263_profile_from_gst_id (gint profile);
 gint gst_amc_h263_level_to_gst_id (gint level);
