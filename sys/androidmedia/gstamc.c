@@ -2301,9 +2301,6 @@ scan_codecs (GstPlugin * plugin)
       J_DELETE_LOCAL_REF (capabilities_class);
       J_DELETE_LOCAL_REF (supported_type);
 
-      if (supported_type_str)
-        g_free (supported_type_str);
-
       if (!valid_codec)
         break;
     }
