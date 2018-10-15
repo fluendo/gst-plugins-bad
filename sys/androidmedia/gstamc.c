@@ -2508,8 +2508,8 @@ gst_amc_hevc_profile_to_string (gint profile)
   } hevc_profile_mapping_table[] = {
     {
     HEVCProfileMain, "main"}, {
-    HEVCProfileMain10, "main10"}, {
-    HEVCProfileMain10HDR10, "main10hdr10"}
+    HEVCProfileMain10, "main-10"}, {
+    HEVCProfileMain10HDR10, "main-10-hdr10"}    /* <-- this caps not exist in h265parse */
   };
 
 
