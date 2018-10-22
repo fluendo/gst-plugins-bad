@@ -71,25 +71,24 @@ struct _GstAmcVideoDec
    * output format
    */
   gboolean output_configured;
-  gboolean flushing;
 
   GstClockTime last_upstream_ts;
 
   /* Draining state */
   GMutex *drain_lock;
   GCond *drain_cond;
-  /* TRUE if EOS buffers shouldn't be forwarded */
-  gboolean draining;
 
   /* TRUE if upstream is EOS */
-  gboolean eos;
+  volatile gboolean eos;
 
   GstJniSurface *surface;
 
-  GstFlowReturn downstream_flow_ret;
-
+  volatile GstFlowReturn downstream_flow_ret;
+  volatile gboolean stop_loop;
   GstAmcCrypto crypto_ctx;
   gboolean is_encrypted;
+  gboolean srcpad_loop_started;
+  gint cached_input_buffer;
 };
 
 struct _GstAmcVideoDecClass

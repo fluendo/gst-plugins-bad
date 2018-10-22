@@ -64,7 +64,7 @@ struct _GstAmcAudioDec
   /* TRUE if the component is configured and saw
    * the first buffer */
   gboolean started;
-  gboolean flushing;
+  volatile gboolean flushing;
 
   GstClockTime last_upstream_ts;
 
@@ -72,12 +72,12 @@ struct _GstAmcAudioDec
   GMutex *drain_lock;
   GCond *drain_cond;
   /* TRUE if EOS buffers shouldn't be forwarded */
-  gboolean draining;
+  volatile gboolean draining;
 
   /* TRUE if upstream is EOS */
-  gboolean eos;
+  volatile gboolean eos;
 
-  GstFlowReturn downstream_flow_ret;
+  volatile GstFlowReturn downstream_flow_ret;
 
   /* Output buffers counter */
   gint n_buffers;
