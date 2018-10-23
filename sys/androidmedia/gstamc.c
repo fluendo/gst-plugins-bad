@@ -766,6 +766,7 @@ gst_amc_codec_get_output_buffers (GstAmcCodec * codec, gsize * n_buffers)
 
   n_output_buffers = (*env)->GetArrayLength (env, output_buffers);
   J_EXCEPTION_CHECK ("(get output buffers array length)");
+  AMC_CHK (n_output_buffers);
 
   ret = g_new0 (GstAmcBuffer, n_output_buffers);
 
@@ -785,6 +786,7 @@ gst_amc_codec_get_output_buffers (GstAmcCodec * codec, gsize * n_buffers)
   }
 
   *n_buffers = n_output_buffers;
+  GST_DEBUG ("Created %d", *n_buffers);
 done:
   J_DELETE_LOCAL_REF (output_buffers);
   return ret;
@@ -990,9 +992,6 @@ gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
   gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
 
-  g_return_val_if_fail (codec != NULL, FALSE);
-  g_return_val_if_fail (info != NULL, FALSE);
-
   J_CALL_VOID (codec->object, media_codec.queue_input_buffer,
       index, info->offset, info->size, info->presentation_time_us, info->flags);
 
@@ -1007,7 +1006,6 @@ gst_amc_codec_release_output_buffer_full (GstAmcCodec * codec, gint index,
 {
   gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
-  g_return_val_if_fail (codec != NULL, FALSE);
 
   J_CALL_VOID (codec->object, media_codec.release_output_buffer,
       index, render ? JNI_TRUE : JNI_FALSE);
