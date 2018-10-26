@@ -412,22 +412,16 @@ gst_amc_audio_dec_class_init (GstAmcAudioDecClass * klass)
       GST_DEBUG_FUNCPTR (gst_amc_audio_dec_handle_frame);
   audiodec_class->event = GST_DEBUG_FUNCPTR (gst_amc_audio_dec_event);
 
-  /* FIXME this will be handled differently in the future.
-   * 1. We need an interface that OPE will call, similar to xoverlay
-   * 2. We need to not export this as a property, but an interface method
-   * 3. All elements that decrypt must implement this interface, mainly:
-   *    fludrmdecrypt
-   *    flumtksink
-   */
+  gobject_class->set_property =
+      GST_DEBUG_FUNCPTR (gst_amc_audio_dec_set_property);
+  gobject_class->get_property =
+      GST_DEBUG_FUNCPTR (gst_amc_audio_dec_get_property);
+
   g_object_class_install_property (gobject_class, PROP_DRM_AGENT_HANDLE,
       g_param_spec_pointer ("drm-agent-handle", "DRM Agent handle",
           "The DRM Agent handle to use for decrypting",
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
-  gobject_class->set_property =
-      GST_DEBUG_FUNCPTR (gst_amc_audio_dec_set_property);
-  gobject_class->get_property =
-      GST_DEBUG_FUNCPTR (gst_amc_audio_dec_get_property);
 }
 
 static void
