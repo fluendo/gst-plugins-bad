@@ -1604,6 +1604,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
 
   if (!gst_amc_codec_configure (self->codec, format, jsurface,
           self->crypto_ctx.mcrypto, 0)) {
+    gst_amc_format_free (format);
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }
