@@ -1036,6 +1036,7 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
 
   if (!gst_amc_codec_configure (self->codec, format, NULL,
           self->crypto_ctx.mcrypto, 0)) {
+    gst_amc_format_free (format);
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
   }
