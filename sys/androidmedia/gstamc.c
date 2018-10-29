@@ -1775,137 +1775,6 @@ gst_amc_handle_drm_event (GstElement * self, GstEvent * event,
   }
 }
 
-
-static gboolean
-amc_set_codec_profile_level (JNIEnv * env,
-    GstAmcCodecType * gst_codec_type, jobject profile_levels, jsize k)
-{
-  gboolean ret = FALSE;
-  jobject profile_level = NULL;
-  jclass profile_level_class = NULL;
-  jfieldID level_id, profile_id;
-
-  profile_level = (*env)->GetObjectArrayElement (env, profile_levels, k);
-  J_EXCEPTION_CHECK ("(get profile/level object)");
-
-  profile_level_class = (*env)->GetObjectClass (env, profile_level);
-  AMC_CHK (profile_level_class);
-
-  level_id = (*env)->GetFieldID (env, profile_level_class, "level", "I");
-  profile_id = (*env)->GetFieldID (env, profile_level_class, "profile", "I");
-  AMC_CHK (level_id && profile_id);
-
-  gst_codec_type->profile_levels[k].level =
-      (*env)->GetIntField (env, profile_level, level_id);
-  J_EXCEPTION_CHECK ("(get level)");
-
-  gst_codec_type->profile_levels[k].profile =
-      (*env)->GetIntField (env, profile_level, profile_id);
-  J_EXCEPTION_CHECK ("(get profile)");
-
-  GST_INFO ("[%d] Profile = 0x%08x, Level = 0x%08x", k,
-      gst_codec_type->profile_levels[k].profile,
-      gst_codec_type->profile_levels[k].level);
-
-  ret = TRUE;
-error:
-  J_DELETE_LOCAL_REF (profile_level);
-  J_DELETE_LOCAL_REF (profile_level_class);
-  return ret;
-}
-
-
-static gboolean
-amc_process_supported_type (JNIEnv * env, GstAmcCodecInfo * gst_codec_info,
-    jobject codec_info, jarray supported_types,
-    jmethodID get_capabilities_for_type_id, jint j)
-{
-  jobject supported_type = NULL;
-  jobject capabilities = NULL;
-  jclass capabilities_class = NULL;
-  jfieldID color_formats_id, profile_levels_id;
-  jobject color_formats = NULL;
-  jobject profile_levels = NULL;
-  jint *color_formats_elems = NULL;
-  jsize n_elems, k;
-  gboolean ret = FALSE;
-
-  GstAmcCodecType *gst_codec_type = &gst_codec_info->supported_types[j];
-
-  supported_type = (*env)->GetObjectArrayElement (env, supported_types, j);
-  AMC_CHK (supported_type);
-
-  gst_codec_type->mime = gst_amc_get_string_utf8 (env, supported_type);
-  AMC_CHK (gst_codec_type->mime);
-
-  GST_INFO ("Supported type '%s'", gst_codec_type->mime);
-
-  J_CALL_OBJ (capabilities /* = */ , codec_info,
-      get_capabilities_for_type_id, supported_type);
-  AMC_CHK (capabilities);
-
-  AMC_CHK (capabilities_class = (*env)->GetObjectClass (env, capabilities));
-
-  color_formats_id =
-      (*env)->GetFieldID (env, capabilities_class, "colorFormats", "[I");
-  profile_levels_id =
-      (*env)->GetFieldID (env, capabilities_class, "profileLevels",
-      "[Landroid/media/MediaCodecInfo$CodecProfileLevel;");
-  AMC_CHK (color_formats_id && profile_levels_id);
-
-  color_formats = (*env)->GetObjectField (env, capabilities, color_formats_id);
-  AMC_CHK (color_formats);
-
-  n_elems = (*env)->GetArrayLength (env, color_formats);
-  J_EXCEPTION_CHECK ("(get color formats length)");
-
-  gst_codec_type->n_color_formats = n_elems;
-  gst_codec_type->color_formats = g_new0 (gint, n_elems);
-  color_formats_elems = (*env)->GetIntArrayElements (env, color_formats, NULL);
-  AMC_CHK (color_formats_elems);
-
-  for (k = 0; k < n_elems; k++) {
-    GST_INFO ("Color format %d: %d", k, color_formats_elems[k]);
-    gst_codec_type->color_formats[k] = color_formats_elems[k];
-  }
-
-  if (g_str_has_prefix (gst_codec_type->mime, "video/")) {
-    AMC_CHK (n_elems);
-    AMC_CHK (ignore_unknown_color_formats
-        || accepted_color_formats (gst_codec_type, gst_codec_info->is_encoder));
-  }
-
-  profile_levels =
-      (*env)->GetObjectField (env, capabilities, profile_levels_id);
-  AMC_CHK (profile_levels);
-
-  gst_codec_type->n_profile_levels =
-      (*env)->GetArrayLength (env, profile_levels);
-  J_EXCEPTION_CHECK ("(get profile levels length)");
-
-  gst_codec_type->profile_levels =
-      g_malloc0 (sizeof (gst_codec_type->profile_levels[0]) * n_elems);
-
-  for (k = 0; k < gst_codec_type->n_profile_levels; k++)
-    AMC_CHK (amc_set_codec_profile_level (env, gst_codec_type, profile_levels,
-            k));
-
-  ret = TRUE;
-error:
-  if (color_formats_elems)
-    (*env)->ReleaseIntArrayElements (env, color_formats,
-        color_formats_elems, JNI_ABORT);
-
-  J_DELETE_LOCAL_REF (profile_levels);
-  J_DELETE_LOCAL_REF (color_formats);
-  J_DELETE_LOCAL_REF (capabilities);
-  J_DELETE_LOCAL_REF (capabilities_class);
-  J_DELETE_LOCAL_REF (supported_type);
-
-  return ret;
-}
-
-
 gboolean
 is_protection_system_id_supported (const gchar * uuid_utf8)
 {
@@ -1944,162 +1813,6 @@ log_known_supported_protection_schemes (void)
 
   cached_supported_system_ids = TRUE;
 }
-
-
-static gboolean
-amc_process_codec (JNIEnv * env, jclass codec_list_class,
-    jmethodID get_codec_info_at_id, jint i)
-{
-  GstAmcCodecInfo *gst_codec_info;
-  jobject codec_info = NULL;
-  jclass codec_info_class = NULL;
-  jmethodID get_capabilities_for_type_id, get_name_id;
-  jmethodID get_supported_types_id, is_encoder_id;
-  jobject name = NULL;
-  gchar *name_str = NULL;
-  jarray supported_types = NULL;
-  jsize n_supported_types;
-  jsize j;
-  gboolean valid_codec = FALSE;
-
-  gst_codec_info = g_new0 (GstAmcCodecInfo, 1);
-
-
-  codec_info =
-      (*env)->CallStaticObjectMethod (env, codec_list_class,
-      get_codec_info_at_id, i);
-  J_EXCEPTION_CHECK ("(get codec info)");
-
-  AMC_CHK (codec_info_class = (*env)->GetObjectClass (env, codec_info));
-
-  get_capabilities_for_type_id =
-      (*env)->GetMethodID (env, codec_info_class, "getCapabilitiesForType",
-      "(Ljava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;");
-  get_name_id =
-      (*env)->GetMethodID (env, codec_info_class, "getName",
-      "()Ljava/lang/String;");
-  get_supported_types_id =
-      (*env)->GetMethodID (env, codec_info_class, "getSupportedTypes",
-      "()[Ljava/lang/String;");
-  is_encoder_id =
-      (*env)->GetMethodID (env, codec_info_class, "isEncoder", "()Z");
-
-  AMC_CHK (get_capabilities_for_type_id && get_name_id
-      && get_supported_types_id && is_encoder_id);
-
-  J_CALL_OBJ (name /* = */ , codec_info, get_name_id);
-  name_str = gst_amc_get_string_utf8 (env, name);
-  GST_INFO ("Checking codec '%s'", name_str);
-
-  /* Compatibility codec names */
-  /* The MP3Decoder is found on Sony Xperia Z but it fails
-   * when creating the element and triggers a SEGV
-   * The OMX.SEC.avcdec Found on Samsung Galaxy S3 gives errors
-   */
-  if (strcmp (name_str, "AACEncoder") == 0 ||
-      strcmp (name_str, "AACDecoder") == 0 ||
-      strcmp (name_str, "MP3Decoder") == 0 ||
-      strcmp (name_str, "OMX.SEC.avcdec") == 0 ||
-      strcmp (name_str, "OMX.google.raw.decoder") == 0) {
-    GST_DEBUG ("Skipping compatibility codec '%s'", name_str);
-    goto error;
-  }
-#if 0
-  if (g_str_has_suffix (name_str, ".secure")) {
-    GST_INFO ("Skipping DRM codec '%s'", name_str);
-    goto error;
-  }
-#endif
-
-  /* FIXME: Non-Google codecs usually just don't work and hang forever
-   * or crash when not used from a process that started the Java
-   * VM via the non-public AndroidRuntime class. Can we somehow
-   * initialize all this?
-   */
-  if (gst_jni_is_vm_started () && !g_str_has_prefix (name_str, "OMX.google.")) {
-    GST_INFO ("Skipping non-Google codec '%s' in standalone mode", name_str);
-    goto error;
-  }
-
-  if (g_str_has_prefix (name_str, "OMX.ARICENT.")) {
-    GST_INFO ("Skipping possible broken codec '%s'", name_str);
-    goto error;
-  }
-
-  /* FIXME:
-   *   - Vorbis: Generates clicks for multi-channel streams
-   *   - *Law: Generates output with too low frequencies
-   */
-  if (strcmp (name_str, "OMX.google.vorbis.decoder") == 0 ||
-      strcmp (name_str, "OMX.google.g711.alaw.decoder") == 0 ||
-      strcmp (name_str, "OMX.google.g711.mlaw.decoder") == 0) {
-    GST_INFO ("Skipping known broken codec '%s'", name_str);
-    goto error;
-  }
-  gst_codec_info->name = g_strdup (name_str);
-
-  gst_codec_info->is_encoder =
-      (*env)->CallBooleanMethod (env, codec_info, is_encoder_id);
-
-  J_CALL_BOOL (gst_codec_info->is_encoder /* = */ , codec_info, is_encoder_id);
-
-  /* We do not support encoders. There are issues with a Sony Xperia P
-   * where getting the capabilities of a type for an encoder takes around 5s
-   */
-  if (gst_codec_info->is_encoder) {
-    GST_INFO ("Skipping encoder '%s'", name_str);
-    goto error;
-  }
-
-  J_CALL_OBJ (supported_types /* = */ , codec_info, get_supported_types_id);
-
-  n_supported_types = (*env)->GetArrayLength (env, supported_types);
-  J_EXCEPTION_CHECK ("(get supported types array length)");
-
-  GST_INFO ("Codec '%s' has %d supported types", name_str, n_supported_types);
-
-  gst_codec_info->supported_types = g_new0 (GstAmcCodecType, n_supported_types);
-  gst_codec_info->n_supported_types = n_supported_types;
-
-  for (j = 0; j < n_supported_types; j++)
-    if (amc_process_supported_type (env, gst_codec_info,
-            codec_info, supported_types, get_capabilities_for_type_id, j))
-      valid_codec = TRUE;
-    else
-      break;
-
-  /* We need at least one valid supported type */
-  if (valid_codec) {
-    GST_LOG ("Successfully scanned codec '%s'", name_str);
-    codec_infos = g_list_append (codec_infos, gst_codec_info);
-    gst_codec_info = NULL;
-  }
-
-  /* Clean up of all local references we got */
-error:
-  g_free (name_str);
-  J_DELETE_LOCAL_REF (name);
-  J_DELETE_LOCAL_REF (supported_types);
-  J_DELETE_LOCAL_REF (codec_info);
-  J_DELETE_LOCAL_REF (codec_info_class);
-  if (gst_codec_info) {
-    gint j;
-
-    for (j = 0; j < gst_codec_info->n_supported_types; j++) {
-      GstAmcCodecType *gst_codec_type = &gst_codec_info->supported_types[j];
-
-      g_free (gst_codec_type->mime);
-      g_free (gst_codec_type->color_formats);
-      g_free (gst_codec_type->profile_levels);
-    }
-    g_free (gst_codec_info->supported_types);
-    g_free (gst_codec_info->name);
-    g_free (gst_codec_info);
-  }
-
-  return valid_codec;
-}
-
 
 static gboolean
 scan_codecs (GstPlugin * plugin)
@@ -2217,7 +1930,411 @@ scan_codecs (GstPlugin * plugin)
   GST_LOG ("Found %d available codecs", codec_count);
 
   for (i = 0; i < codec_count; i++) {
-    amc_process_codec (env, codec_list_class, get_codec_info_at_id, i);
+    GstAmcCodecInfo *gst_codec_info;
+    jobject codec_info = NULL;
+    jclass codec_info_class = NULL;
+    jmethodID get_capabilities_for_type_id, get_name_id;
+    jmethodID get_supported_types_id, is_encoder_id;
+    jobject name = NULL;
+    const gchar *name_str = NULL;
+    jboolean is_encoder;
+    jarray supported_types = NULL;
+    jsize n_supported_types;
+    jsize j;
+    gboolean valid_codec = TRUE;
+
+    gst_codec_info = g_new0 (GstAmcCodecInfo, 1);
+
+    codec_info =
+        (*env)->CallStaticObjectMethod (env, codec_list_class,
+        get_codec_info_at_id, i);
+    if ((*env)->ExceptionCheck (env) || !codec_info) {
+      (*env)->ExceptionClear (env);
+      GST_ERROR ("Failed to get codec info %d", i);
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+
+    codec_info_class = (*env)->GetObjectClass (env, codec_info);
+    if (!codec_list_class) {
+      (*env)->ExceptionClear (env);
+      GST_ERROR ("Failed to get codec info class");
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+
+    get_capabilities_for_type_id =
+        (*env)->GetMethodID (env, codec_info_class, "getCapabilitiesForType",
+        "(Ljava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;");
+    get_name_id =
+        (*env)->GetMethodID (env, codec_info_class, "getName",
+        "()Ljava/lang/String;");
+    get_supported_types_id =
+        (*env)->GetMethodID (env, codec_info_class, "getSupportedTypes",
+        "()[Ljava/lang/String;");
+    is_encoder_id =
+        (*env)->GetMethodID (env, codec_info_class, "isEncoder", "()Z");
+    if (!get_capabilities_for_type_id || !get_name_id
+        || !get_supported_types_id || !is_encoder_id) {
+      (*env)->ExceptionClear (env);
+      GST_ERROR ("Failed to get codec info method IDs");
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+
+    name = (*env)->CallObjectMethod (env, codec_info, get_name_id);
+    if ((*env)->ExceptionCheck (env)) {
+      (*env)->ExceptionClear (env);
+      GST_ERROR ("Failed to get codec name");
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+    name_str = (*env)->GetStringUTFChars (env, name, NULL);
+    if ((*env)->ExceptionCheck (env)) {
+      (*env)->ExceptionClear (env);
+      GST_ERROR ("Failed to convert codec name to UTF8");
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+
+    GST_INFO ("Checking codec '%s'", name_str);
+
+    /* Compatibility codec names */
+    /* The MP3Decoder is found on Sony Xperia Z but it fails
+     * when creating the element and triggers a SEGV
+     * The OMX.SEC.avcdec Found on Samsung Galaxy S3 gives errors
+     */
+    if (strcmp (name_str, "AACEncoder") == 0 ||
+        strcmp (name_str, "AACDecoder") == 0 ||
+        strcmp (name_str, "MP3Decoder") == 0 ||
+        strcmp (name_str, "OMX.SEC.avcdec") == 0 ||
+        strcmp (name_str, "OMX.google.raw.decoder") == 0) {
+      GST_INFO ("Skipping compatibility codec '%s'", name_str);
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+#if 0
+    if (g_str_has_suffix (name_str, ".secure")) {
+      GST_INFO ("Skipping DRM codec '%s'", name_str);
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+#endif
+
+    /* FIXME: Non-Google codecs usually just don't work and hang forever
+     * or crash when not used from a process that started the Java
+     * VM via the non-public AndroidRuntime class. Can we somehow
+     * initialize all this?
+     */
+    if (gst_jni_is_vm_started () && !g_str_has_prefix (name_str, "OMX.google.")) {
+      GST_INFO ("Skipping non-Google codec '%s' in standalone mode", name_str);
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+
+    if (g_str_has_prefix (name_str, "OMX.ARICENT.")) {
+      GST_INFO ("Skipping possible broken codec '%s'", name_str);
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+
+    /* FIXME:
+     *   - Vorbis: Generates clicks for multi-channel streams
+     *   - *Law: Generates output with too low frequencies
+     */
+    if (strcmp (name_str, "OMX.google.vorbis.decoder") == 0 ||
+        strcmp (name_str, "OMX.google.g711.alaw.decoder") == 0 ||
+        strcmp (name_str, "OMX.google.g711.mlaw.decoder") == 0) {
+      GST_INFO ("Skipping known broken codec '%s'", name_str);
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+    gst_codec_info->name = g_strdup (name_str);
+
+    is_encoder = (*env)->CallBooleanMethod (env, codec_info, is_encoder_id);
+    if ((*env)->ExceptionCheck (env)) {
+      (*env)->ExceptionClear (env);
+      GST_ERROR ("Failed to detect if codec is an encoder");
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+
+    /* We do not support encoders. There are issues with a Sony Xperia P
+     * where getting the capabilities of a type for an encoder takes around 5s
+     */
+    if (is_encoder) {
+      GST_INFO ("Skipping encoder '%s'", name_str);
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+
+    gst_codec_info->is_encoder = is_encoder;
+
+    supported_types =
+        (*env)->CallObjectMethod (env, codec_info, get_supported_types_id);
+    if ((*env)->ExceptionCheck (env)) {
+      (*env)->ExceptionClear (env);
+      GST_ERROR ("Failed to get supported types");
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+
+    n_supported_types = (*env)->GetArrayLength (env, supported_types);
+    if ((*env)->ExceptionCheck (env)) {
+      (*env)->ExceptionClear (env);
+      GST_ERROR ("Failed to get supported types array length");
+      valid_codec = FALSE;
+      goto next_codec;
+    }
+
+    GST_INFO ("Codec '%s' has %d supported types", name_str, n_supported_types);
+
+    gst_codec_info->supported_types =
+        g_new0 (GstAmcCodecType, n_supported_types);
+    gst_codec_info->n_supported_types = n_supported_types;
+
+    if (n_supported_types == 0) {
+      valid_codec = FALSE;
+      GST_ERROR ("Codec has no supported types");
+      goto next_codec;
+    }
+
+    for (j = 0; j < n_supported_types; j++) {
+      GstAmcCodecType *gst_codec_type;
+      jobject supported_type = NULL;
+      gchar *supported_type_str = NULL;
+      jobject capabilities = NULL;
+      jclass capabilities_class = NULL;
+      jfieldID color_formats_id, profile_levels_id;
+      jobject color_formats = NULL;
+      jobject profile_levels = NULL;
+      jint *color_formats_elems = NULL;
+      jsize n_elems, k;
+
+      gst_codec_type = &gst_codec_info->supported_types[j];
+
+      supported_type = (*env)->GetObjectArrayElement (env, supported_types, j);
+      if ((*env)->ExceptionCheck (env)) {
+        (*env)->ExceptionClear (env);
+        GST_ERROR ("Failed to get %d-th supported type", j);
+        valid_codec = FALSE;
+        goto next_supported_type;
+      }
+
+      supported_type_str = gst_amc_get_string_utf8 (env, supported_type);
+      if (!supported_type_str) {
+        GST_ERROR ("Failed to convert supported type to UTF8");
+        valid_codec = FALSE;
+        goto next_supported_type;
+      }
+
+      GST_INFO ("Supported type '%s'", supported_type_str);
+      gst_codec_type->mime = supported_type_str;
+
+      capabilities =
+          (*env)->CallObjectMethod (env, codec_info,
+          get_capabilities_for_type_id, supported_type);
+      if ((*env)->ExceptionCheck (env)) {
+        (*env)->ExceptionClear (env);
+        GST_ERROR ("Failed to get capabilities for supported type");
+        valid_codec = FALSE;
+        goto next_supported_type;
+      }
+
+      capabilities_class = (*env)->GetObjectClass (env, capabilities);
+      if (!capabilities_class) {
+        (*env)->ExceptionClear (env);
+        GST_ERROR ("Failed to get capabilities class");
+        valid_codec = FALSE;
+        goto next_supported_type;
+      }
+
+      color_formats_id =
+          (*env)->GetFieldID (env, capabilities_class, "colorFormats", "[I");
+      profile_levels_id =
+          (*env)->GetFieldID (env, capabilities_class, "profileLevels",
+          "[Landroid/media/MediaCodecInfo$CodecProfileLevel;");
+      if (!color_formats_id || !profile_levels_id) {
+        (*env)->ExceptionClear (env);
+        GST_ERROR ("Failed to get capabilities field IDs");
+        valid_codec = FALSE;
+        goto next_supported_type;
+      }
+
+      color_formats =
+          (*env)->GetObjectField (env, capabilities, color_formats_id);
+      if ((*env)->ExceptionCheck (env)) {
+        (*env)->ExceptionClear (env);
+        GST_ERROR ("Failed to get color formats");
+        valid_codec = FALSE;
+        goto next_supported_type;
+      }
+
+      n_elems = (*env)->GetArrayLength (env, color_formats);
+      if ((*env)->ExceptionCheck (env)) {
+        (*env)->ExceptionClear (env);
+        GST_ERROR ("Failed to get color formats array length");
+        valid_codec = FALSE;
+        goto next_supported_type;
+      }
+      gst_codec_type->n_color_formats = n_elems;
+      gst_codec_type->color_formats = g_new0 (gint, n_elems);
+      color_formats_elems =
+          (*env)->GetIntArrayElements (env, color_formats, NULL);
+      if ((*env)->ExceptionCheck (env)) {
+        (*env)->ExceptionClear (env);
+        GST_ERROR ("Failed to get color format elements");
+        valid_codec = FALSE;
+        goto next_supported_type;
+      }
+
+      for (k = 0; k < n_elems; k++) {
+        GST_INFO ("Color format %d: %d", k, color_formats_elems[k]);
+        gst_codec_type->color_formats[k] = color_formats_elems[k];
+      }
+
+      if (g_str_has_prefix (gst_codec_type->mime, "video/")) {
+        if (!n_elems) {
+          GST_ERROR ("No supported color formats for video codec");
+          valid_codec = FALSE;
+          goto next_supported_type;
+        }
+
+        if (!ignore_unknown_color_formats
+            && !accepted_color_formats (gst_codec_type, is_encoder)) {
+          GST_ERROR ("Codec has unknown color formats, ignoring");
+          valid_codec = FALSE;
+          g_assert_not_reached ();
+          goto next_supported_type;
+        }
+      }
+
+      profile_levels =
+          (*env)->GetObjectField (env, capabilities, profile_levels_id);
+      if ((*env)->ExceptionCheck (env)) {
+        (*env)->ExceptionClear (env);
+        GST_ERROR ("Failed to get profile/levels");
+        valid_codec = FALSE;
+        goto next_supported_type;
+      }
+
+      n_elems = (*env)->GetArrayLength (env, profile_levels);
+      if ((*env)->ExceptionCheck (env)) {
+        (*env)->ExceptionClear (env);
+        GST_ERROR ("Failed to get profile/levels array length");
+        valid_codec = FALSE;
+        goto next_supported_type;
+      }
+      gst_codec_type->n_profile_levels = n_elems;
+      gst_codec_type->profile_levels =
+          g_malloc0 (sizeof (gst_codec_type->profile_levels[0]) * n_elems);
+      for (k = 0; k < n_elems; k++) {
+        jobject profile_level = NULL;
+        jclass profile_level_class = NULL;
+        jfieldID level_id, profile_id;
+        jint level, profile;
+
+        profile_level = (*env)->GetObjectArrayElement (env, profile_levels, k);
+        if ((*env)->ExceptionCheck (env)) {
+          (*env)->ExceptionClear (env);
+          GST_ERROR ("Failed to get %d-th profile/level", k);
+          valid_codec = FALSE;
+          goto next_profile_level;
+        }
+
+        profile_level_class = (*env)->GetObjectClass (env, profile_level);
+        if (!profile_level_class) {
+          (*env)->ExceptionClear (env);
+          GST_ERROR ("Failed to get profile/level class");
+          valid_codec = FALSE;
+          goto next_profile_level;
+        }
+
+        level_id = (*env)->GetFieldID (env, profile_level_class, "level", "I");
+        profile_id =
+            (*env)->GetFieldID (env, profile_level_class, "profile", "I");
+        if (!level_id || !profile_id) {
+          (*env)->ExceptionClear (env);
+          GST_ERROR ("Failed to get profile/level field IDs");
+          valid_codec = FALSE;
+          goto next_profile_level;
+        }
+
+        level = (*env)->GetIntField (env, profile_level, level_id);
+        if ((*env)->ExceptionCheck (env)) {
+          (*env)->ExceptionClear (env);
+          GST_ERROR ("Failed to get level");
+          valid_codec = FALSE;
+          goto next_profile_level;
+        }
+        GST_INFO ("Level %d: 0x%08x", k, level);
+        gst_codec_type->profile_levels[k].level = level;
+
+        profile = (*env)->GetIntField (env, profile_level, profile_id);
+        if ((*env)->ExceptionCheck (env)) {
+          (*env)->ExceptionClear (env);
+          GST_ERROR ("Failed to get profile");
+          valid_codec = FALSE;
+          goto next_profile_level;
+        }
+        GST_INFO ("Profile %d: 0x%08x", k, profile);
+        gst_codec_type->profile_levels[k].profile = profile;
+
+      next_profile_level:
+        J_DELETE_LOCAL_REF (profile_level);
+        J_DELETE_LOCAL_REF (profile_level_class);
+        if (!valid_codec)
+          break;
+      }
+
+    next_supported_type:
+      if (color_formats_elems)
+        (*env)->ReleaseIntArrayElements (env, color_formats,
+            color_formats_elems, JNI_ABORT);
+      color_formats_elems = NULL;
+
+      J_DELETE_LOCAL_REF (profile_levels);
+      J_DELETE_LOCAL_REF (color_formats);
+      J_DELETE_LOCAL_REF (capabilities);
+      J_DELETE_LOCAL_REF (capabilities_class);
+      J_DELETE_LOCAL_REF (supported_type);
+
+      if (!valid_codec)
+        break;
+    }
+
+    /* We need at least a valid supported type */
+    if (valid_codec) {
+      GST_LOG ("Successfully scanned codec '%s'", name_str);
+      codec_infos = g_list_append (codec_infos, gst_codec_info);
+      gst_codec_info = NULL;
+    }
+
+    /* Clean up of all local references we got */
+  next_codec:
+    if (name_str)
+      (*env)->ReleaseStringUTFChars (env, name, name_str);
+    name_str = NULL;
+    J_DELETE_LOCAL_REF (name);
+    J_DELETE_LOCAL_REF (supported_types);
+    J_DELETE_LOCAL_REF (codec_info);
+    J_DELETE_LOCAL_REF (codec_info_class);
+    if (gst_codec_info) {
+      gint j;
+
+      for (j = 0; j < gst_codec_info->n_supported_types; j++) {
+        GstAmcCodecType *gst_codec_type = &gst_codec_info->supported_types[j];
+
+        g_free (gst_codec_type->mime);
+        g_free (gst_codec_type->color_formats);
+        g_free (gst_codec_type->profile_levels);
+      }
+      g_free (gst_codec_info->supported_types);
+      g_free (gst_codec_info->name);
+      g_free (gst_codec_info);
+    }
+    gst_codec_info = NULL;
+    valid_codec = TRUE;
   }
 
   ret = codec_infos != NULL;
