@@ -652,6 +652,11 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (codec && format);
 
+  if (mcrypto_obj) {
+    GST_ERROR ("{{{ configuring with MCrypto [%p]", mcrypto_obj);
+    AMC_CHK ((*env)->IsInstanceOf (env, mcrypto_obj, media_crypto.klass));
+  }
+
   J_CALL_VOID (codec->object, media_codec.configure,
       format->object, surface, mcrypto_obj, flags);
   ret = TRUE;
