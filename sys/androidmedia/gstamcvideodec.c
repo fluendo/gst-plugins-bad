@@ -597,7 +597,6 @@ gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
         gst_amc_handle_drm_event ((GstElement *) self, event,
             &self->crypto_ctx);
         handled = TRUE;
-        gst_object_unref (self);
       }
       break;
     default:
