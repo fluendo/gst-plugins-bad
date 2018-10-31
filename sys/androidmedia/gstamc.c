@@ -1737,6 +1737,12 @@ error:
   return juuid;
 }
 
+jobject *
+gst_amc_global_ref_jobj (jobject * obj)
+{
+  JNIEnv *env = gst_jni_get_env ();
+  return (*env)->NewGlobalRef (env, obj);
+}
 
 void
 gst_amc_handle_drm_event (GstElement * self, GstEvent * event,
