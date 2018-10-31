@@ -572,6 +572,12 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
       thiz->crypto_ctx.mcrypto = g_value_get_pointer (value);
+      GST_ERROR_OBJECT (object, "{{{ setting mcrypto [%p]",
+          thiz->crypto_ctx.mcrypto);
+      thiz->crypto_ctx.mcrypto =
+          gst_amc_global_ref_jobj (thiz->crypto_ctx.mcrypto);
+      GST_ERROR_OBJECT (object, "{{{ after global ref mcrypto is [%p]",
+          thiz->crypto_ctx.mcrypto);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);

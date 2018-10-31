@@ -197,5 +197,7 @@ gboolean sysid_is_clearkey (const gchar * sysid);
 void gst_amc_handle_drm_event (GstElement * self, GstEvent * event,
     GstAmcCrypto * crypto_ctx);
 
+jobject * gst_amc_global_ref_jobj (jobject * obj);
+
 G_END_DECLS
 #endif /* __GST_AMC_H__ */
