@@ -1366,6 +1366,11 @@ gst_h264_parse_parse_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
   h264parse = GST_H264_PARSE (parse);
   buffer = frame->buffer;
 
+  /* In case of annex-b stream drop frames until we have sps/pps */
+  if (G_UNLIKELY (h264parse->format == GST_H264_PARSE_FORMAT_BYTE &&
+          !(h264parse->have_sps && h264parse->have_pps)))
+    return GST_BASE_PARSE_FLOW_DROPPED;
+
   gst_h264_parse_update_src_caps (h264parse, NULL);
 
   /* don't mess with timestamps if provided by upstream,
