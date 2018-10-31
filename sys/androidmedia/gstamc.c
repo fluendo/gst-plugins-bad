@@ -1073,7 +1073,7 @@ gst_amc_format_new_video (const gchar * mime, gint width, gint height)
   jstring mime_str = NULL;
   jobject object = NULL;
   JNIEnv *env = gst_jni_get_env ();
-  AMC_CHK (mime);
+  AMC_CHK (mime && width && height);
 
   mime_str = (*env)->NewStringUTF (env, mime);
   if (mime_str == NULL)
@@ -1093,7 +1093,8 @@ done:
   return format;
 
 error:
-  GST_ERROR ("Failed to create format '%s'", mime ? mime : "NULL");
+  GST_ERROR ("Failed to create format '%s',"
+      " width = %d, height = %d", mime ? mime : "NULL", width, height);
   if (format)
     g_slice_free (GstAmcFormat, format);
   format = NULL;
