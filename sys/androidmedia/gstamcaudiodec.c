@@ -88,6 +88,7 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
   for (i = 0; i < codec_info->n_supported_types; i++) {
     const GstAmcCodecType *type = &codec_info->supported_types[i];
 
+#if 0                           /* decoding of mp3 is disabled due to GST-27. */
     if (strcmp (type->mime, "audio/mpeg") == 0) {
       GstStructure *tmp;
 
@@ -97,7 +98,9 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
           "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT,
           "parsed", G_TYPE_BOOLEAN, TRUE, NULL);
       gst_caps_merge_structure (ret, tmp);
-    } else if (strcmp (type->mime, "audio/3gpp") == 0) {
+    } else
+#endif
+    if (strcmp (type->mime, "audio/3gpp") == 0) {
       GstStructure *tmp;
 
       tmp = gst_structure_new ("audio/AMR",
