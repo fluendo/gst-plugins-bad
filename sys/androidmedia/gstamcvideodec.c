@@ -937,9 +937,27 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
 
   /* Same video format */
   if (buffer_info->size == GST_BUFFER_SIZE (outbuf)) {
+    gsize copysize = buffer_info->size;
+
+    if (buf->size <= buffer_info->offset) {
+      GST_ERROR_OBJECT (self,
+          "Sanity check failed: buf->size (%d) <= buf_info->offset (%d)",
+          buf->size, buffer_info->offset);
+      goto done;
+    }
+
+    if (buf->size < copysize + buffer_info->offset) {
+      GST_WARNING_OBJECT (self, "Buffer info from android's decoder"
+          " doesn't match the buffer: buf->size = %d"
+          "buf_info->offset = %d, buf_info->size = %d."
+          "We'll copy only the buf->size.",
+          buf->size, buffer_info->offset, buffer_info->size);
+      copysize = buf->size - buffer_info->offset;
+    }
+
     GST_DEBUG_OBJECT (self, "Buffer sizes equal, doing fast copy");
     orc_memcpy (GST_BUFFER_DATA (outbuf), buf->data + buffer_info->offset,
-        buffer_info->size);
+        copysize);
     ret = TRUE;
     goto done;
   }
