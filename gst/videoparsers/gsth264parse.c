@@ -1367,7 +1367,7 @@ gst_h264_parse_parse_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
   buffer = frame->buffer;
 
   /* In case of annex-b stream drop frames until we have sps/pps */
-  if (G_UNLIKELY (h264parse->format == GST_H264_PARSE_FORMAT_BYTE &&
+  if (G_UNLIKELY (!h264parse->packetized &&
           !(h264parse->have_sps && h264parse->have_pps)))
     return GST_BASE_PARSE_FLOW_DROPPED;
 
