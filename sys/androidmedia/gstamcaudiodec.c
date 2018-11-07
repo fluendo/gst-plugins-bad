@@ -721,13 +721,29 @@ retry:
       }
     }
 
-    outbuf = gst_buffer_try_new_and_alloc (buffer_info.size);
-    if (!outbuf)
-      goto failed_allocate;
-
     buf = &self->output_buffers[idx];
-    orc_memcpy (GST_BUFFER_DATA (outbuf), buf->data + buffer_info.offset,
-        buffer_info.size);
+
+    if (buffer_info.offset >= buf->size) {
+      GST_ERROR_OBJECT (self,
+          "Sanity check failed: buf->size (%d) <= buffer_info.offset (%d)."
+          "Dropping the buffer.", buf->size, buffer_info.offset);
+      goto done;
+    } else {
+      gsize copysize = buffer_info.size;
+      if (buf->size < copysize + buffer_info.offset) {
+        GST_WARNING_OBJECT (self, "Buffer info from android's decoder"
+            " doesn't match the buffer: buf->size = %d"
+            "buf_info->offset = %d, buf_info->size = %d."
+            "We'll copy only the buf->size.",
+            buf->size, buffer_info.offset, buffer_info.size);
+        copysize = buf->size - buffer_info.offset;
+      }
+
+      if (!(outbuf = gst_buffer_try_new_and_alloc (copysize)))
+        goto failed_allocate;
+      orc_memcpy (GST_BUFFER_DATA (outbuf),
+          buf->data + buffer_info.offset, copysize);
+    }
 
     /* FIXME: We should get one decoded input frame here for
      * every buffer. If this is not the case somewhere, we will
