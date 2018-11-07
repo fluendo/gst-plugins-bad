@@ -429,7 +429,7 @@ hack_pssh_initdata (guchar * payload, gsize payload_size,
 
 
 static void
-gst_amc_log_big (const gchar * pref, gchar * text, gsize size)
+gst_amc_log_big (const gchar * pref, const gchar * text, gsize size)
 {
   jsize i;
   GST_ERROR ("### start logging %s of size %d", pref, size);
@@ -450,8 +450,6 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
       NULL;
   jbyteArray jsession_id = NULL, jinit_data = NULL;
   JNIEnv *env = gst_jni_get_env ();
-//  guchar *payload;
-//  gsize payload_size;
   static jint KEY_TYPE_STREAMING = 1;
   jstring jmime;
   guchar *complete_pssh_payload;
