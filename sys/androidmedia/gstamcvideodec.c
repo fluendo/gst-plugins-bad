@@ -1217,11 +1217,13 @@ done:
 
 
 static void
-gst_amc_video_dec_stop_srcpad_loop (GstVideoDecoder * decoder)
+gst_amc_video_dec_stop_srcpad_loop (GstAmcVideoDec * self)
 {
-  GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
+  if (!self->srcpad_loop_started)
+    return;
+
   self->stop_loop = TRUE;
-  gst_pad_stop_task (GST_VIDEO_DECODER_SRC_PAD (decoder));
+  gst_pad_stop_task (GST_VIDEO_DECODER_SRC_PAD (self));
   self->stop_loop = FALSE;
   /* tell chain func to start task after input buffer again */
   self->srcpad_loop_started = FALSE;
@@ -1499,7 +1501,7 @@ gst_amc_video_dec_stop (GstVideoDecoder * decoder)
 
   if (G_LIKELY (self->started)) {
     /* Stop srcpad loop until we'll receive a buffer on sinkpad again */
-    gst_amc_video_dec_stop_srcpad_loop (decoder);
+    gst_amc_video_dec_stop_srcpad_loop (self);
 
     gst_amc_codec_flush (self->codec);
     gst_amc_codec_stop (self->codec);
@@ -1662,7 +1664,9 @@ gst_amc_video_dec_reset (GstVideoDecoder * decoder, gboolean hard)
   }
 
   /* Stop srcpad loop until we'll receive a buffer on sinkpad again */
-  gst_amc_video_dec_stop_srcpad_loop (decoder);
+  GST_VIDEO_DECODER_STREAM_UNLOCK (self);
+  gst_amc_video_dec_stop_srcpad_loop (self);
+  GST_VIDEO_DECODER_STREAM_LOCK (self);
 
   /* Flush the decoder */
   gst_amc_codec_flush (self->codec);
