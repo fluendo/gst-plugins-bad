@@ -471,10 +471,10 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
      To be compatible with qtdemux 1.0 from community, we have to skip
      this atom thing here, and not in qtdemux.
    */
-  if (g_str_has_prefix (origin, "isobmff/"))
-    if (!hack_pssh_initdata (complete_pssh_payload, complete_pssh_payload_size,
-            &complete_pssh_payload_size))
-      goto error;
+  if (g_str_has_prefix (origin, "isobmff/") && sysid_is_clearkey (system_id) &&
+      !hack_pssh_initdata (complete_pssh_payload, complete_pssh_payload_size,
+          &complete_pssh_payload_size))
+    goto error;
 
   jinit_data =
       jbyte_arr_from_data (env, complete_pssh_payload,
