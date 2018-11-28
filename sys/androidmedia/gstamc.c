@@ -329,6 +329,8 @@ gst_amc_curl_post_request (const char *url, const char *post,
   curl_easy_setopt (curl, CURLOPT_TIMEOUT, 30);
   curl_easy_setopt (curl, CURLOPT_POSTFIELDS, post);
   curl_easy_setopt (curl, CURLOPT_POSTFIELDSIZE, post_size);
+  /* This is a hack to avoid ca sertificate error on android: */
+  curl_easy_setopt (curl, CURLOPT_SSL_VERIFYPEER, 0);
 
   /* Set the header options */
   slist = curl_slist_append (slist, "Content-Type: text/xml");
