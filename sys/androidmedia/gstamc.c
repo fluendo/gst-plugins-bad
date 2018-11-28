@@ -349,6 +349,7 @@ gst_amc_curl_post_request (const char *url, const char *post,
   curl_slist_free_all (slist);
 
   if (res != CURLE_OK) {
+    GST_ERROR ("HTTP POST failed (%d): %s", res, curl_easy_strerror (res));
     g_free (chunk.data);
     return FALSE;
   }
