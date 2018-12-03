@@ -947,17 +947,7 @@ gst_h264_parse_get_par (GstH264Parse * h264parse, gint * num, gint * den)
 {
   gint par_n, par_d;
 
-  if (h264parse->upstream_par_n != -1 && h264parse->upstream_par_d != -1) {
-    *num = h264parse->upstream_par_n;
-    *den = h264parse->upstream_par_d;
-    return;
-  }
-
-  par_n = par_d = 0;
   switch (h264parse->aspect_ratio_idc) {
-    case 0:
-      par_n = par_d = 0;
-      break;
     case 1:
       par_n = 1;
       par_d = 1;
@@ -1026,7 +1016,16 @@ gst_h264_parse_get_par (GstH264Parse * h264parse, gint * num, gint * den)
       par_n = h264parse->sar_width;
       par_d = h264parse->sar_height;
       break;
+    case 0:
     default:
+      if (h264parse->upstream_par_n != -1 && h264parse->upstream_par_d != -1) {
+        *num = h264parse->upstream_par_n;
+        *den = h264parse->upstream_par_d;
+        GST_DEBUG_OBJECT (h264parse,
+            "Codec doesn't have PAR, taking ones from upstream: %d/%d",
+            *num, *den);
+        return;
+      }
       par_n = par_d = 0;
   }
 
@@ -1181,8 +1180,7 @@ gst_h264_parse_update_src_caps (GstH264Parse * h264parse, GstCaps * caps)
         gst_h264_parse_get_string (h264parse, FALSE, h264parse->align), NULL);
 
     gst_h264_parse_get_par (h264parse, &par_n, &par_d);
-    if (par_n != 0 && par_d != 0 &&
-        (!s || !gst_structure_has_field (s, "pixel-aspect-ratio"))) {
+    if (par_n != 0 && par_d != 0) {
       GST_INFO_OBJECT (h264parse, "PAR %d/%d", par_n, par_d);
       gst_caps_set_simple (caps, "pixel-aspect-ratio", GST_TYPE_FRACTION,
           par_n, par_d, NULL);
