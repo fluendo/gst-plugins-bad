@@ -329,6 +329,8 @@ gst_amc_curl_post_request (const char *url, const char *post,
   curl_easy_setopt (curl, CURLOPT_TIMEOUT, 30);
   curl_easy_setopt (curl, CURLOPT_POSTFIELDS, post);
   curl_easy_setopt (curl, CURLOPT_POSTFIELDSIZE, post_size);
+  /* This is a hack to avoid ca sertificate error on android: */
+  curl_easy_setopt (curl, CURLOPT_SSL_VERIFYPEER, 0);
 
   /* Set the header options */
   slist = curl_slist_append (slist, "Content-Type: text/xml");
@@ -349,6 +351,7 @@ gst_amc_curl_post_request (const char *url, const char *post,
   curl_slist_free_all (slist);
 
   if (res != CURLE_OK) {
+    GST_ERROR ("HTTP POST failed (%d): %s", res, curl_easy_strerror (res));
     g_free (chunk.data);
     return FALSE;
   }
@@ -471,10 +474,10 @@ jmedia_crypto_from_drm_event (GstEvent * event, GstAmcCrypto * crypto_ctx)
      To be compatible with qtdemux 1.0 from community, we have to skip
      this atom thing here, and not in qtdemux.
    */
-  if (g_str_has_prefix (origin, "isobmff/"))
-    if (!hack_pssh_initdata (complete_pssh_payload, complete_pssh_payload_size,
-            &complete_pssh_payload_size))
-      goto error;
+  if (g_str_has_prefix (origin, "isobmff/") && sysid_is_clearkey (system_id) &&
+      !hack_pssh_initdata (complete_pssh_payload, complete_pssh_payload_size,
+          &complete_pssh_payload_size))
+    goto error;
 
   jinit_data =
       jbyte_arr_from_data (env, complete_pssh_payload,
