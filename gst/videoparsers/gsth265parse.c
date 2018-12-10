@@ -2123,7 +2123,7 @@ gst_h265_parse_get_caps (GstBaseParse * parse)
 static gboolean
 gst_h265_parse_event (GstBaseParse * parse, GstEvent * event)
 {
-  gboolean res;
+  gboolean res = FALSE;
   GstH265Parse *h265parse = GST_H265_PARSE (parse);
 
   switch (GST_EVENT_TYPE (event)) {
