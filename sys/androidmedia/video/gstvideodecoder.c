@@ -1988,6 +1988,65 @@ gst_video_decoder_new_frame (GstVideoDecoder * decoder)
   return frame;
 }
 
+
+GstVideoCodecFrame *
+gst_video_decoder_get_output_frame (GstVideoDecoder * decoder,
+    GstClockTime reference_timestamp)
+{
+  GList *frames, *l;
+  gint64 min_ts = G_MAXINT64;
+  GstVideoCodecFrame *ret = NULL;
+  GstFlowReturn flow_ret = GST_FLOW_OK;
+  if (!decoder->priv->input_state) {
+    GST_ERROR_OBJECT (decoder, "No input state");
+    return NULL;
+  }
+
+  /* Getting a frame with smallest pts */
+  frames = gst_video_decoder_get_frames (decoder);
+  for (l = frames; l; l = l->next) {
+    GstVideoCodecFrame *frame = l->data;
+
+    if (frame->pts < min_ts) {
+      min_ts = frame->pts;
+      ret = frame;
+    }
+  }
+
+  if (ret)
+    gst_video_codec_frame_ref (ret);
+  else {
+    ret = gst_video_decoder_new_frame (decoder);
+    flow_ret = gst_video_decoder_alloc_output_frame (decoder, ret);
+    if (G_UNLIKELY (flow_ret != GST_FLOW_OK)) {
+      GST_ERROR_OBJECT (decoder,
+          "Failed to allocate frame for pts = %" GST_TIME_FORMAT,
+          GST_TIME_ARGS (reference_timestamp));
+      gst_video_codec_frame_unref (ret);
+      ret = NULL;
+    }
+  }
+
+  if (ret) {
+    /* We trust the timestamp OMX decoder provided to us, and hack the duration,
+       because no duration is ever provided. */
+    ret->pts = reference_timestamp;
+    ret->duration = GST_SECOND * decoder->priv->input_state->info.fps_n /
+        decoder->priv->input_state->info.fps_d;
+    if (decoder->priv->input_state->info.interlace_mode ==
+        GST_VIDEO_INTERLACE_MODE_INTERLEAVED)
+      ret->duration /= 2;
+    /* Hacking the deadline to avoid dropping. Side-effect of this is
+       that we'll not drop this frame even if we should.. */
+    ret->deadline = decoder->priv->earliest_time + ret->duration;
+  }
+
+  g_list_foreach (frames, (GFunc) gst_video_codec_frame_unref, NULL);
+  g_list_free (frames);
+  return ret;
+}
+
+
 static void
 gst_video_decoder_prepare_finish_frame (GstVideoDecoder *
     decoder, GstVideoCodecFrame * frame, gboolean dropping)
@@ -2821,7 +2880,7 @@ GstFlowReturn
 gst_video_decoder_alloc_output_frame (GstVideoDecoder *
     decoder, GstVideoCodecFrame * frame)
 {
-  GstFlowReturn flow_ret;
+  GstFlowReturn flow_ret = GST_FLOW_OK;
   GstVideoCodecState *state;
   int num_bytes;
 
@@ -2836,25 +2895,22 @@ gst_video_decoder_alloc_output_frame (GstVideoDecoder *
 
   state = decoder->priv->output_state;
   if (state == NULL) {
-    g_warning ("Output state should be set before allocating frame");
+    GST_ERROR_OBJECT (decoder,
+        "Output state should be set before allocating frame");
     goto error;
   }
   num_bytes = GST_VIDEO_INFO_SIZE (&state->info);
-  if (num_bytes == 0) {
-    g_warning ("Frame size should not be 0");
-    goto error;
-  }
+  if (num_bytes) {
+    GST_LOG_OBJECT (decoder, "alloc buffer size %d", num_bytes);
+    flow_ret =
+        gst_pad_alloc_buffer_and_set_caps (decoder->srcpad,
+        GST_BUFFER_OFFSET_NONE, num_bytes, GST_PAD_CAPS (decoder->srcpad),
+        &frame->output_buffer);
 
-  GST_LOG_OBJECT (decoder, "alloc buffer size %d", num_bytes);
-
-  flow_ret =
-      gst_pad_alloc_buffer_and_set_caps (decoder->srcpad,
-      GST_BUFFER_OFFSET_NONE, num_bytes, GST_PAD_CAPS (decoder->srcpad),
-      &frame->output_buffer);
-
-  if (flow_ret != GST_FLOW_OK) {
-    GST_WARNING_OBJECT (decoder, "failed to get buffer %s",
-        gst_flow_get_name (flow_ret));
+    if (flow_ret != GST_FLOW_OK) {
+      GST_ERROR_OBJECT (decoder, "failed to get buffer %s",
+          gst_flow_get_name (flow_ret));
+    }
   }
 
   GST_VIDEO_DECODER_STREAM_UNLOCK (decoder);
