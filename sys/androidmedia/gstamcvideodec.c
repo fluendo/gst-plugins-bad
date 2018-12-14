@@ -47,28 +47,6 @@ GST_DEBUG_CATEGORY_STATIC (gst_amc_video_dec_debug_category);
 #define GST_CAT_DEFAULT gst_amc_video_dec_debug_category
 #define DEFAULT_DIRECT_RENDERING TRUE
 
-typedef struct _BufferIdentification BufferIdentification;
-struct _BufferIdentification
-{
-  guint64 timestamp;
-};
-
-static BufferIdentification *
-buffer_identification_new (GstClockTime timestamp)
-{
-  BufferIdentification *id = g_slice_new (BufferIdentification);
-
-  id->timestamp = timestamp;
-
-  return id;
-}
-
-static void
-buffer_identification_free (BufferIdentification * id)
-{
-  g_slice_free (BufferIdentification, id);
-}
-
 /* prototypes */
 static void gst_amc_video_dec_finalize (GObject * object);
 
@@ -721,94 +699,6 @@ gst_amc_video_dec_change_state (GstElement * element, GstStateChange transition)
   return GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
 }
 
-#define MAX_FRAME_DIST_TIME  (5 * GST_SECOND)
-#define MAX_FRAME_DIST_FRAMES (100)
-
-static GstVideoCodecFrame *
-_find_nearest_frame (GstAmcVideoDec * self, GstClockTime reference_timestamp)
-{
-  GList *l, *best_l = NULL;
-  GList *finish_frames = NULL;
-  GstVideoCodecFrame *best = NULL;
-  guint64 best_timestamp = 0;
-  guint64 best_diff = G_MAXUINT64;
-  BufferIdentification *best_id = NULL;
-  GList *frames;
-
-  frames = gst_video_decoder_get_frames (GST_VIDEO_DECODER (self));
-
-  for (l = frames; l; l = l->next) {
-    GstVideoCodecFrame *tmp = l->data;
-    BufferIdentification *id = gst_video_codec_frame_get_user_data (tmp);
-    guint64 timestamp, diff;
-
-    /* This happens for frames that were just added but
-     * which were not passed to the component yet. Ignore
-     * them here!
-     */
-    if (!id)
-      continue;
-
-    timestamp = id->timestamp;
-
-    if (timestamp > reference_timestamp)
-      diff = timestamp - reference_timestamp;
-    else
-      diff = reference_timestamp - timestamp;
-
-    if (best == NULL || diff < best_diff) {
-      best = tmp;
-      best_timestamp = timestamp;
-      best_diff = diff;
-      best_l = l;
-      best_id = id;
-
-      /* For frames without timestamp we simply take the first frame */
-      if ((reference_timestamp == 0 && timestamp == 0) || diff == 0)
-        break;
-    }
-  }
-
-  if (best_id) {
-    for (l = frames; l && l != best_l; l = l->next) {
-      GstVideoCodecFrame *tmp = l->data;
-      BufferIdentification *id = gst_video_codec_frame_get_user_data (tmp);
-      guint64 diff_time, diff_frames;
-
-      if (id->timestamp > best_timestamp)
-        break;
-
-      if (id->timestamp == 0 || best_timestamp == 0)
-        diff_time = 0;
-      else
-        diff_time = best_timestamp - id->timestamp;
-      diff_frames = best->system_frame_number - tmp->system_frame_number;
-
-      if (diff_time > MAX_FRAME_DIST_TIME
-          || diff_frames > MAX_FRAME_DIST_FRAMES) {
-        finish_frames =
-            g_list_prepend (finish_frames, gst_video_codec_frame_ref (tmp));
-      }
-    }
-  }
-
-  if (finish_frames) {
-    GST_WARNING_OBJECT (self,
-        "Too old frames, bug in decoder -- please file a bug");
-    for (l = finish_frames; l; l = l->next) {
-      gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), l->data);
-    }
-  }
-
-  if (best)
-    gst_video_codec_frame_ref (best);
-
-  g_list_foreach (frames, (GFunc) gst_video_codec_frame_unref, NULL);
-  g_list_free (frames);
-
-  return best;
-}
-
 static gboolean
 gst_amc_video_dec_set_src_caps (GstAmcVideoDec * self,
     const GstAmcFormat * format)
@@ -1337,8 +1227,7 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
       " flags 0x%08x", idx, buffer_info.size, buffer_info.presentation_time_us,
       buffer_info.flags);
 
-  frame =
-      _find_nearest_frame (self,
+  frame = gst_video_decoder_get_output_frame (GST_VIDEO_DECODER (self),
       gst_util_uint64_scale (buffer_info.presentation_time_us, GST_USECOND, 1));
 
   if (frame) {
@@ -1779,12 +1668,8 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
       self->last_upstream_ts += duration;
 
     if (offset == 0) {
-      BufferIdentification *id =
-          buffer_identification_new (timestamp + timestamp_offset);
       if (GST_VIDEO_CODEC_FRAME_IS_SYNC_POINT (frame))
         buffer_info.flags |= BUFFER_FLAG_SYNC_FRAME;
-      gst_video_codec_frame_set_user_data (frame, id,
-          (GDestroyNotify) buffer_identification_free);
     }
 
     offset += buffer_info.size;

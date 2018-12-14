@@ -368,6 +368,9 @@ GstFlowReturn    gst_video_decoder_finish_frame (GstVideoDecoder *decoder,
 GstFlowReturn    gst_video_decoder_drop_frame (GstVideoDecoder *dec,
 					       GstVideoCodecFrame *frame);
 
+GstVideoCodecFrame *
+gst_video_decoder_get_output_frame (GstVideoDecoder * decoder, GstClockTime reference_timestamp);
+
 G_END_DECLS
 
 #endif
