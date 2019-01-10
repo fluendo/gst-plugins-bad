@@ -693,8 +693,20 @@ gst_amc_video_dec_change_state (GstElement * element, GstStateChange transition)
 {
   GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (element);
 
-  if (transition == GST_STATE_CHANGE_READY_TO_PAUSED)
-    self->output_configured = FALSE;
+  switch (transition) {
+    case GST_STATE_CHANGE_READY_TO_PAUSED:
+      self->output_configured = FALSE;
+      break;
+    case GST_STATE_CHANGE_PAUSED_TO_READY:
+      /* This is done to avoid a deadlocking in case when we're
+         destroying element, when dec_loop is infinitely getting
+         a timeout on dequeue_output_buffer, while GstElementClass
+         is waiting dec_loop to quit */
+      self->stop_loop = TRUE;
+      break;
+    default:
+      break;
+  }
 
   return GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
 }
@@ -1144,13 +1156,15 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
 
   for (;;) {
     GST_DEBUG_OBJECT (self, "Waiting for available output buffer");
-    GST_VIDEO_DECODER_STREAM_UNLOCK (self);
 
     if (self->stop_loop) {
       /* To avoid infinite loop here */
+      GST_VIDEO_DECODER_STREAM_UNLOCK (self);
       flow_ret = GST_FLOW_WRONG_STATE;
       goto finish;
     }
+
+    GST_VIDEO_DECODER_STREAM_UNLOCK (self);
 
     /* Wait at most 100ms here, some codecs don't fail dequeueing if
      * the codec is flushing, causing deadlocks during shutdown */
