@@ -2031,14 +2031,17 @@ gst_video_decoder_get_output_frame (GstVideoDecoder * decoder,
     /* We trust the timestamp OMX decoder provided to us, and hack the duration,
        because no duration is ever provided. */
     ret->pts = reference_timestamp;
-    ret->duration = GST_SECOND * decoder->priv->input_state->info.fps_n /
-        decoder->priv->input_state->info.fps_d;
+    ret->duration = GST_SECOND * decoder->priv->input_state->info.fps_d /
+        decoder->priv->input_state->info.fps_n;
     if (decoder->priv->input_state->info.interlace_mode ==
         GST_VIDEO_INTERLACE_MODE_INTERLEAVED)
       ret->duration /= 2;
     /* Hacking the deadline to avoid dropping. Side-effect of this is
        that we'll not drop this frame even if we should.. */
     ret->deadline = decoder->priv->earliest_time + ret->duration;
+    GST_LOG_OBJECT (decoder, "Providing frame with pts=%" GST_TIME_FORMAT
+        ",duration=%" GST_TIME_FORMAT, GST_TIME_ARGS (ret->pts),
+        GST_TIME_ARGS (ret->duration));
   }
 
   g_list_foreach (frames, (GFunc) gst_video_codec_frame_unref, NULL);
