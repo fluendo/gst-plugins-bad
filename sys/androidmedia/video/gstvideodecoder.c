@@ -2031,8 +2031,11 @@ gst_video_decoder_get_output_frame (GstVideoDecoder * decoder,
     /* We trust the timestamp OMX decoder provided to us, and hack the duration,
        because no duration is ever provided. */
     ret->pts = reference_timestamp;
-    ret->duration = GST_SECOND * decoder->priv->input_state->info.fps_d /
-        decoder->priv->input_state->info.fps_n;
+    if (decoder->priv->input_state->info.fps_n)
+      ret->duration = GST_SECOND * decoder->priv->input_state->info.fps_d /
+          decoder->priv->input_state->info.fps_n;
+    else
+      ret->duration = 0;
     if (decoder->priv->input_state->info.interlace_mode ==
         GST_VIDEO_INTERLACE_MODE_INTERLEAVED)
       ret->duration /= 2;
