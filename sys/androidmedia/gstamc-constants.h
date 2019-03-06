@@ -103,7 +103,10 @@ enum
   /* From hardware/ti/omap4xxx/domx/omx_core/inc/OMX_TI_IVCommon.h */
   COLOR_TI_FormatYUV420PackedSemiPlanarInterlaced = 0x7f000001,
   COLOR_FormatYUV420Flexible = 0x7f420888,
-  COLOR_FormatSurface = 256
+  COLOR_FormatSurface1 = 256,
+  COLOR_FormatSurface2 = 257,
+  COLOR_FormatSurface3 = 258,
+  COLOR_FormatSurface4 = 259,
 };
 
 enum
