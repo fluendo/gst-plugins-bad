@@ -2451,7 +2451,10 @@ static const struct
   GstVideoFormat video_format;
 } color_format_mapping_table[] = {
   {
-  COLOR_FormatSurface, GST_VIDEO_FORMAT_ENCODED}, {
+  COLOR_FormatSurface1, GST_VIDEO_FORMAT_ENCODED}, {
+  COLOR_FormatSurface2, GST_VIDEO_FORMAT_ENCODED}, {
+  COLOR_FormatSurface3, GST_VIDEO_FORMAT_ENCODED}, {
+  COLOR_FormatSurface4, GST_VIDEO_FORMAT_ENCODED}, {
   COLOR_FormatYUV420Planar, GST_VIDEO_FORMAT_I420}, {
   COLOR_FormatYUV420Flexible, GST_VIDEO_FORMAT_I420}, {
   COLOR_FormatYUV420SemiPlanar, GST_VIDEO_FORMAT_NV12}, {

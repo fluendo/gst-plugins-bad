@@ -768,7 +768,7 @@ gst_amc_video_dec_set_src_caps (GstAmcVideoDec * self,
   klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
   if (klass->direct_rendering) {
     gst_format = GST_VIDEO_FORMAT_ENCODED;
-    color_format = COLOR_FormatSurface;
+    color_format = COLOR_FormatSurface1;
   }
 
   output_state = gst_video_decoder_set_output_state (GST_VIDEO_DECODER (self),
