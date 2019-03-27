@@ -12,8 +12,11 @@ libgstapplemedia_la_SOURCES =	\
 	vth264decbin.c		\
 	vth264encbin.c		\
 	avfvideosrc.m 		\
-	osxscreencapsrc.m 	\
 	vtutil.c
+
+if !HAVE_IOS
+libgstapplemedia_la_SOURCES += osxscreencapsrc.m
+endif
 
 libgstapplemedia_la_CFLAGS =		\
 	$(GST_CFLAGS)			\
