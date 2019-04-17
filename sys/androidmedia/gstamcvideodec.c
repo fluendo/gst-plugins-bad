@@ -1363,8 +1363,7 @@ error:
   /* We're going to stop srcpad's loop until new buffers on sinkpad */
 
   if (error_msg) {
-    GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL), ("### %s", error_msg));
-    gst_pad_push_event (GST_VIDEO_DECODER_SRC_PAD (self), gst_event_new_eos ());
+    GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL), ("%s", error_msg));
     self->downstream_flow_ret = GST_FLOW_ERROR;
   }
 
