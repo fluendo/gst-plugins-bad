@@ -11,6 +11,10 @@ libgstopenh264_la_LIBADD = $(top_builddir)/gst-libs/gst/video/libgstbasevideo-@G
     $(GST_PLUGINS_BASE_LIBS) -lgstbasevideo-0.10 $(GST_LIBS) $(OPENH264_LIBS)
 libgstopenh264_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
 
+if !GST_PLUGIN_BUILD_STATIC
+libgstopenh264_la_LIBTOOLFLAGS = --tag=disable-static
+endif
+
 noinst_HEADERS = \
     gstopenh264dec.h \
     gstopenh264enc.h
