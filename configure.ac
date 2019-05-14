@@ -142,8 +142,27 @@ AC_CHECK_LIBM
 AC_SUBST(LIBM)
 
 dnl check for flu-codec-sdk
-AG_GST_PKG_CHECK_MODULES(FLUC, flu-codec-sdk)
-if test "x$HAVE_FLUC" = "xno"; then
+AC_ARG_WITH(static-fluc,
+  AC_HELP_STRING([--with-static-fluc],
+    [Use fluc-static to build instead of fluc]),
+    [
+      if test "x$withval" = "xyes" ; then
+        want_static_fluc="yes"
+      else
+        want_static_fluc="no"
+      fi
+    ],
+    [want_static_fluc="yes"])
+
+if test "x$want_static_fluc" = "xyes"; then
+  PKG_CHECK_MODULES(FLUC, flu-codec-sdk-static, [have_fluc="yes"], [have_fluc="no"])
+fi
+
+if test "x$want_static_fluc" = "xno"; then
+  PKG_CHECK_MODULES(FLUC, flu-codec-sdk, [have_fluc="yes"], [have_fluc="no"])
+fi
+
+if test "x$have_fluc" = "xno"; then
   AC_MSG_ERROR(you do not have the fluc library installed)
 fi
 
