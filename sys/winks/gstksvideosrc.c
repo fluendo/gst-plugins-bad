@@ -1144,10 +1144,13 @@ gst_ks_video_src_alloc_buffer (guint size, guint alignment, gpointer user_data)
   if (G_UNLIKELY (flow_ret != GST_FLOW_OK))
     goto error_alloc_buffer;
 
-  GST_BUFFER_DATA (buf) =
-      GSIZE_TO_POINTER ((GPOINTER_TO_SIZE (GST_BUFFER_DATA (buf)) + (alignment -
-              1)) & ~(alignment - 1));
-  GST_BUFFER_SIZE (buf) = size;
+  {
+    /* Align buffer->data to required alignment */
+    guintptr _aligned_buf = (guintptr) GST_BUFFER_DATA (buf);
+    guintptr _align = alignment;
+    _aligned_buf = (((_aligned_buf) + ((_align) - 1)) & ~((_align) - 1));
+    GST_BUFFER_DATA (buf) = (guint8 *) _aligned_buf;
+  }
 
   return buf;
 
