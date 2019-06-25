@@ -117,6 +117,10 @@ struct _GstH264Parse
 
   GstClockTime pending_key_unit_ts;
   GstEvent *force_key_unit_event;
+
+  /* encryption data */
+  GstStructure *cenc;
+  gsize orig_buffer_size;
 };
 
 struct _GstH264ParseClass

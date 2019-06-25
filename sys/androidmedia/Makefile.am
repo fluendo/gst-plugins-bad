@@ -11,6 +11,7 @@ libgstandroidmedia_la_SOURCES = \
 
 noinst_HEADERS = \
 	gstamc.h \
+	gstamcmacro.h \
 	gstamc-constants.h \
 	gstamcaudiodec.h \
 	gstamcvideodec.h \
@@ -20,10 +21,13 @@ noinst_HEADERS = \
 	video/gstvideoutils.h
 
 libgstandroidmedia_la_CFLAGS = \
+	-Wall -Werror -Wno-deprecated-declarations \
 	$(GST_PLUGINS_BASE_CFLAGS) \
 	$(GST_BASE_CFLAGS) \
 	$(GST_CFLAGS) \
 	$(ORC_CFLAGS) \
+	$(FLUC_CFLAGS) \
+	$(CURL_CFLAGS) \
 	-I$(srcdir) \
 	-I$(top_srcdir)/gst-libs
 
@@ -35,7 +39,9 @@ libgstandroidmedia_la_LIBADD = \
 	$(top_builddir)/gst-libs/gst/androidjni/libgstandroidjni-$(GST_MAJORMINOR).la \
 	$(GST_BASE_LIBS) \
 	$(GST_LIBS) \
-	$(ORC_LIBS)
+	$(ORC_LIBS) \
+	$(FLUC_LIBS) \
+	$(CURL_LIBS)
 
 
 libgstandroidmedia_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
