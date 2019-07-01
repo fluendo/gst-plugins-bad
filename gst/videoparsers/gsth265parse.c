@@ -755,8 +755,7 @@ gst_h265_parse_chain (GstPad * pad, GstBuffer * buffer)
     }
 
     GST_LOG_OBJECT (h265parse,
-        "processing packet buffer of size %" G_GSIZE_FORMAT,
-        GST_BUFFER_SIZE (buffer));
+        "processing packet buffer of size %u", GST_BUFFER_SIZE (buffer));
 
     parse_res = gst_h265_parser_identify_nalu_hevc (h265parse->nalparser,
         GST_BUFFER_DATA (buffer), 0, GST_BUFFER_SIZE (buffer), nl, &nalu);
