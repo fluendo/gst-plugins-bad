@@ -344,11 +344,6 @@ render_thread_func (GstEglGlesSink * eglglessink)
 
   GST_DEBUG_OBJECT (eglglessink, "Shutting down thread");
 
-  /* Filling the surface with black color */
-  glClearColor (0.0, 0.0, 0.0, 1.0);
-  glClear (GL_COLOR_BUFFER_BIT);
-  gst_egl_adaptation_swap_buffers (eglglessink->egl_context);
-
   /* EGL/GLES cleanup */
   gst_eglglessink_cleanup (eglglessink);
 
