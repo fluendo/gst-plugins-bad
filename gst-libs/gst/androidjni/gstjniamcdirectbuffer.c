@@ -25,10 +25,11 @@ gst_jni_amc_direct_buffer_new (GstJniSurfaceTexture * texture,
     jobject media_codec, jmethodID release_output_buffer, guint idx)
 {
   GstJniAmcDirectBuffer *buf;
+  JNIEnv *env = gst_jni_get_env ();
 
   buf = g_new0 (GstJniAmcDirectBuffer, 1);
   buf->texture = g_object_ref (texture);
-  buf->media_codec = media_codec;
+  buf->media_codec = (*env)->NewGlobalRef (env, media_codec);
   buf->release_output_buffer = release_output_buffer;
   buf->idx = idx;
   buf->released = FALSE;
@@ -96,5 +97,10 @@ gst_jni_amc_direct_buffer_free (GstJniAmcDirectBuffer * buf)
     gst_jni_call_void_method (env, buf->media_codec,
         buf->release_output_buffer, buf->idx, FALSE);
   }
+
+  if (buf->media_codec) {
+    (*env)->DeleteGlobalRef (env, buf->media_codec);
+  }
+
   g_free (buf);
 }
