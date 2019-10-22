@@ -323,14 +323,14 @@ gst_amc_curl_post_request (const char *url, const char *post,
     return FALSE;
 
   /* Set the basic options */
-  curl_easy_setopt (curl, CURLOPT_HEADER, 0);
-  curl_easy_setopt (curl, CURLOPT_USERAGENT, "Linux C libcurl");
+  curl_easy_setopt (curl, CURLOPT_HEADER, G_GINT64_CONSTANT (0));
+  curl_easy_setopt (curl, CURLOPT_USERAGENT, "Gstreamer Android decoder");
   curl_easy_setopt (curl, CURLOPT_URL, url);
-  curl_easy_setopt (curl, CURLOPT_TIMEOUT, 30);
+  curl_easy_setopt (curl, CURLOPT_TIMEOUT, G_GINT64_CONSTANT (30));
   curl_easy_setopt (curl, CURLOPT_POSTFIELDS, post);
-  curl_easy_setopt (curl, CURLOPT_POSTFIELDSIZE, post_size);
+  curl_easy_setopt (curl, CURLOPT_POSTFIELDSIZE, (gint64) post_size);
   /* This is a hack to avoid ca sertificate error on android: */
-  curl_easy_setopt (curl, CURLOPT_SSL_VERIFYPEER, 0);
+  curl_easy_setopt (curl, CURLOPT_SSL_VERIFYPEER, G_GINT64_CONSTANT (0));
 
   /* Set the header options */
   slist = curl_slist_append (slist, "Content-Type: text/xml");
