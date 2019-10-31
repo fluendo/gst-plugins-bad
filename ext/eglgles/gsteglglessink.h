@@ -96,6 +96,8 @@ struct _GstEglGlesSink
 
   GstVideoFormat format;
 
+  GstClockTime render_start;    /* Used for latency updates */
+
   /* Region of the surface that should be rendered */
   GstVideoRectangle render_region;
   gboolean render_region_changed;

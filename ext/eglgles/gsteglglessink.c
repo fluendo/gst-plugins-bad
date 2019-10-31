@@ -306,6 +306,9 @@ render_thread_func (GstEglGlesSink * eglglessink)
         continue;
       }
       GST_DEBUG_OBJECT (eglglessink, "Rendering previous buffer again");
+
+      // overwrite render_start
+      eglglessink->render_start = g_get_monotonic_time ();
     }
 
     caps = GST_BUFFER_CAPS (buf);
@@ -818,6 +821,9 @@ gst_eglglessink_queue_buffer (GstEglGlesSink * eglglessink, GstBuffer * buf)
   if (last_flow != GST_FLOW_OK)
     return last_flow;
 
+  // take first time measurement: render_start
+  eglglessink->render_start = g_get_monotonic_time ();
+
   item = g_slice_new0 (GstDataQueueItem);
 
   item->object = GST_MINI_OBJECT_CAST (buf);
@@ -1281,6 +1287,15 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
 
   if (!gst_egl_adaptation_swap_buffers (eglglessink->egl_context)) {
     goto HANDLE_ERROR;
+  }
+  // time snap 2
+  {
+    GstClockTime delay =
+        (g_get_monotonic_time () -
+        eglglessink->render_start) * G_GINT64_CONSTANT (1000);
+    GST_DEBUG_OBJECT (eglglessink, "Updating render delay to %" GST_TIME_FORMAT,
+        GST_TIME_ARGS (delay));
+    gst_base_sink_set_render_delay (GST_BASE_SINK (eglglessink), delay);
   }
 
   GST_DEBUG_OBJECT (eglglessink, "Succesfully rendered 1 frame");
