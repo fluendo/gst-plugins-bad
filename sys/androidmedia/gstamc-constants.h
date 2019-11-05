@@ -65,7 +65,10 @@ enum
   COLOR_Format25bitARGB1888 = 14,
   COLOR_Format32bitBGRA8888 = 15,
   COLOR_Format32bitARGB8888 = 16,
-  COLOR_FormatYUV411Planar = 17,
+  HAL_PIXEL_FORMAT_YCrCb_420_SP = 0x11, /* = 17 in dec. */
+  /* COLOR_FormatYUV411Planar collides with HAL_PIXEL_FORMAT_YCrCb_420_SP.
+     We don't use COLOR_FormatYUV411Planar currently, so for now we just remove it. */
+/*  COLOR_FormatYUV411Planar = 17, */
   COLOR_FormatYUV411PackedPlanar = 18,
   COLOR_FormatYUV420Planar = 19,
   COLOR_FormatYUV420PackedPlanar = 20,
