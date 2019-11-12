@@ -1506,15 +1506,38 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   if (self->codec_data)
     gst_amc_format_set_buffer (format, "csd-0", self->codec_data);
 
-  if (klass->direct_rendering && self->surface == NULL) {
-    self->surface = gst_jni_surface_new (gst_jni_surface_texture_new ());
-    jsurface = self->surface->jobject;
-  }
-
   format_string = gst_amc_format_to_string (format);
   GST_DEBUG_OBJECT (self, "Configuring codec with format: %s surface: %p",
       format_string, self->surface);
   g_free (format_string);
+
+#if 0
+  if (klass->direct_rendering && self->surface == NULL) {
+    self->surface = gst_jni_surface_new (gst_jni_surface_texture_new ());
+    jsurface = self->surface->jobject;
+  }
+#else
+  if (klass->direct_rendering) {
+    /* Exposes pads with decodebin with a dummy buffer to link with the sink
+     * and get the surface */
+    GstBuffer *buf = gst_buffer_new ();
+    GstCaps *caps = gst_caps_new_simple ("video/x-amc", NULL);
+
+    gst_pad_set_caps (decoder->srcpad, caps);
+    gst_buffer_set_caps (buf, caps);
+    GST_BUFFER_DATA (buf) = NULL;
+    gst_pad_push (decoder->srcpad, buf);
+  }
+
+  if (self->surface == NULL) {
+    GstQuery *query = gst_amc_query_new_surface ();
+
+    if (gst_pad_peer_query (decoder->srcpad, query)) {
+      self->surface = gst_amc_query_parse_surface (query);
+    }
+    gst_query_unref (query);
+  }
+#endif
 
   /* We decide that stream is encrypted if we eather received and parsed
      drm event, eather received crypto ctx from user. It may be not completely correct.
