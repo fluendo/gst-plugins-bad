@@ -3105,6 +3105,9 @@ plugin_init (GstPlugin * plugin)
   if (!register_codecs (plugin))
     return FALSE;
 
+  return gst_element_register (plugin, "amcvideosink", GST_RANK_PRIMARY,
+      GST_TYPE_AMC_VIDEO_SINK);
+
   return TRUE;
 }
 
