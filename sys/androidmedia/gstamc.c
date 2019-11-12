@@ -3108,6 +3108,120 @@ plugin_init (GstPlugin * plugin)
   return TRUE;
 }
 
+GstAmcDRBuffer *
+gst_amc_dr_buffer_new (GstAmcCodec * codec, guint idx)
+{
+  GstAmcDRBuffer *buf;
+
+  buf = g_new0 (GstAmcDRBuffer, 1);
+  buf->codec = codec;
+  buf->idx = idx;
+  buf->released = FALSE;
+
+  return buf;
+}
+
+gboolean
+gst_amc_dr_buffer_render (GstAmcDRBuffer * buf)
+{
+  gboolean ret = FALSE;
+
+  if (!buf->released) {
+    ret = gst_amc_codec_render_output_buffer (buf->codec, buf->idx);
+    buf->released = TRUE;
+  }
+
+  return ret;
+}
+
+void
+gst_amc_dr_buffer_free (GstAmcDRBuffer * buf)
+{
+  if (!buf->released) {
+    gst_amc_codec_release_output_buffer (buf->codec, buf->idx);
+  }
+  g_free (buf);
+}
+
+GstQuery *
+gst_amc_query_new_surface (void)
+{
+  GstQuery *query;
+  GstQueryType qtype;
+  GstStructure *structure;
+
+  query = (GstQuery *) gst_mini_object_new (GST_TYPE_QUERY);
+
+  qtype = gst_query_type_get_by_nick (GST_AMC_SURFACE);
+  if (qtype == GST_QUERY_NONE) {
+    qtype = gst_query_type_register (GST_AMC_SURFACE,
+        "Queries for a surface to render");
+  }
+  query->type = qtype;
+  GST_DEBUG ("creating new query %p %s", query,
+      gst_query_type_get_name (qtype));
+
+  structure = gst_structure_id_new (GST_QUARK (GST_AMC_SURFACE),
+      GST_QUARK (GST_AMC_SURFACE_POINTER), G_TYPE_POINTER, NULL, NULL);
+  query->structure = structure;
+  gst_structure_set_parent_refcount (query->structure,
+      &query->mini_object.refcount);
+
+  return query;
+}
+
+gpointer
+gst_amc_query_parse_surface (GstQuery * query)
+{
+  GstQueryType qtype = gst_query_type_get_by_nick (GST_AMC_SURFACE);
+
+  if (GST_QUERY_TYPE (query) != qtype)
+    return NULL;
+
+  return g_value_get_pointer (gst_structure_id_get_value (query->structure,
+          GST_QUARK (GST_AMC_SURFACE_POINTER)));
+}
+
+gboolean
+gst_amc_query_set_surface (GstQuery * query, gpointer surface)
+{
+  GstQueryType qtype;
+
+  qtype = gst_query_type_get_by_nick (GST_AMC_SURFACE);
+  if (GST_QUERY_TYPE (query) != qtype)
+    return FALSE;
+
+  gst_structure_id_set (query->structure,
+      GST_QUARK (GST_AMC_SURFACE_POINTER), G_TYPE_POINTER, surface, NULL);
+  return TRUE;
+}
+
+gboolean
+gst_amc_event_is_surface (GstEvent * event)
+{
+  return gst_event_has_name (event, GST_AMC_SURFACE_EVENT);
+}
+
+GstEvent *
+gst_amc_event_new_surface (gpointer surface)
+{
+  GstEvent *event;
+
+  event = gst_event_new_custom (GST_EVENT_CUSTOM_UPSTREAM,
+      gst_structure_id_new (GST_QUARK (GST_AMC_SURFACE),
+          GST_QUARK (GST_AMC_SURFACE_POINTER), G_TYPE_POINTER, surface, NULL));
+  return event;
+}
+
+gpointer
+gst_amc_event_parse_surface (GstEvent * event)
+{
+  return
+      g_value_get_pointer (gst_structure_id_get_value (gst_event_get_structure
+          (event), GST_QUARK (GST_AMC_SURFACE_POINTER)));
+}
+
+
 #ifdef GST_PLUGIN_DEFINE2
 GST_PLUGIN_DEFINE2 (GST_VERSION_MAJOR,
     GST_VERSION_MINOR,
