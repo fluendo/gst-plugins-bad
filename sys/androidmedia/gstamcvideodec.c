@@ -67,6 +67,9 @@ static GstFlowReturn gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
 static GstFlowReturn gst_amc_video_dec_finish (GstVideoDecoder * decoder);
 static GstFlowReturn gst_amc_video_dec_eos (GstVideoDecoder * decoder);
 
+static gboolean gst_amc_video_dec_src_event (GstVideoDecoder * decoder,
+    GstEvent * event);
+
 enum
 {
   PROP_0,
@@ -614,6 +617,7 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
       GST_DEBUG_FUNCPTR (gst_amc_video_dec_handle_frame);
   videodec_class->finish = GST_DEBUG_FUNCPTR (gst_amc_video_dec_finish);
 
+  videodec_class->src_event = GST_DEBUG_FUNCPTR (gst_amc_video_dec_src_event);
   videodec_class->sink_event = GST_DEBUG_FUNCPTR (gst_amc_video_dec_sink_event);
 
   gobject_class->set_property =
@@ -667,9 +671,11 @@ gst_amc_video_dec_close (GstVideoDecoder * decoder)
   }
   self->codec = NULL;
 
+#if 0
   if (self->surface)
     g_object_unref (self->surface);
   self->surface = NULL;
+#endif
 
   self->started = FALSE;
   GST_DEBUG_OBJECT (self, "Closed decoder");
@@ -1257,6 +1263,7 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
       flow_ret = gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
       goto finish;
     } else if (klass->direct_rendering) {
+#if 0
       GstJniAmcDirectBuffer *b = gst_jni_amc_direct_buffer_new
           (self->surface->texture,
           self->codec->object,
@@ -1269,6 +1276,20 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
          Don't release jni buffer, sink needs it. */
       pushed_to_be_rendered_directly = TRUE;
       goto finish;
+#else
+      GstAmcDRBuffer *b;
+
+      b = gst_amc_dr_buffer_new (self->codec, idx);
+
+      frame->output_buffer = gst_buffer_new ();
+      GST_BUFFER_DATA (frame->output_buffer) = (guint8 *) b;
+      GST_BUFFER_SIZE (frame->output_buffer) = sizeof (GstAmcDRBuffer *);
+      GST_BUFFER_MALLOCDATA (frame->output_buffer) = (guint8 *) b;
+      GST_BUFFER_FREE_FUNC (frame->output_buffer) =
+          (GFreeFunc) gst_amc_dr_buffer_free;
+      flow_ret =
+          gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
+#endif
     } else if (buffer_info.size > 0) {
       flow_ret = gst_video_decoder_alloc_output_frame (GST_VIDEO_DECODER
           (self), frame);
@@ -1353,8 +1374,8 @@ finish:
 
   /* Sucess */
 done:
-  if (idx >= 0 && !pushed_to_be_rendered_directly)
-    gst_amc_codec_release_output_buffer (self->codec, idx);
+//  if (idx >= 0 && !pushed_to_be_rendered_directly)
+//    gst_amc_codec_release_output_buffer (self->codec, idx);
 
   GST_VIDEO_DECODER_STREAM_UNLOCK (self);
   return;
@@ -1377,6 +1398,19 @@ error:
   gst_pad_pause_task (GST_VIDEO_DECODER_SRC_PAD (self));
   self->srcpad_loop_started = FALSE;
   goto done;
+}
+
+static gboolean
+gst_amc_video_dec_src_event (GstVideoDecoder * decoder, GstEvent * event)
+{
+  GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
+
+  if (gst_amc_event_is_surface (event)) {
+    self->surface = gst_amc_event_parse_surface (event);
+    gst_event_unref (event);
+    return TRUE;
+  }
+  return FALSE;
 }
 
 static gboolean
@@ -1545,7 +1579,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   if (self->crypto_ctx.mcrypto)
     self->is_encrypted = TRUE;
 
-  if (!gst_amc_codec_configure (self->codec, format, jsurface,
+  if (!gst_amc_codec_configure (self->codec, format, self->surface,
           self->crypto_ctx.mcrypto, 0)) {
     gst_amc_format_free (format);
     GST_ERROR_OBJECT (self, "Failed to configure codec");
