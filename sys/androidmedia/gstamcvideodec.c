@@ -1289,6 +1289,7 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
           (GFreeFunc) gst_amc_dr_buffer_free;
       flow_ret =
           gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
+      goto finish;
 #endif
     } else if (buffer_info.size > 0) {
       flow_ret = gst_video_decoder_alloc_output_frame (GST_VIDEO_DECODER
