@@ -81,6 +81,7 @@ static struct
   jmethodID queue_input_buffer;
   jmethodID release;
   jmethodID release_output_buffer;
+  jmethodID release_output_buffer_ts;
   jmethodID start;
   jmethodID stop;
   jint CRYPTO_MODE_AES_CTR;
@@ -1013,8 +1014,14 @@ gst_amc_codec_release_output_buffer_full (GstAmcCodec * codec, gint index,
   gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
 
-  J_CALL_VOID (codec->object, media_codec.release_output_buffer,
-      index, render ? JNI_TRUE : JNI_FALSE);
+  if (render) {
+    GST_ERROR ("zzz render with ts");
+    J_CALL_VOID (codec->object, media_codec.release_output_buffer_ts,
+        index, g_get_monotonic_time () * 1000l);
+  } else {
+    J_CALL_VOID (codec->object, media_codec.release_output_buffer,
+        index, JNI_FALSE);
+  }
 
   ret = TRUE;
 error:
@@ -1430,6 +1437,9 @@ get_java_classes (void)
   media_codec.release_output_buffer =
       (*env)->GetMethodID (env, media_codec.klass, "releaseOutputBuffer",
       "(IZ)V");
+  media_codec.release_output_buffer_ts =
+      (*env)->GetMethodID (env, media_codec.klass, "releaseOutputBuffer",
+      "(IJ)V");
   media_codec.start =
       (*env)->GetMethodID (env, media_codec.klass, "start", "()V");
   media_codec.stop =
@@ -1447,6 +1457,7 @@ get_java_classes (void)
       media_codec.queue_input_buffer &&
       media_codec.release &&
       media_codec.release_output_buffer &&
+      media_codec.release_output_buffer_ts &&
       media_codec.start && media_codec.stop);
 
   tmp = (*env)->FindClass (env, "android/media/MediaCodec$BufferInfo");
