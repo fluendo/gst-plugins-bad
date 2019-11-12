@@ -1156,7 +1156,7 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
   gint idx = -1;
   const gchar *error_msg = "Unknown error";
   GstAmcVideoDecClass *klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
-  gboolean pushed_to_be_rendered_directly = FALSE;
+//  gboolean pushed_to_be_rendered_directly = FALSE;
 
   GST_VIDEO_DECODER_STREAM_LOCK (self);
 
@@ -1470,7 +1470,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   gboolean is_format_change = FALSE;
   gboolean needs_disable = FALSE;
   gchar *format_string;
-  jobject jsurface = NULL;
+//  jobject jsurface = NULL;
 
   self = GST_AMC_VIDEO_DEC (decoder);
   klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
