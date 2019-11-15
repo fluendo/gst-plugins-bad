@@ -155,7 +155,7 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
      them at expected moment. We're telling the basesink to wake us up 10 ms earlier. */
   if (!avs->first_frame_rendered) {
     GST_ERROR ("zzz setting ts offset");
-    gst_base_sink_set_ts_offset (GST_BASE_SINK (avs), -10000000l);
+    gst_base_sink_set_ts_offset (GST_BASE_SINK (avs), -40000000l);
     avs->first_frame_rendered = TRUE;
   }
 
