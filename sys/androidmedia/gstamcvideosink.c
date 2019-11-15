@@ -113,6 +113,7 @@ gst_amc_video_sink_change_state (GstElement * element,
   switch (transition) {
     case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
       gst_base_sink_set_ts_offset (GST_BASE_SINK (avs), 0l);
+      GST_ERROR ("zzz resetting ts offset");
       avs->first_frame_rendered = FALSE;
       break;
     default:
@@ -153,6 +154,7 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
      2. All others are to be enqueued 10ms before, so the system will have time to render
      them at expected moment. We're telling the basesink to wake us up 10 ms earlier. */
   if (!avs->first_frame_rendered) {
+    GST_ERROR ("zzz setting ts offset");
     gst_base_sink_set_ts_offset (GST_BASE_SINK (avs), -10000000l);
     avs->first_frame_rendered = TRUE;
   }
