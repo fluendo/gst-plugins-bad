@@ -110,6 +110,15 @@ gst_amc_video_sink_change_state (GstElement * element,
   if (ret == GST_STATE_CHANGE_FAILURE)
     return ret;
 
+  switch (transition) {
+    case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
+      gst_base_sink_set_ts_offset (GST_BASE_SINK (avs), 0l);
+      avs->first_frame_rendered = FALSE;
+      break;
+    default:
+      break;
+  }
+
 done:
   return ret;
 }
@@ -138,6 +147,16 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
       GST_WARNING_OBJECT (avs, "Could not render buffer %p", buf);
     }
   }
+
+  /* We follow next model:
+     1. Buffer with timestamp "0" is "enqueued" at the moment when basesink made us wakeup.
+     2. All others are to be enqueued 10ms before, so the system will have time to render
+     them at expected moment. We're telling the basesink to wake us up 10 ms earlier. */
+  if (!avs->first_frame_rendered) {
+    gst_base_sink_set_ts_offset (GST_BASE_SINK (avs), -10000000l);
+    avs->first_frame_rendered = TRUE;
+  }
+
   return GST_FLOW_OK;
 }
 

@@ -73,6 +73,7 @@ struct _GstAmcVideoSink
   GstVideoSink videosink;       /* Element hook */
 
   guint * surface;              /* Pointer the java Surface object */
+  gboolean first_frame_rendered;
 };
 
 struct _GstAmcVideoSinkClass
