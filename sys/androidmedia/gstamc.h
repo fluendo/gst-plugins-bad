@@ -132,7 +132,7 @@ gboolean gst_amc_codec_queue_secure_input_buffer (GstAmcCodec * codec,
 gboolean gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
     const GstAmcBufferInfo * info);
 gboolean gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index);
-gboolean gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index);
+gboolean gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index, gint64 ts);
 
 
 GstAmcFormat *gst_amc_format_new_audio (const gchar * mime, gint sample_rate,
@@ -208,7 +208,7 @@ jobject * gst_amc_global_ref_jobj (jobject * obj);
 
 GstAmcDRBuffer * gst_amc_dr_buffer_new (GstAmcCodec *codec, guint idx);
 void gst_amc_dr_buffer_free (GstAmcDRBuffer *buf);
-gboolean gst_amc_dr_buffer_render (GstAmcDRBuffer *buf);
+gboolean gst_amc_dr_buffer_render (GstAmcDRBuffer *buf, gint64 ts);
 
 GstQuery * gst_amc_query_new_surface (void);
 gpointer gst_amc_query_parse_surface (GstQuery *query);
