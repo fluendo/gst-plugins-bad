@@ -145,7 +145,7 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
     }
 
     GST_ERROR ("zzz enqueued to render with ts %" G_GINT64_FORMAT
-        " , sheduled = %s, now = %", G_GINT64_FORMAT, render_ts,
+        " , sheduled = %s, now = %" G_GINT64_FORMAT, render_ts,
         GST_BASE_SINK (vsink)->buffer_sheduled_render_time >=
         0 ? "TRUE" : "FALSE", g_get_monotonic_time ());
   }
