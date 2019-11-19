@@ -136,18 +136,20 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
   GST_DEBUG_OBJECT (avs, "Got buffer: %p", buf);
   drbuf = (GstAmcDRBuffer *) GST_BUFFER_DATA (buf);
   if (drbuf != NULL) {
-    gint64 render_ts =
-        GST_BASE_SINK (vsink)->buffer_sheduled_render_time < 0
-        ? g_get_monotonic_time () * 1000
-        : GST_BASE_SINK (vsink)->buffer_sheduled_render_time;
+    gint64 now = g_get_monotonic_time () * 1000;
+    gint64 clocks_diff = now - gst_clock_get_time (GST_ELEMENT_CLOCK (vsink));
+    gboolean sheduled = GST_BASE_SINK (vsink)->buffer_sheduled_render_time >= 0;
+    gint64 render_ts = sheduled ?
+        GST_BASE_SINK (vsink)->buffer_sheduled_render_time + clocks_diff : now;
+
     if (!gst_amc_dr_buffer_render (drbuf, render_ts)) {
       GST_WARNING_OBJECT (avs, "Could not render buffer %p", buf);
     }
 
     GST_ERROR ("zzz enqueued to render with ts %" G_GINT64_FORMAT
-        " , sheduled = %s, now = %" G_GINT64_FORMAT, render_ts,
-        GST_BASE_SINK (vsink)->buffer_sheduled_render_time >=
-        0 ? "TRUE" : "FALSE", g_get_monotonic_time ());
+        " , sheduled = %s, now = %" G_GINT64_FORMAT " , clocks_diff = %"
+        G_GINT64_FORMAT, render_ts,
+        sheduled ? "TRUE" : "FALSE", now, clocks_diff);
   }
   return GST_FLOW_OK;
 }
