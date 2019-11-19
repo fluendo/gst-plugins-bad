@@ -73,6 +73,7 @@ struct _GstAmcVideoSink
   GstVideoSink videosink;       /* Element hook */
 
   guint * surface;              /* Pointer the java Surface object */
+  gint64 clocks_diff;
 };
 
 struct _GstAmcVideoSinkClass
