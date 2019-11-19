@@ -95,7 +95,7 @@ gst_amc_video_sink_change_state (GstElement * element,
   switch (transition) {
     case GST_STATE_CHANGE_NULL_TO_READY:
       gst_base_sink_set_ts_offset (GST_BASE_SINK (avs),
-          G_GINT64_CONSTANT (-15000000));
+          G_GINT64_CONSTANT (-20000000));
       if (avs->surface == NULL) {
         gst_x_overlay_prepare_xwindow_id (GST_X_OVERLAY (avs));
         if (avs->surface == NULL) {
@@ -137,7 +137,7 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
   drbuf = (GstAmcDRBuffer *) GST_BUFFER_DATA (buf);
   if (drbuf != NULL) {
     gint64 render_ts =
-        GST_BASE_SINK (vsink)->buffer_sheduled_render_time >= 0
+        GST_BASE_SINK (vsink)->buffer_sheduled_render_time < 0
         ? g_get_monotonic_time () * 1000
         : GST_BASE_SINK (vsink)->buffer_sheduled_render_time;
     if (!gst_amc_dr_buffer_render (drbuf, render_ts)) {
