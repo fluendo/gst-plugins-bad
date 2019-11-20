@@ -147,7 +147,7 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
 
     if (now >
         GST_BASE_SINK (vsink)->buffer_sheduled_render_time + avs->clocks_diff)
-      GST_ERROR ("zzz may drop, diff is %d",
+      GST_ERROR ("zzz may drop, diff is %" G_GINT64_FORMAT,
           now - (GST_BASE_SINK (vsink)->buffer_sheduled_render_time +
               avs->clocks_diff));
 
