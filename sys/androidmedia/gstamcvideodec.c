@@ -1261,8 +1261,16 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
           (self->surface->texture,
           self->codec->object,
           gst_amc_codec_get_release_method_id (self->codec),
+          gst_amc_codec_get_release_ts_method_id (self->codec),
+          gst_amc_codec_get_system_nano_time,
           idx);
       frame->output_buffer = gst_jni_amc_direct_buffer_get_gst_buffer (b);
+
+      if (!gst_jni_amc_direct_buffer_render (b)) {
+        GST_ERROR ("zzz OOPS");
+        g_abort ();
+      }
+
       flow_ret =
           gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
       /* Direct rendering sucess.

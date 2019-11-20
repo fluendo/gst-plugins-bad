@@ -100,6 +100,7 @@ GstAmcCodec *gst_amc_codec_new (const gchar * name);
 void gst_amc_codec_free (GstAmcCodec * codec, GstAmcCrypto * crypto_ctx);
 
 jmethodID gst_amc_codec_get_release_method_id (GstAmcCodec * codec);
+jmethodID gst_amc_codec_get_release_ts_method_id (GstAmcCodec * codec);
 gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
     guint8 * surface, jobject mcrypto_obj, gint flags);
 GstAmcFormat *gst_amc_codec_get_output_format (GstAmcCodec * codec);
@@ -127,6 +128,7 @@ gboolean gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
 gboolean gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index);
 gboolean gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index);
 
+gint64 gst_amc_codec_get_system_nano_time (JNIEnv *env);
 
 GstAmcFormat *gst_amc_format_new_audio (const gchar * mime, gint sample_rate,
     gint channels);

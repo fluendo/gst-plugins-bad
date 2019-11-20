@@ -135,6 +135,8 @@ struct _GstEglGlesSink
   gboolean create_window;
   gboolean force_aspect_ratio;
 
+  gint64 render_start;
+
 #ifdef HAVE_ANDROID_MEDIA
   GstJniSurfaceTexture *surface_texture;
 #endif

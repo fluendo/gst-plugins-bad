@@ -81,6 +81,7 @@ static struct
   jmethodID queue_input_buffer;
   jmethodID release;
   jmethodID release_output_buffer;
+  jmethodID release_output_buffer_ts;
   jmethodID start;
   jmethodID stop;
   jint CRYPTO_MODE_AES_CTR;
@@ -131,6 +132,11 @@ static struct
   jmethodID provide_key_response;
   jmethodID close_session;
 } media_drm;
+static struct
+{
+  jclass klass;
+  jmethodID nano_time;
+} system_amc;
 static struct
 {
   jclass klass;
@@ -637,6 +643,33 @@ gst_amc_codec_free (GstAmcCodec * codec, GstAmcCrypto * crypto_ctx)
 
   J_DELETE_GLOBAL_REF (codec->object);
   g_slice_free (GstAmcCodec, codec);
+}
+
+gint64
+gst_amc_codec_get_system_nano_time (JNIEnv * env)
+{
+  gint64 ret;
+
+  ret =
+      (*env)->CallStaticLongMethod (env, system_amc.klass,
+      system_amc.nano_time);
+  J_EXCEPTION_CHECK ("codec_list_class->get_codec_count_id");
+
+  GST_ERROR ("zzz system.nanotime = %" G_GINT64_FORMAT ", g_monotonic = %"
+      G_GINT64_FORMAT, ret, g_get_monotonic_time () * 1000l);
+
+  return ret;
+
+error:
+  g_abort ();
+  return 0;
+}
+
+
+jmethodID
+gst_amc_codec_get_release_ts_method_id (GstAmcCodec * codec)
+{
+  return media_codec.release_output_buffer_ts;
 }
 
 jmethodID
@@ -1430,6 +1463,9 @@ get_java_classes (void)
   media_codec.release_output_buffer =
       (*env)->GetMethodID (env, media_codec.klass, "releaseOutputBuffer",
       "(IZ)V");
+  media_codec.release_output_buffer_ts =
+      (*env)->GetMethodID (env, media_codec.klass, "releaseOutputBuffer",
+      "(IJ)V");
   media_codec.start =
       (*env)->GetMethodID (env, media_codec.klass, "start", "()V");
   media_codec.stop =
@@ -1447,6 +1483,7 @@ get_java_classes (void)
       media_codec.queue_input_buffer &&
       media_codec.release &&
       media_codec.release_output_buffer &&
+      media_codec.release_output_buffer_ts &&
       media_codec.start && media_codec.stop);
 
   tmp = (*env)->FindClass (env, "android/media/MediaCodec$BufferInfo");
@@ -1550,6 +1587,15 @@ get_java_classes (void)
     goto done;
   }
 
+  /* System */
+  system_amc.klass = j_find_class (env, "java/lang/System");
+  if (!system_amc.klass) {
+    GST_ERROR ("zzz !system.klass");
+    g_abort ();
+  }
+  J_INIT_STATIC_METHOD_ID (system_amc, nano_time, "nanoTime", "()J");
+
+
   /* MEDIA DRM */
   media_drm.klass = j_find_class (env, "android/media/MediaDrm");
   if (!media_drm.klass)
@@ -1617,6 +1663,7 @@ done:
   return ret;
 error:
   ret = FALSE;
+  g_abort ();
   goto done;
 }
 

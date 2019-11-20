@@ -264,6 +264,8 @@ gst_egl_adaptation_make_current (GstEglAdaptationContext * ctx, gboolean bind)
           eglGetError ());
       return FALSE;
     }
+//    eglSwapInterval (ctx->eglglesctx->display, 0);
+
   } else {
     GST_DEBUG_OBJECT (ctx->element, "Detaching context from thread %p",
         g_thread_self ());
@@ -441,6 +443,16 @@ gst_egl_adaptation_bind_API (GstEglAdaptationContext * ctx)
 gboolean
 gst_egl_adaptation_swap_buffers (GstEglAdaptationContext * ctx)
 {
+  /* display at next ms */
+#if 0
+  if (!eglPresentationTimeANDROID (ctx->eglglesctx->display,
+          ctx->eglglesctx->surface,
+          g_get_monotonic_time () * 1000l + 1000000l)) {
+    GST_ERROR ("mm ok");
+    g_abort ();
+  }
+#endif
+
   gboolean ret =
       eglSwapBuffers (ctx->eglglesctx->display, ctx->eglglesctx->surface);
   if (ret == EGL_FALSE) {

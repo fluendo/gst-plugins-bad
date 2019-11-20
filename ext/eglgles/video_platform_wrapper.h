@@ -52,6 +52,7 @@
 
 #include <gst/gst.h>
 #include <EGL/egl.h>
+#include <EGL/eglext.h>
 
 gboolean platform_wrapper_init (void);
 EGLNativeWindowType platform_create_native_window (gint width, gint height, gpointer * window_data);

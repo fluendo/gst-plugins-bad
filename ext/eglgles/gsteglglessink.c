@@ -818,6 +818,8 @@ gst_eglglessink_queue_buffer (GstEglGlesSink * eglglessink, GstBuffer * buf)
   if (last_flow != GST_FLOW_OK)
     return last_flow;
 
+  eglglessink->render_start = g_get_monotonic_time ();
+
   item = g_slice_new0 (GstDataQueueItem);
 
   item->object = GST_MINI_OBJECT_CAST (buf);
@@ -986,10 +988,31 @@ gst_eglglessink_upload (GstEglGlesSink * eglglessink, GstBuffer * buf)
             (eglglessink->surface_texture,
             eglglessink->egl_context->texture[0]);
       }
+#if 0
+      GST_ERROR ("zzz texture timestamp 0 = %" G_GINT64_FORMAT " buf_ts = %"
+          GST_TIME_FORMAT,
+          gst_jni_surface_texture_get_timestamp (eglglessink->surface_texture),
+          GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (buf)));
+
       if (!gst_jni_amc_direct_buffer_render (drbuf)) {
         return GST_FLOW_CUSTOM_ERROR;
       }
+
+      GST_ERROR ("zzz texture timestamp 1 = %" G_GINT64_FORMAT " buf_ts = %"
+          GST_TIME_FORMAT,
+          gst_jni_surface_texture_get_timestamp (eglglessink->surface_texture),
+          GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (buf)));
+//      g_usleep (5000l);
+#endif
+
       gst_jni_surface_texture_update_tex_image (eglglessink->surface_texture);
+
+#if 0
+      GST_ERROR ("zzz texture timestamp 2 = %" G_GINT64_FORMAT " buf_ts = %"
+          GST_TIME_FORMAT,
+          gst_jni_surface_texture_get_timestamp (eglglessink->surface_texture),
+          GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (buf)));
+#endif
     }
   } else {
     if (!gst_eglglessink_fill_texture (eglglessink, buf))
@@ -1279,8 +1302,22 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
   if (got_gl_error ("glDrawElements"))
     goto HANDLE_ERROR;
 
-  if (!gst_egl_adaptation_swap_buffers (eglglessink->egl_context)) {
-    goto HANDLE_ERROR;
+  GST_ERROR ("zzz Going to sleep");
+  {
+    gint64 now = g_get_monotonic_time ();
+    gint64 to_sleep_us = 19500l - (now - eglglessink->render_start);
+    /* We must render at moment N . We've started queuing at N - 20ms.
+       Then preparations took time P. So, now we wait for 19.5ms - P, to
+       Start exactly at N. */
+    if (to_sleep_us > 0l)
+      g_usleep (to_sleep_us);
+
+    if (!gst_egl_adaptation_swap_buffers (eglglessink->egl_context)) {
+      goto HANDLE_ERROR;
+    }
+
+    GST_ERROR ("zzz swapped at %" G_GINT64_FORMAT ", to_sleep_us = %"
+        G_GINT64_FORMAT, now, to_sleep_us);
   }
 
   GST_DEBUG_OBJECT (eglglessink, "Succesfully rendered 1 frame");
@@ -1336,6 +1373,9 @@ gst_eglglessink_configure_caps (GstEglGlesSink * eglglessink, GstCaps * caps)
   gint rotation = 0;
   int par_n, par_d;
   const GstStructure *s;
+
+  GST_ERROR ("zzz set ts_offset");
+  gst_base_sink_set_ts_offset (GST_BASE_SINK (eglglessink), -20000000l);
 
   s = gst_caps_get_structure (caps, 0);
   if (gst_structure_has_name (s, "video/x-amc")) {
