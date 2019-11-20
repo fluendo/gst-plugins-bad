@@ -147,7 +147,9 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
 
     if (now >
         GST_BASE_SINK (vsink)->buffer_sheduled_render_time + avs->clocks_diff)
-      g_abort ();
+      GST_ERROR ("zzz may drop, diff is %d",
+          now - (GST_BASE_SINK (vsink)->buffer_sheduled_render_time +
+              avs->clocks_diff));
 
     if (!gst_amc_dr_buffer_render (drbuf, render_ts)) {
       GST_WARNING_OBJECT (avs, "Could not render buffer %p", buf);
