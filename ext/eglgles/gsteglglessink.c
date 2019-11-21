@@ -1320,7 +1320,7 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
   {
     gint64 now2 = g_get_monotonic_time () * 1000;
 
-    if (!gst_egl_adaptation_swap_buffers (eglglessink->egl_context), render_ts) {
+    if (!gst_egl_adaptation_swap_buffers (eglglessink->egl_context, render_ts)) {
       goto HANDLE_ERROR;
     }
 
