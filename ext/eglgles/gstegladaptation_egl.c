@@ -441,17 +441,14 @@ gst_egl_adaptation_bind_API (GstEglAdaptationContext * ctx)
 }
 
 gboolean
-gst_egl_adaptation_swap_buffers (GstEglAdaptationContext * ctx)
+gst_egl_adaptation_swap_buffers (GstEglAdaptationContext * ctx, gint64 ts)
 {
   /* display at next ms */
-#if 0
   if (!eglPresentationTimeANDROID (ctx->eglglesctx->display,
-          ctx->eglglesctx->surface,
-          g_get_monotonic_time () * 1000l + 1000000l)) {
+          ctx->eglglesctx->surface, ts)) {
     GST_ERROR ("mm ok");
     g_abort ();
   }
-#endif
 
   gboolean ret =
       eglSwapBuffers (ctx->eglglesctx->display, ctx->eglglesctx->surface);

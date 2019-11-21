@@ -101,6 +101,8 @@ struct _GstEglGlesSink
   gboolean render_region_changed;
   gboolean render_region_user;
 
+  gint64 clocks_diff;
+
   /* orientation handling */
   gint rotation;
   GLfloat rotation_matrix[16];

@@ -1122,6 +1122,21 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
   gint i;
   gint w, h;
 
+  gint64 now = g_get_monotonic_time () * 1000;
+
+  if (!eglglessink->clocks_diff) {
+    eglglessink->clocks_diff =
+        now - gst_clock_get_time (GST_ELEMENT_CLOCK (eglglessink));
+  }
+
+  gint64 render_ts =
+      gst_segment_to_running_time (&GST_BASE_SINK (eglglessink)->segment,
+      GST_FORMAT_TIME, GST_BUFFER_TIMESTAMP (buf))
+
+      + gst_element_get_base_time (GST_ELEMENT (eglglessink)) +
+      eglglessink->clocks_diff;
+
+
   g_rec_mutex_lock (&eglglessink->window_lock);
 
   w = GST_VIDEO_SINK_WIDTH (eglglessink);
@@ -1302,22 +1317,15 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
   if (got_gl_error ("glDrawElements"))
     goto HANDLE_ERROR;
 
-  GST_ERROR ("zzz Going to sleep");
   {
-    gint64 now = g_get_monotonic_time ();
-    gint64 to_sleep_us = 19500l - (now - eglglessink->render_start);
-    /* We must render at moment N . We've started queuing at N - 20ms.
-       Then preparations took time P. So, now we wait for 19.5ms - P, to
-       Start exactly at N. */
-    if (to_sleep_us > 0l)
-      g_usleep (to_sleep_us);
+    gint64 now2 = g_get_monotonic_time () * 1000;
 
-    if (!gst_egl_adaptation_swap_buffers (eglglessink->egl_context)) {
+    if (!gst_egl_adaptation_swap_buffers (eglglessink->egl_context), render_ts) {
       goto HANDLE_ERROR;
     }
 
-    GST_ERROR ("zzz swapped at %" G_GINT64_FORMAT ", to_sleep_us = %"
-        G_GINT64_FORMAT, now, to_sleep_us);
+    GST_ERROR ("zzz swapped buffers. ts = %" G_GINT64_FORMAT " , wakeup = %"
+        G_GINT64_FORMAT " , now = " G_GINT64_FORMAT, render_ts, now, now2);
   }
 
   GST_DEBUG_OBJECT (eglglessink, "Succesfully rendered 1 frame");
@@ -1374,8 +1382,8 @@ gst_eglglessink_configure_caps (GstEglGlesSink * eglglessink, GstCaps * caps)
   int par_n, par_d;
   const GstStructure *s;
 
-  GST_ERROR ("zzz set ts_offset");
-  gst_base_sink_set_ts_offset (GST_BASE_SINK (eglglessink), -20000000l);
+  GST_ERROR ("zzz set ts_offset -100ms");
+  gst_base_sink_set_ts_offset (GST_BASE_SINK (eglglessink), -100000000l);
 
   s = gst_caps_get_structure (caps, 0);
   if (gst_structure_has_name (s, "video/x-amc")) {
