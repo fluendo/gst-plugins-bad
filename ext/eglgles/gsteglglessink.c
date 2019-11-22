@@ -1137,6 +1137,13 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
       eglglessink->clocks_diff;
 
 
+  GST_ERROR ("zzz time trace. clocks_diff = %" G_GINT64_FORMAT " ,"
+      " segment = %" G_GINT64_FORMAT " , base_time = %" G_GINT64_FORMAT,
+      eglglessink->clocks_diff,
+      gst_segment_to_running_time (&GST_BASE_SINK (eglglessink)->segment,
+          GST_FORMAT_TIME, GST_BUFFER_TIMESTAMP (buf)),
+      gst_element_get_base_time (GST_ELEMENT (eglglessink)));
+
   g_rec_mutex_lock (&eglglessink->window_lock);
 
   w = GST_VIDEO_SINK_WIDTH (eglglessink);
@@ -1325,7 +1332,7 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
     }
 
     GST_ERROR ("zzz swapped buffers. ts = %" G_GINT64_FORMAT " , wakeup = %"
-        G_GINT64_FORMAT " , now = " G_GINT64_FORMAT, render_ts, now, now2);
+        G_GINT64_FORMAT " , now = %" G_GINT64_FORMAT, render_ts, now, now2);
   }
 
   GST_DEBUG_OBJECT (eglglessink, "Succesfully rendered 1 frame");
