@@ -1540,7 +1540,7 @@ gst_eglglessink_change_state (GstElement * element, GstStateChange transition)
       break;
     case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
       if (!eglglessink->clocks_diff) {
-        gint64 now = g_get_monotonic_time ();
+        gint64 now = g_get_monotonic_time () * 1000l;
         eglglessink->clocks_diff =
             now - gst_clock_get_time (GST_ELEMENT_CLOCK (eglglessink));
 
