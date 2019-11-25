@@ -1129,7 +1129,7 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
       gst_segment_to_running_time (&GST_BASE_SINK (eglglessink)->segment,
       GST_FORMAT_TIME, GST_BUFFER_TIMESTAMP (buf));
 
-  if (!eglglessink->clocks_diff) {
+  if (0 && !eglglessink->clocks_diff) {
     eglglessink->clocks_diff =
         now - gst_clock_get_time (GST_ELEMENT_CLOCK (eglglessink));
 
