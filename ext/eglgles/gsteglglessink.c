@@ -1122,27 +1122,31 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
   gint i;
   gint w, h;
 
+  gint64 render_ts;
   gint64 now = g_get_monotonic_time () * 1000;
+  gint64 base_time = gst_element_get_base_time (GST_ELEMENT (eglglessink));
+  gint64 buffer_ts =
+      gst_segment_to_running_time (&GST_BASE_SINK (eglglessink)->segment,
+      GST_FORMAT_TIME, GST_BUFFER_TIMESTAMP (buf));
 
   if (!eglglessink->clocks_diff) {
     eglglessink->clocks_diff =
         now - gst_clock_get_time (GST_ELEMENT_CLOCK (eglglessink));
+
+    /* If difference is less then 10ms - we know we use system clock in gstclock. */
+    if (ABS (eglglessink->clocks_diff) < 10000000l)
+      eglglessink->clocks_diff = 0;
   }
 
-  gint64 render_ts =
-      gst_segment_to_running_time (&GST_BASE_SINK (eglglessink)->segment,
-      GST_FORMAT_TIME, GST_BUFFER_TIMESTAMP (buf))
-
-      + gst_element_get_base_time (GST_ELEMENT (eglglessink)) +
-      eglglessink->clocks_diff;
-
+  render_ts = buffer_ts + base_time + eglglessink->clocks_diff;
 
   GST_ERROR ("zzz time trace. clocks_diff = %" G_GINT64_FORMAT " ,"
-      " segment = %" G_GINT64_FORMAT " , base_time = %" G_GINT64_FORMAT,
+      " segment = %" G_GINT64_FORMAT
+      " , base_time = %" G_GINT64_FORMAT
+      " gst_clock_now = %" G_GINT64_FORMAT,
       eglglessink->clocks_diff,
-      gst_segment_to_running_time (&GST_BASE_SINK (eglglessink)->segment,
-          GST_FORMAT_TIME, GST_BUFFER_TIMESTAMP (buf)),
-      gst_element_get_base_time (GST_ELEMENT (eglglessink)));
+      buffer_ts, base_time, gst_clock_get_time (GST_ELEMENT_CLOCK (eglglessink))
+      );
 
   g_rec_mutex_lock (&eglglessink->window_lock);
 
@@ -1532,6 +1536,29 @@ gst_eglglessink_change_state (GstElement * element, GstStateChange transition)
       if (!gst_eglglessink_stop (eglglessink)) {
         ret = GST_STATE_CHANGE_FAILURE;
         goto done;
+      }
+      break;
+    case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
+      if (!eglglessink->clocks_diff) {
+        eglglessink->clocks_diff =
+            now - gst_clock_get_time (GST_ELEMENT_CLOCK (eglglessink));
+
+        /* If difference is less then 10ms - we know we use system clock in gstclock. */
+        if (ABS (eglglessink->clocks_diff) < 10000000l)
+          eglglessink->clocks_diff = 0;
+
+        /* If base_time == 0 - we don't substract gstclock from system's time.
+         * There's a bug, when sink element thinks it was switched to playing at time = 0 */
+//    if (0 == gst_element_get_base_time (GST_ELEMENT (eglglessink))) {
+//      eglglessink->clocks_diff = now;
+//    }
+        GST_ERROR ("zzz paused->playing. clocks_diff = %" G_GINT64_FORMAT " ,"
+            " base_time = %" G_GINT64_FORMAT
+            " gst_clock_now = %" G_GINT64_FORMAT,
+            eglglessink->clocks_diff,
+            gst_element_get_base_time (GST_ELEMENT (eglglessink)),
+            gst_clock_get_time (GST_ELEMENT_CLOCK (eglglessink))
+            );
       }
       break;
     default:
