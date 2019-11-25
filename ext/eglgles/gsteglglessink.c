@@ -1540,6 +1540,7 @@ gst_eglglessink_change_state (GstElement * element, GstStateChange transition)
       break;
     case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
       if (!eglglessink->clocks_diff) {
+        gint64 now = g_get_monotonic_time ();
         eglglessink->clocks_diff =
             now - gst_clock_get_time (GST_ELEMENT_CLOCK (eglglessink));
 
@@ -1552,9 +1553,12 @@ gst_eglglessink_change_state (GstElement * element, GstStateChange transition)
 //    if (0 == gst_element_get_base_time (GST_ELEMENT (eglglessink))) {
 //      eglglessink->clocks_diff = now;
 //    }
-        GST_ERROR ("zzz paused->playing. clocks_diff = %" G_GINT64_FORMAT " ,"
-            " base_time = %" G_GINT64_FORMAT
+        GST_ERROR ("zzz paused->playing."
+            " now = %" G_GINT64_FORMAT " ,"
+            " clocks_diff = %" G_GINT64_FORMAT " ,"
+            " base_time = %" G_GINT64_FORMAT " ,"
             " gst_clock_now = %" G_GINT64_FORMAT,
+            now,
             eglglessink->clocks_diff,
             gst_element_get_base_time (GST_ELEMENT (eglglessink)),
             gst_clock_get_time (GST_ELEMENT_CLOCK (eglglessink))
