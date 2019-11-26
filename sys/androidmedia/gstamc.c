@@ -81,6 +81,7 @@ static struct
   jmethodID queue_input_buffer;
   jmethodID release;
   jmethodID release_output_buffer;
+  jmethodID release_output_buffer_ts;
   jmethodID start;
   jmethodID stop;
   jint CRYPTO_MODE_AES_CTR;
@@ -637,6 +638,12 @@ gst_amc_codec_free (GstAmcCodec * codec, GstAmcCrypto * crypto_ctx)
 
   J_DELETE_GLOBAL_REF (codec->object);
   g_slice_free (GstAmcCodec, codec);
+}
+
+jmethodID
+gst_amc_codec_get_release_ts_method_id (GstAmcCodec * codec)
+{
+  return media_codec.release_output_buffer_ts;
 }
 
 jmethodID
@@ -1430,6 +1437,9 @@ get_java_classes (void)
   media_codec.release_output_buffer =
       (*env)->GetMethodID (env, media_codec.klass, "releaseOutputBuffer",
       "(IZ)V");
+  media_codec.release_output_buffer_ts =
+      (*env)->GetMethodID (env, media_codec.klass, "releaseOutputBuffer",
+      "(IJ)V");
   media_codec.start =
       (*env)->GetMethodID (env, media_codec.klass, "start", "()V");
   media_codec.stop =
@@ -1447,6 +1457,7 @@ get_java_classes (void)
       media_codec.queue_input_buffer &&
       media_codec.release &&
       media_codec.release_output_buffer &&
+      media_codec.release_output_buffer_ts &&
       media_codec.start && media_codec.stop);
 
   tmp = (*env)->FindClass (env, "android/media/MediaCodec$BufferInfo");

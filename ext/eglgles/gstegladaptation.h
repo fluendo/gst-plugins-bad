@@ -184,7 +184,7 @@ gboolean gst_egl_adaptation_update_surface_dimensions (GstEglAdaptationContext *
 
 /* rendering */
 void gst_egl_adaptation_bind_API (GstEglAdaptationContext * ctx);
-gboolean gst_egl_adaptation_swap_buffers (GstEglAdaptationContext * ctx);
+gboolean gst_egl_adaptation_swap_buffers (GstEglAdaptationContext * ctx, GstClockTime ts);
 
 /* get/set */
 void gst_egl_adaptation_set_window (GstEglAdaptationContext * ctx, guintptr window);

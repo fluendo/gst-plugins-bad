@@ -22,7 +22,8 @@
 
 GstJniAmcDirectBuffer *
 gst_jni_amc_direct_buffer_new (GstJniSurfaceTexture * texture,
-    jobject media_codec, jmethodID release_output_buffer, guint idx)
+    jobject media_codec, jmethodID release_output_buffer,
+    jmethodID release_output_buffer_ts, guint idx)
 {
   GstJniAmcDirectBuffer *buf;
   JNIEnv *env = gst_jni_get_env ();
@@ -31,6 +32,7 @@ gst_jni_amc_direct_buffer_new (GstJniSurfaceTexture * texture,
   buf->texture = g_object_ref (texture);
   buf->media_codec = (*env)->NewGlobalRef (env, media_codec);
   buf->release_output_buffer = release_output_buffer;
+  buf->release_output_buffer_ts = release_output_buffer_ts;
   buf->idx = idx;
   buf->released = FALSE;
 
@@ -68,10 +70,25 @@ gst_jni_amc_direct_buffer_render (GstJniAmcDirectBuffer * buf)
 
   if (!buf->released) {
     JNIEnv *env;
+    /* From releaseOutputBuffer doc:
 
+       If you render your buffer on a SurfaceView, you can use the timestamp
+       to render the buffer at a specific time (at the VSYNC at or after the
+       buffer timestamp). For this to work, the timestamp needs to be reasonably
+       close to the current System#nanoTime. Currently, this is set as within
+       one (1) second.
+       -----------------------------
+       We are rendering with "now" timestamp because we want the surface to
+       be updated as soon as possible.
+       -----------------------------
+       It's checked that g_get_monotonic_time () * 1000 is the same timestamp as
+       System.nanoTime (), if only with a bit lower precision.
+     */
     env = gst_jni_get_env ();
+
     ret = gst_jni_call_void_method (env, buf->media_codec,
-        buf->release_output_buffer, buf->idx, TRUE);
+        buf->release_output_buffer_ts, buf->idx,
+        g_get_monotonic_time () * 1000);
     if (ret)
       buf->released = TRUE;
   }
