@@ -1138,7 +1138,7 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
       eglglessink->clocks_diff = 0;
   }
 
-  render_ts = buffer_ts + /*base_time + */ eglglessink->clocks_diff;
+  render_ts = eglglessink->clocks_diff ? buffer_ts : -1;        // + /*base_time + */ eglglessink->clocks_diff;
 
   GST_ERROR ("zzz time trace. clocks_diff = %" G_GINT64_FORMAT " ,"
       " segment = %" G_GINT64_FORMAT
@@ -1394,7 +1394,7 @@ gst_eglglessink_configure_caps (GstEglGlesSink * eglglessink, GstCaps * caps)
   const GstStructure *s;
 
   GST_ERROR ("zzz set ts_offset -100ms");
-  gst_base_sink_set_ts_offset (GST_BASE_SINK (eglglessink), -200000000l);
+  gst_base_sink_set_ts_offset (GST_BASE_SINK (eglglessink), -50000000l);
 
   s = gst_caps_get_structure (caps, 0);
   if (gst_structure_has_name (s, "video/x-amc")) {

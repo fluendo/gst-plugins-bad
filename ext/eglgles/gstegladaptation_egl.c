@@ -444,7 +444,7 @@ gboolean
 gst_egl_adaptation_swap_buffers (GstEglAdaptationContext * ctx, gint64 ts)
 {
   /* display at next ms */
-  if (!eglPresentationTimeANDROID (ctx->eglglesctx->display,
+  if (ts >= 0 && !eglPresentationTimeANDROID (ctx->eglglesctx->display,
           ctx->eglglesctx->surface, ts)) {
     GST_ERROR ("mm ok");
     g_abort ();
