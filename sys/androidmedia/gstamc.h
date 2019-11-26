@@ -100,6 +100,7 @@ GstAmcCodec *gst_amc_codec_new (const gchar * name);
 void gst_amc_codec_free (GstAmcCodec * codec, GstAmcCrypto * crypto_ctx);
 
 jmethodID gst_amc_codec_get_release_method_id (GstAmcCodec * codec);
+jmethodID gst_amc_codec_get_release_ts_method_id (GstAmcCodec * codec);
 gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
     guint8 * surface, jobject mcrypto_obj, gint flags);
 GstAmcFormat *gst_amc_codec_get_output_format (GstAmcCodec * codec);

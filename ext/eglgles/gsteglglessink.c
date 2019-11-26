@@ -986,9 +986,8 @@ gst_eglglessink_upload (GstEglGlesSink * eglglessink, GstBuffer * buf)
             (eglglessink->surface_texture,
             eglglessink->egl_context->texture[0]);
       }
-      if (!gst_jni_amc_direct_buffer_render (drbuf)) {
-        return GST_FLOW_CUSTOM_ERROR;
-      }
+
+      /* FIXME: in fact we should wait for onFrameAvailable before updating the texture */
       gst_jni_surface_texture_update_tex_image (eglglessink->surface_texture);
     }
   } else {
@@ -1098,6 +1097,20 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
   guint dar_n, dar_d;
   gint i;
   gint w, h;
+  gint64 render_ts = -1;
+
+#if HAVE_ANDROID
+  gint64 swap_time;
+  gint64 wakeup = g_get_monotonic_time () * 1000;
+  gint64 base_time = gst_element_get_base_time (GST_ELEMENT (eglglessink));
+  gint64 buffer_ts =
+      gst_segment_to_running_time (&GST_BASE_SINK (eglglessink)->segment,
+      GST_FORMAT_TIME, GST_BUFFER_TIMESTAMP (buf));
+
+  if (eglglessink->playing) {
+    render_ts = buffer_ts + base_time;
+  }
+#endif
 
   g_rec_mutex_lock (&eglglessink->window_lock);
 
@@ -1279,9 +1292,21 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
   if (got_gl_error ("glDrawElements"))
     goto HANDLE_ERROR;
 
-  if (!gst_egl_adaptation_swap_buffers (eglglessink->egl_context)) {
+#if HAVE_ANDROID
+  if (__gst_debug_min >= GST_LEVEL_LOG)
+    swap_time = g_get_monotonic_time () * 1000;
+#endif
+
+  if (!gst_egl_adaptation_swap_buffers (eglglessink->egl_context, render_ts)) {
     goto HANDLE_ERROR;
   }
+#if HAVE_ANDROID
+  GST_LOG_OBJECT (eglglessink, "Swapped buffers at %" G_GINT64_FORMAT
+      " , render ts = %" G_GINT64_FORMAT
+      " , base_time = %" G_GINT64_FORMAT
+      " , woke up at %" G_GINT64_FORMAT,
+      swap_time, render_ts, base_time, wakeup);
+#endif
 
   GST_DEBUG_OBJECT (eglglessink, "Succesfully rendered 1 frame");
   g_rec_mutex_unlock (&eglglessink->window_lock);
@@ -1389,6 +1414,11 @@ gst_eglglessink_configure_caps (GstEglGlesSink * eglglessink, GstCaps * caps)
 
   gst_caps_replace (&eglglessink->configured_caps, caps);
 
+#if HAVE_ANDROID
+  /* !!! FIXME: calculate based on frame rate. */
+  gst_base_sink_set_ts_offset (GST_BASE_SINK (eglglessink), -50000000l);
+#endif
+
 SUCCEED:
   gst_eglglessink_generate_rotation (eglglessink);
   GST_INFO_OBJECT (eglglessink, "Configured caps successfully");
@@ -1457,6 +1487,12 @@ gst_eglglessink_change_state (GstElement * element, GstStateChange transition)
         ret = GST_STATE_CHANGE_FAILURE;
         goto done;
       }
+      break;
+    case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
+      eglglessink->playing = TRUE;
+      break;
+    case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
+      eglglessink->playing = FALSE;
       break;
     default:
       break;

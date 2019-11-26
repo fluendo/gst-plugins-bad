@@ -439,8 +439,20 @@ gst_egl_adaptation_bind_API (GstEglAdaptationContext * ctx)
 }
 
 gboolean
-gst_egl_adaptation_swap_buffers (GstEglAdaptationContext * ctx)
+gst_egl_adaptation_swap_buffers (GstEglAdaptationContext * ctx, gint64 ts)
 {
+#if HAVE_ANDROID
+  /* display at next ms */
+  if (G_LIKELY (ts >= 0)) {
+    if (G_UNLIKELY (!eglPresentationTimeANDROID (ctx->eglglesctx->display,
+                ctx->eglglesctx->surface, ts)))
+      GST_DEBUG_OBJECT (ctx->element,
+          "eglPresentationTimeANDROID (%" G_GINT64_FORMAT ") failed", ts);
+  }
+#else
+  (void) ts;
+#endif
+
   gboolean ret =
       eglSwapBuffers (ctx->eglglesctx->display, ctx->eglglesctx->surface);
   if (ret == EGL_FALSE) {
