@@ -1129,7 +1129,7 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
       gst_segment_to_running_time (&GST_BASE_SINK (eglglessink)->segment,
       GST_FORMAT_TIME, GST_BUFFER_TIMESTAMP (buf));
 
-  if (0 && !eglglessink->clocks_diff) {
+  if (!eglglessink->clocks_diff) {
     eglglessink->clocks_diff =
         now - gst_clock_get_time (GST_ELEMENT_CLOCK (eglglessink));
 
@@ -1138,7 +1138,7 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
       eglglessink->clocks_diff = 0;
   }
 
-  render_ts = eglglessink->clocks_diff ? buffer_ts : -1;        // + /*base_time + */ eglglessink->clocks_diff;
+  render_ts = buffer_ts + base_time + eglglessink->clocks_diff;
 
   GST_ERROR ("zzz time trace. clocks_diff = %" G_GINT64_FORMAT " ,"
       " segment = %" G_GINT64_FORMAT
@@ -1519,6 +1519,7 @@ gst_eglglessink_change_state (GstElement * element, GstStateChange transition)
       break;
     case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
     {
+      break;
       gint64 now = g_get_monotonic_time () * 1000l;
       eglglessink->clocks_diff = now;
 //            now - gst_clock_get_time (GST_ELEMENT_CLOCK (eglglessink));
