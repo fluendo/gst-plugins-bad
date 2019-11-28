@@ -86,7 +86,12 @@ enum
   COLOR_FormatRawBayer8bitcompressed = 32,
   COLOR_FormatL2 = 33,
   COLOR_FormatL4 = 34,
-  COLOR_FormatL8 = 35,
+
+  /* Another collision: surface of omxrealtekvideodecoder.
+     COLOR_FormatL8 is never used in the code. */
+  /*  COLOR_FormatL8 = 35, */
+  COLOR_FormatSurface6 = 0x23,
+
   COLOR_FormatL16 = 36,
   COLOR_FormatL24 = 37,
   COLOR_FormatL32 = 38,
