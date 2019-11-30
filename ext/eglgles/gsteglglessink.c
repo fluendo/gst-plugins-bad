@@ -379,8 +379,8 @@ gst_eglglessink_start (GstEglGlesSink * eglglessink)
   if (!gst_eglglessink_request_window (eglglessink) &&
       !eglglessink->create_window) {
     GST_ERROR_OBJECT (eglglessink, "Window handle unavailable and we "
-        "were instructed not to create an internal one. Bailing out.");
-    goto HANDLE_ERROR;
+        "were instructed not to create an internal one. "
+        "Nothing will be rendered until window is provided.");
   }
 
   eglglessink->last_flow = GST_FLOW_OK;
@@ -1123,8 +1123,24 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
 
   gst_eglglessink_transform_size (eglglessink, &w, &h);
 
-  if (!gst_eglglessink_request_or_create_window (eglglessink, w, h)) {
-    goto HANDLE_ERROR;
+  /* We query the window from user, but if there's no window - first we retry, then
+   * if still no window - we just skip this frame */
+  for (i = 0; i < 2; i++) {
+    if (G_LIKELY (gst_eglglessink_request_or_create_window (eglglessink, w, h))) {
+      break;
+    } else {
+      GST_ERROR_OBJECT (eglglessink,
+          "No window to render frame at %" GST_TIME_FORMAT " , %s",
+          GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (buf)),
+          i < 1 ? "retrying after 10 ms.." : "do nothing");
+      if (i < 1) {
+        g_usleep (10000);
+        continue;
+      } else {
+        g_rec_mutex_unlock (&eglglessink->window_lock);
+        return GST_FLOW_OK;
+      }
+    }
   }
 
   /* Upload the buffer if we need to */
