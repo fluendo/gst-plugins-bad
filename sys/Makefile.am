@@ -47,7 +47,7 @@ DIRECTDRAW_DIR=
 endif
 
 if USE_DIRECTSHOW
-DIRECTSHOW_DIR=winks
+DIRECTSHOW_DIR=winks dshowsrcwrapper
 else
 DIRECTSHOW_DIR=
 endif

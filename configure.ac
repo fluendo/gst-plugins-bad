@@ -2413,6 +2413,7 @@ sys/decklink/Makefile
 sys/directdraw/Makefile
 sys/directsound/Makefile
 sys/dshowsrcwrapper/Makefile
+sys/dshowsrcwrapper/baseclasses/Makefile
 sys/dshowvideosink/Makefile
 sys/dvb/Makefile
 sys/fbdev/Makefile

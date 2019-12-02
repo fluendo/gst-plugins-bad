@@ -794,6 +794,7 @@ gst_dshowvideosrc_set_caps (GstBaseSrc * bsrc, GstCaps * caps)
         video_info->AvgTimePerFrame = pin_mediatype->avgTimePerFrame;
         video_info->bmiHeader.biSizeImage = DIBSIZE (video_info->bmiHeader);
         pin_mediatype->mediatype->lSampleSize = DIBSIZE (video_info->bmiHeader);
+        pin_mediatype->mediatype->bFixedSizeSamples = 1;
 
         src->dshow_fakesink->gst_set_media_type (pin_mediatype->mediatype);
         src->dshow_fakesink->gst_set_buffer_callback (

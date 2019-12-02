@@ -18,6 +18,7 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
+#include <sal.h>
 
 #include "gstdshow.h"
 #include "gstdshowfakesink.h"
@@ -134,6 +135,7 @@ gst_dshow_new_pin_mediatype_from_streamcaps (IPin * pin, gint id, IAMStreamConfi
       pin_mediatype->defaultFPS = 25;
     }
   }
+  pin_mediatype->avgTimePerFrame = video_info->AvgTimePerFrame;
   pin_mediatype->granularityWidth = pin_mediatype->vscc.OutputGranularityX;
   pin_mediatype->granularityHeight = pin_mediatype->vscc.OutputGranularityY;
 

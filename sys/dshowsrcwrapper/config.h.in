@@ -1,0 +1,10 @@
+#ifndef __CONFIG_H__
+#define __CONFIG_H__
+
+#define VERSION "@version@"
+#define PACKAGE_NAME "@pkg_name@"
+#define PACKAGE "@pkg_name@"
+#define GST_PACKAGE_NAME "@pkg_name@"
+#define GST_PACKAGE_ORIGIN "@pkg_origin@"
+
+#endif //__CONFIG_H__
