@@ -102,6 +102,13 @@ gst_amc_video_sink_change_state (GstElement * element,
           goto done;
         }
       }
+      break;
+    case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
+      avs->playing = TRUE;
+      break;
+    case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
+      avs->playing = FALSE;
+      break;
     default:
       break;
   }
@@ -134,8 +141,26 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
   GST_DEBUG_OBJECT (avs, "Got buffer: %p", buf);
   drbuf = (GstAmcDRBuffer *) GST_BUFFER_DATA (buf);
   if (drbuf != NULL) {
-    if (!gst_amc_dr_buffer_render (drbuf)) {
-      GST_WARNING_OBJECT (avs, "Could not render buffer %p", buf);
+    gint64 wakeup = g_get_monotonic_time () * 1000;
+    GstClockTime base_time = gst_element_get_base_time (GST_ELEMENT (avs));
+    /* Calculate the timestamp we'll pass to MediaCodec.releaseOutputBuffer.
+     * But not in preroll, only if we're playing. If we're prerolling,
+     * we want to show picture on the screen as soon as possible, so the timestamp
+     * we attach will be = "now". */
+    GstClockTime render_ts = wakeup;
+    if (G_LIKELY (avs->playing)) {
+      GstClockTime buffer_ts =
+          gst_segment_to_running_time (&GST_BASE_SINK (avs)->segment,
+          GST_FORMAT_TIME, GST_BUFFER_TIMESTAMP (buf));
+      render_ts = buffer_ts + base_time;
+    }
+
+    GST_LOG_OBJECT (avs, "Rendering buffer (%s). Woke up at %" G_GINT64_FORMAT
+        " , render ts = %" G_GUINT64_FORMAT " , base_time = %" G_GUINT64_FORMAT,
+        avs->playing ? "playing" : "not playing", wakeup, render_ts, base_time);
+
+    if (!gst_amc_dr_buffer_render (drbuf, render_ts)) {
+      GST_ERROR_OBJECT (avs, "Could not render buffer %p", buf);
     }
   }
   return GST_FLOW_OK;
@@ -180,6 +205,13 @@ gst_amc_video_sink_init (GstAmcVideoSink * amc_video_sink,
     GstAmcVideoSinkClass * gclass)
 {
   /* Init defaults */
+
+  /* If we're in playing state, we want to always wake up 50 ms
+   * earlier then it's planned by the basesink. It's needed to */
+  /* FIXME: this shouldn't be just a magic number, but something
+   * being calculated based on a frame rate. */
+  gst_base_sink_set_ts_offset (GST_BASE_SINK (amc_video_sink),
+      G_GINT64_CONSTANT (-50000000));
 }
 
 static void

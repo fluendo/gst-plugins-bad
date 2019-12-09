@@ -1013,15 +1013,14 @@ error:
   return ret;
 }
 
-static gboolean
-gst_amc_codec_release_output_buffer_full (GstAmcCodec * codec, gint index,
-    gboolean render)
+gboolean
+gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index)
 {
   gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
 
   J_CALL_VOID (codec->object, media_codec.release_output_buffer,
-      index, render ? JNI_TRUE : JNI_FALSE);
+      index, JNI_FALSE);
 
   ret = TRUE;
 error:
@@ -1029,15 +1028,17 @@ error:
 }
 
 gboolean
-gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index)
+gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index,
+    GstClockTime ts)
 {
-  return gst_amc_codec_release_output_buffer_full (codec, index, FALSE);
-}
+  gboolean ret = FALSE;
+  JNIEnv *env = gst_jni_get_env ();
 
-gboolean
-gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index)
-{
-  return gst_amc_codec_release_output_buffer_full (codec, index, TRUE);
+  J_CALL_VOID (codec->object, media_codec.release_output_buffer_ts, index, ts);
+
+  ret = TRUE;
+error:
+  return ret;
 }
 
 GstAmcFormat *
@@ -3137,12 +3138,12 @@ gst_amc_dr_buffer_new (GstAmcCodec * codec, guint idx)
 }
 
 gboolean
-gst_amc_dr_buffer_render (GstAmcDRBuffer * buf)
+gst_amc_dr_buffer_render (GstAmcDRBuffer * buf, GstClockTime ts)
 {
   gboolean ret = FALSE;
 
   if (!buf->released) {
-    ret = gst_amc_codec_render_output_buffer (buf->codec, buf->idx);
+    ret = gst_amc_codec_render_output_buffer (buf->codec, buf->idx, ts);
     buf->released = TRUE;
   }
 
