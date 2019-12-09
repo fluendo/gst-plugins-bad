@@ -120,6 +120,7 @@ GstAmcBuffer *gst_amc_codec_get_output_buffers (GstAmcCodec * codec,
     gsize * n_buffers);
 GstAmcBuffer *gst_amc_codec_get_input_buffers (GstAmcCodec * codec,
     gsize * n_buffers);
+void gst_amc_codec_set_output_surface (GstAmcCodec * codec, guint8 * surface);
 void gst_amc_codec_free_buffers (GstAmcBuffer * buffers, gsize n_buffers);
 
 gint gst_amc_codec_dequeue_input_buffer (GstAmcCodec * codec, gint64 timeoutUs);

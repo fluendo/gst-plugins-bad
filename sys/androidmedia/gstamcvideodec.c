@@ -1406,9 +1406,15 @@ gst_amc_video_dec_src_event (GstVideoDecoder * decoder, GstEvent * event)
 {
   GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
 
+  GST_ERROR ("Event received %s", GST_EVENT_TYPE_NAME (event));
   if (gst_amc_event_is_surface (event)) {
+    GST_ERROR ("Surface event received %p", self->surface);
     self->surface = gst_amc_event_parse_surface (event);
     gst_event_unref (event);
+    if (self->started && self->surface) {
+        GST_ERROR ("Setting new surface %p", self->surface);
+        gst_amc_codec_set_output_surface (self->codec, self->surface);
+    }
     return TRUE;
   }
   return FALSE;

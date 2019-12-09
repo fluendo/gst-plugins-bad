@@ -55,7 +55,7 @@ static GList *codec_infos = NULL;
 #ifdef GST_AMC_IGNORE_UNKNOWN_COLOR_FORMATS
 static gboolean ignore_unknown_color_formats = TRUE;
 #else
-static gboolean ignore_unknown_color_formats = FALSE;
+static gboolean ignore_unknown_color_formats = TRUE;
 #endif
 
 static gboolean accepted_color_formats (GstAmcCodecType * type,
@@ -83,6 +83,7 @@ static struct
   jmethodID release_output_buffer;
   jmethodID start;
   jmethodID stop;
+  jmethodID set_output_surface;
   jint CRYPTO_MODE_AES_CTR;
   jmethodID queue_secure_input_buffer;
 } media_codec;
@@ -658,11 +659,22 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
     AMC_CHK ((*env)->IsInstanceOf (env, mcrypto_obj, media_crypto.klass));
   }
 
+  GST_ERROR ("%p %p %p %p %p", codec->object, media_codec.configure, format->object, surface, mcrypto_obj);
   J_CALL_VOID (codec->object, media_codec.configure,
       format->object, surface, mcrypto_obj, flags);
   ret = TRUE;
 error:
   return ret;
+}
+
+void
+gst_amc_codec_set_output_surface (GstAmcCodec * codec, guint8 * surface)
+{
+  JNIEnv *env = gst_jni_get_env ();
+  GST_ERROR ("%p %p", codec->object, surface);
+  J_CALL_VOID (codec->object, media_codec.set_output_surface, surface);
+error:
+  return;
 }
 
 GstAmcFormat *
@@ -1434,6 +1446,9 @@ get_java_classes (void)
       (*env)->GetMethodID (env, media_codec.klass, "start", "()V");
   media_codec.stop =
       (*env)->GetMethodID (env, media_codec.klass, "stop", "()V");
+  media_codec.set_output_surface =
+      (*env)->GetMethodID (env, media_codec.klass, "setOutputSurface",
+      "(Landroid/view/Surface;)V");
 
   AMC_CHK (media_codec.queue_secure_input_buffer &&
       media_codec.configure &&
@@ -1447,7 +1462,8 @@ get_java_classes (void)
       media_codec.queue_input_buffer &&
       media_codec.release &&
       media_codec.release_output_buffer &&
-      media_codec.start && media_codec.stop);
+      media_codec.start && media_codec.stop &&
+      media_codec.set_output_surface);
 
   tmp = (*env)->FindClass (env, "android/media/MediaCodec$BufferInfo");
   if (!tmp) {
@@ -2457,6 +2473,10 @@ static const struct
   COLOR_FormatSurface3, GST_VIDEO_FORMAT_ENCODED}, {
   COLOR_FormatSurface4, GST_VIDEO_FORMAT_ENCODED}, {
   COLOR_FormatSurface5, GST_VIDEO_FORMAT_ENCODED}, {
+  COLOR_FormatSurface7, GST_VIDEO_FORMAT_ENCODED}, {
+  COLOR_FormatSurface8, GST_VIDEO_FORMAT_ENCODED}, {
+  COLOR_FormatSurface9, GST_VIDEO_FORMAT_ENCODED}, {
+  COLOR_FormatSurface10, GST_VIDEO_FORMAT_ENCODED}, {
   HAL_PIXEL_FORMAT_YCrCb_420_SP, GST_VIDEO_FORMAT_ENCODED}, {
   COLOR_FormatYUV420Planar, GST_VIDEO_FORMAT_I420}, {
   COLOR_FormatYUV420Flexible, GST_VIDEO_FORMAT_I420}, {
@@ -3202,7 +3222,7 @@ gst_amc_query_set_surface (GstQuery * query, gpointer surface)
 gboolean
 gst_amc_event_is_surface (GstEvent * event)
 {
-  return gst_event_has_name (event, GST_AMC_SURFACE_EVENT);
+  return gst_event_has_name (event, GST_AMC_SURFACE);
 }
 
 GstEvent *

@@ -186,10 +186,12 @@ static void
 gst_amc_video_sink_set_window_handle (GstXOverlay * overlay, guintptr id)
 {
   GstAmcVideoSink *sink = GST_AMC_VIDEO_SINK (overlay);
-  GstPad *pad = GST_VIDEO_SINK_PAD (GST_VIDEO_SINK_PAD (sink));
+  GstPad *pad = GST_VIDEO_SINK_PAD (sink);
 
   sink->surface = (gpointer) id;
+  GST_ERROR ("set window handle %p %d", pad, gst_pad_is_linked (pad));
   if (gst_pad_is_linked (pad)) {
+    GST_ERROR ("sending event");
     gst_pad_push_event (GST_VIDEO_SINK_PAD (GST_VIDEO_SINK (sink)),
         gst_amc_event_new_surface (sink->surface));
   }

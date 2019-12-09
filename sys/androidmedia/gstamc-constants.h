@@ -116,7 +116,11 @@ enum
   COLOR_FormatSurface2 = 257,
   COLOR_FormatSurface3 = 258,
   COLOR_FormatSurface4 = 259,
-  COLOR_FormatSurface5 = 0x32315659     /* omxrealtekvideodecoder */
+  COLOR_FormatSurface5 = 0x32315659,     /* omxrealtekvideodecoder */
+  COLOR_FormatSurface7 = 0x7f000001,
+  COLOR_FormatSurface8 = 0x7f000002,
+  COLOR_FormatSurface9 = 0x34,
+  COLOR_FormatSurface10 = 0x2f,
 };
 
 enum
