@@ -135,6 +135,7 @@ gboolean gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
 gboolean gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index);
 gboolean gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index,
     GstClockTime ts);
+gboolean gst_amc_codec_set_output_surface (GstAmcCodec * codec, guint8 * surface);
 
 GstAmcFormat *gst_amc_format_new_audio (const gchar * mime, gint sample_rate,
     gint channels);

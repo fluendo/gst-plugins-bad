@@ -22,7 +22,6 @@
 #define __GST_AMC_CONSTANTS_H__
 
 #define GST_AMC_SURFACE "amc-surface"
-#define GST_AMC_SURFACE_EVENT "GstEventAMCSurface"
 #define GST_AMC_SURFACE_POINTER "amc-surface-pointer"
 #define GST_QUARK(x) g_quark_from_string(x)
 #define GST_VIDEO_FORMAT_AMC_SURFACE 256

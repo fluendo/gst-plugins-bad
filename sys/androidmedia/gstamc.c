@@ -82,6 +82,7 @@ static struct
   jmethodID release;
   jmethodID release_output_buffer;
   jmethodID release_output_buffer_ts;
+  jmethodID set_output_surface;
   jmethodID start;
   jmethodID stop;
   jint CRYPTO_MODE_AES_CTR;
@@ -1441,6 +1442,9 @@ get_java_classes (void)
   media_codec.release_output_buffer_ts =
       (*env)->GetMethodID (env, media_codec.klass, "releaseOutputBuffer",
       "(IJ)V");
+  media_codec.set_output_surface =
+      (*env)->GetMethodID (env, media_codec.klass, "setOutputSurface",
+      "(Landroid/view/Surface;)V");
   media_codec.start =
       (*env)->GetMethodID (env, media_codec.klass, "start", "()V");
   media_codec.stop =
@@ -1459,7 +1463,7 @@ get_java_classes (void)
       media_codec.release &&
       media_codec.release_output_buffer &&
       media_codec.release_output_buffer_ts &&
-      media_codec.start && media_codec.stop);
+      media_codec.set_output_surface && media_codec.start && media_codec.stop);
 
   tmp = (*env)->FindClass (env, "android/media/MediaCodec$BufferInfo");
   if (!tmp) {
@@ -1755,6 +1759,18 @@ gst_amc_global_ref_jobj (jobject * obj)
 {
   JNIEnv *env = gst_jni_get_env ();
   return (*env)->NewGlobalRef (env, obj);
+}
+
+gboolean
+gst_amc_codec_set_output_surface (GstAmcCodec * codec, guint8 * surface)
+{
+  JNIEnv *env = gst_jni_get_env ();
+  GST_DEBUG ("Set surface %p to codec %p", surface, codec->object);
+  J_CALL_VOID (codec->object, media_codec.set_output_surface, surface);
+  return TRUE;
+error:
+  GST_ERROR ("Failed to call MediaCodec.setOutputSurface (%p)", surface);
+  return FALSE;
 }
 
 void
@@ -3215,7 +3231,7 @@ gst_amc_query_set_surface (GstQuery * query, gpointer surface)
 gboolean
 gst_amc_event_is_surface (GstEvent * event)
 {
-  return gst_event_has_name (event, GST_AMC_SURFACE_EVENT);
+  return gst_event_has_name (event, GST_AMC_SURFACE);
 }
 
 GstEvent *

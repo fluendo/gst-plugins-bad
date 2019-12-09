@@ -1416,6 +1416,19 @@ gst_amc_video_dec_src_event (GstVideoDecoder * decoder, GstEvent * event)
   if (gst_amc_event_is_surface (event)) {
     self->surface = gst_amc_event_parse_surface (event);
     gst_event_unref (event);
+
+    /* If codec is already decoding at this moment,
+     * we call MediaCodec.setOutputSurface */
+    if (self->started && self->surface) {
+      GST_DEBUG_OBJECT (self, "Setting new surface %p", self->surface);
+      /* FIXME: This potentially can be racy */
+      if (!gst_amc_codec_set_output_surface (self->codec, self->surface)) {
+        GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL),
+            ("Couldn't set new surface to video decoder"));
+        self->downstream_flow_ret = GST_FLOW_ERROR;
+      }
+    }
+
     return TRUE;
   }
   return FALSE;
