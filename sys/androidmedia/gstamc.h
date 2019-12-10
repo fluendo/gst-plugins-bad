@@ -67,12 +67,6 @@ struct _GstAmcBuffer
   gsize size;
 };
 
-struct _GstAmcDRBuffer {
-  GstAmcCodec *codec;
-  guint idx;
-  gboolean released;
-};
-
 struct _GstAmcFormat
 {
   /* < private > */
@@ -91,6 +85,12 @@ struct _GstAmcCodec
 {
   /* < private > */
   jobject object;               /* global reference */
+};
+
+struct _GstAmcDRBuffer {
+  GstAmcCodec codec;
+  guint idx;
+  gboolean released;
 };
 
 struct _GstAmcBufferInfo
@@ -206,7 +206,7 @@ gboolean sysid_is_clearkey (const gchar * sysid);
 void gst_amc_handle_drm_event (GstElement * self, GstEvent * event,
     GstAmcCrypto * crypto_ctx);
 
-jobject * gst_amc_global_ref_jobj (jobject * obj);
+jobject gst_amc_global_ref_jobj (jobject obj);
 
 GstAmcDRBuffer * gst_amc_dr_buffer_new (GstAmcCodec *codec, guint idx);
 void gst_amc_dr_buffer_free (GstAmcDRBuffer *buf);

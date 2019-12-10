@@ -1754,8 +1754,8 @@ error:
   return juuid;
 }
 
-jobject *
-gst_amc_global_ref_jobj (jobject * obj)
+jobject
+gst_amc_global_ref_jobj (jobject obj)
 {
   JNIEnv *env = gst_jni_get_env ();
   return (*env)->NewGlobalRef (env, obj);
@@ -3146,7 +3146,8 @@ gst_amc_dr_buffer_new (GstAmcCodec * codec, guint idx)
   GstAmcDRBuffer *buf;
 
   buf = g_new0 (GstAmcDRBuffer, 1);
-  buf->codec = codec;
+  buf->codec = *codec;
+  buf->codec.object = gst_amc_global_ref_jobj (buf->codec.object);
   buf->idx = idx;
   buf->released = FALSE;
 
@@ -3159,7 +3160,7 @@ gst_amc_dr_buffer_render (GstAmcDRBuffer * buf, GstClockTime ts)
   gboolean ret = FALSE;
 
   if (!buf->released) {
-    ret = gst_amc_codec_render_output_buffer (buf->codec, buf->idx, ts);
+    ret = gst_amc_codec_render_output_buffer (&buf->codec, buf->idx, ts);
     buf->released = TRUE;
   }
 
@@ -3169,9 +3170,11 @@ gst_amc_dr_buffer_render (GstAmcDRBuffer * buf, GstClockTime ts)
 void
 gst_amc_dr_buffer_free (GstAmcDRBuffer * buf)
 {
+  JNIEnv *env = gst_jni_get_env ();
   if (!buf->released) {
-    gst_amc_codec_release_output_buffer (buf->codec, buf->idx);
+    gst_amc_codec_release_output_buffer (&buf->codec, buf->idx);
   }
+  J_DELETE_GLOBAL_REF (buf->codec.object);
   g_free (buf);
 }
 
