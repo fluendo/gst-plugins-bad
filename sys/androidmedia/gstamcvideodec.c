@@ -571,8 +571,14 @@ static gboolean
 gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
 {
   gboolean handled = FALSE;
+  GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
 
   switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_FLUSH_START:
+      self->downstream_flow_ret = GST_FLOW_WRONG_STATE;
+      /* We don't set handled to TRUE because we want this
+       * event to also be pushed downstream (just in case). */
+      break;
     case GST_EVENT_CUSTOM_DOWNSTREAM:
       /* We need to handle the protection event. On such events we receive
        * the payload required to initialize the protection system.
@@ -580,7 +586,6 @@ gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
        * it is an error
        */
       if (fluc_drm_is_event (event)) {
-        GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
         gst_amc_handle_drm_event ((GstElement *) self, event,
             &self->crypto_ctx);
         handled = TRUE;
