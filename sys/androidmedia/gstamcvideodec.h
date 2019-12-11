@@ -82,8 +82,7 @@ struct _GstAmcVideoDec
   /* TRUE if upstream is EOS */
   gboolean eos;
 
-  GstJniSurface *surface;
-
+  guint8 *surface;
   GstFlowReturn downstream_flow_ret;
   gboolean stop_loop;
   GstAmcCrypto crypto_ctx;
