@@ -1261,13 +1261,22 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
           (self->surface->texture,
           self->codec->object,
           gst_amc_codec_get_release_method_id (self->codec),
+          gst_amc_codec_get_release_ts_method_id (self->codec),
           idx);
       frame->output_buffer = gst_jni_amc_direct_buffer_get_gst_buffer (b);
-      flow_ret =
-          gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
-      /* Direct rendering sucess.
-         Don't release jni buffer, sink needs it. */
-      pushed_to_be_rendered_directly = TRUE;
+
+      /* Because decoder has it's own surface, we render to it immediatelly. */
+      if (G_LIKELY (gst_jni_amc_direct_buffer_render (b))) {
+        flow_ret =
+            gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
+        /* Direct rendering sucess.
+           Don't release jni buffer, sink needs it. */
+        pushed_to_be_rendered_directly = TRUE;
+      } else {
+        GST_ERROR_OBJECT (self, "Failed rendering frame to surface, dropping");
+        flow_ret =
+            gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
+      }
       goto finish;
     } else if (buffer_info.size > 0) {
       flow_ret = gst_video_decoder_alloc_output_frame (GST_VIDEO_DECODER

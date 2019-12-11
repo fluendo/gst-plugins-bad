@@ -53,6 +53,10 @@
 #include <gst/gst.h>
 #include <EGL/egl.h>
 
+#if HAVE_ANDROID
+#include <EGL/eglext.h>
+#endif
+
 gboolean platform_wrapper_init (void);
 EGLNativeWindowType platform_create_native_window (gint width, gint height, gpointer * window_data);
 gboolean platform_destroy_native_window (EGLNativeDisplayType display,

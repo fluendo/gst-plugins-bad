@@ -137,6 +137,7 @@ struct _GstEglGlesSink
 
 #ifdef HAVE_ANDROID_MEDIA
   GstJniSurfaceTexture *surface_texture;
+  volatile gboolean playing;
 #endif
 
   /* Needed for requesting a window while playing */

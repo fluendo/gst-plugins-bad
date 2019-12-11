@@ -33,13 +33,15 @@ struct _GstJniAmcDirectBuffer {
   GstJniSurfaceTexture *texture;
   jobject media_codec;
   jmethodID release_output_buffer;
+  jmethodID release_output_buffer_ts;
   guint idx;
   gboolean released;
 };
 
 GstJniAmcDirectBuffer * gst_jni_amc_direct_buffer_new (
     GstJniSurfaceTexture *texture, jobject media_codec,
-    jmethodID release_output_buffer, guint idx);
+    jmethodID release_output_buffer, jmethodID release_output_buffer_ts,
+    guint idx);
 
 GstJniAmcDirectBuffer * gst_jni_amc_direct_buffer_from_gst_buffer (GstBuffer *buf);
 

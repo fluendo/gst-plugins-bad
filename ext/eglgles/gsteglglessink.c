@@ -379,8 +379,8 @@ gst_eglglessink_start (GstEglGlesSink * eglglessink)
   if (!gst_eglglessink_request_window (eglglessink) &&
       !eglglessink->create_window) {
     GST_ERROR_OBJECT (eglglessink, "Window handle unavailable and we "
-        "were instructed not to create an internal one. Bailing out.");
-    goto HANDLE_ERROR;
+        "were instructed not to create an internal one. "
+        "Nothing will be rendered until window is provided.");
   }
 
   eglglessink->last_flow = GST_FLOW_OK;
@@ -986,9 +986,8 @@ gst_eglglessink_upload (GstEglGlesSink * eglglessink, GstBuffer * buf)
             (eglglessink->surface_texture,
             eglglessink->egl_context->texture[0]);
       }
-      if (!gst_jni_amc_direct_buffer_render (drbuf)) {
-        return GST_FLOW_CUSTOM_ERROR;
-      }
+
+      /* FIXME: in fact we should wait for onFrameAvailable before updating the texture */
       gst_jni_surface_texture_update_tex_image (eglglessink->surface_texture);
     }
   } else {
@@ -1098,6 +1097,24 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
   guint dar_n, dar_d;
   gint i;
   gint w, h;
+  GstClockTime render_ts = GST_CLOCK_TIME_NONE;
+
+#if HAVE_ANDROID
+  gint64 swap_time;
+  gint64 wakeup = g_get_monotonic_time () * 1000;
+  GstClockTime base_time =
+      gst_element_get_base_time (GST_ELEMENT (eglglessink));
+  GstClockTime buffer_ts =
+      gst_segment_to_running_time (&GST_BASE_SINK (eglglessink)->segment,
+      GST_FORMAT_TIME, GST_BUFFER_TIMESTAMP (buf));
+
+  /* Calculate the timestamp we'll attach to the surface
+   * before calling eglSwapBuffers. But not in preroll,
+   * only if we're playing */
+  if (eglglessink->playing) {
+    render_ts = buffer_ts + base_time;
+  }
+#endif
 
   g_rec_mutex_lock (&eglglessink->window_lock);
 
@@ -1106,8 +1123,24 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
 
   gst_eglglessink_transform_size (eglglessink, &w, &h);
 
-  if (!gst_eglglessink_request_or_create_window (eglglessink, w, h)) {
-    goto HANDLE_ERROR;
+  /* We query the window from user, but if there's no window - first we retry, then
+   * if still no window - we just skip this frame */
+  for (i = 0; i < 2; i++) {
+    if (G_LIKELY (gst_eglglessink_request_or_create_window (eglglessink, w, h))) {
+      break;
+    } else {
+      GST_ERROR_OBJECT (eglglessink,
+          "No window to render frame at %" GST_TIME_FORMAT " , %s",
+          GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (buf)),
+          i < 1 ? "retrying after 10 ms.." : "do nothing");
+      if (i < 1) {
+        g_usleep (10000);
+        continue;
+      } else {
+        g_rec_mutex_unlock (&eglglessink->window_lock);
+        return GST_FLOW_OK;
+      }
+    }
   }
 
   /* Upload the buffer if we need to */
@@ -1279,9 +1312,21 @@ gst_eglglessink_render (GstEglGlesSink * eglglessink, GstBuffer * buf)
   if (got_gl_error ("glDrawElements"))
     goto HANDLE_ERROR;
 
-  if (!gst_egl_adaptation_swap_buffers (eglglessink->egl_context)) {
+#if HAVE_ANDROID
+  if (__gst_debug_min >= GST_LEVEL_LOG)
+    swap_time = g_get_monotonic_time () * 1000;
+#endif
+
+  if (!gst_egl_adaptation_swap_buffers (eglglessink->egl_context, render_ts)) {
     goto HANDLE_ERROR;
   }
+#if HAVE_ANDROID
+  GST_LOG_OBJECT (eglglessink, "Swapped buffers at %" G_GINT64_FORMAT
+      " , render ts = %" G_GUINT64_FORMAT
+      " , base_time = %" G_GUINT64_FORMAT
+      " , woke up at %" G_GINT64_FORMAT,
+      swap_time, render_ts, base_time, wakeup);
+#endif
 
   GST_DEBUG_OBJECT (eglglessink, "Succesfully rendered 1 frame");
   g_rec_mutex_unlock (&eglglessink->window_lock);
@@ -1389,6 +1434,14 @@ gst_eglglessink_configure_caps (GstEglGlesSink * eglglessink, GstCaps * caps)
 
   gst_caps_replace (&eglglessink->configured_caps, caps);
 
+#if HAVE_ANDROID
+  /* We tell sink to wake up 50ms before the image is expected
+   * to be shown on a screen. This value is 50ms because it's 2 VSYNC periods + 10ms.
+   * In fact it had been derived empirically. */
+  gst_base_sink_set_ts_offset (GST_BASE_SINK (eglglessink),
+      G_GINT64_CONSTANT (-50000000));
+#endif
+
 SUCCEED:
   gst_eglglessink_generate_rotation (eglglessink);
   GST_INFO_OBJECT (eglglessink, "Configured caps successfully");
@@ -1458,6 +1511,14 @@ gst_eglglessink_change_state (GstElement * element, GstStateChange transition)
         goto done;
       }
       break;
+#if HAVE_ANDROID
+    case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
+      eglglessink->playing = TRUE;
+      break;
+    case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
+      eglglessink->playing = FALSE;
+      break;
+#endif
     default:
       break;
   }

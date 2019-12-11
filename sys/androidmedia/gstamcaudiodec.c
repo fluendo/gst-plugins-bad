@@ -371,7 +371,7 @@ gst_amc_audio_dec_set_property (GObject * object, guint prop_id,
 }
 
 static gboolean
-gst_amc_audio_dec_event (GstAudioDecoder *dec, GstEvent *event)
+gst_amc_audio_dec_event (GstAudioDecoder * dec, GstEvent * event)
 {
   gboolean handled = FALSE;
 
@@ -1355,9 +1355,9 @@ gst_amc_audio_dec_drain (GstAmcAudioDec * self)
     buffer_info.flags |= BUFFER_FLAG_END_OF_STREAM;
 
     if (gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info)) {
-      GST_ERROR_OBJECT (self, ";;; Waiting until codec is drained");
+      GST_DEBUG_OBJECT (self, "Waiting until codec is drained");
       g_cond_wait (self->drain_cond, self->drain_lock);
-      GST_ERROR_OBJECT (self, ";;; Drained codec");
+      GST_DEBUG_OBJECT (self, "Drained codec");
       ret = GST_FLOW_OK;
     } else {
       GST_ERROR_OBJECT (self, "Failed to queue input buffer");
