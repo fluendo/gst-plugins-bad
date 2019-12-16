@@ -29,6 +29,8 @@
 #include "gstamc.h"
 
 G_BEGIN_DECLS
+/* Switch between expected sink: amcvideosink or eglglessink */
+#define USE_AMCVIDEOSINK 1
 #define GST_TYPE_AMC_VIDEO_DEC \
   (gst_amc_video_dec_get_type())
 #define GST_AMC_VIDEO_DEC(obj) \
@@ -82,7 +84,11 @@ struct _GstAmcVideoDec
   /* TRUE if upstream is EOS */
   gboolean eos;
 
+#if USE_AMCVIDEOSINK
+  guint8 *surface;
+#else
   GstJniSurface *surface;
+#endif
 
   GstFlowReturn downstream_flow_ret;
   gboolean stop_loop;

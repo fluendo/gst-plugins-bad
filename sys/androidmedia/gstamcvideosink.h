@@ -73,6 +73,7 @@ struct _GstAmcVideoSink
   GstVideoSink videosink;       /* Element hook */
 
   guint * surface;              /* Pointer the java Surface object */
+  volatile gboolean playing;
 };
 
 struct _GstAmcVideoSinkClass

@@ -67,6 +67,9 @@ static GstFlowReturn gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
 static GstFlowReturn gst_amc_video_dec_finish (GstVideoDecoder * decoder);
 static GstFlowReturn gst_amc_video_dec_eos (GstVideoDecoder * decoder);
 
+static gboolean gst_amc_video_dec_src_event (GstVideoDecoder * decoder,
+    GstEvent * event);
+
 enum
 {
   PROP_0,
@@ -568,8 +571,14 @@ static gboolean
 gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
 {
   gboolean handled = FALSE;
+  GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
 
   switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_FLUSH_START:
+      self->downstream_flow_ret = GST_FLOW_WRONG_STATE;
+      /* We don't set handled to TRUE because we want this
+       * event to also be pushed downstream (just in case). */
+      break;
     case GST_EVENT_CUSTOM_DOWNSTREAM:
       /* We need to handle the protection event. On such events we receive
        * the payload required to initialize the protection system.
@@ -577,7 +586,6 @@ gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
        * it is an error
        */
       if (fluc_drm_is_event (event)) {
-        GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
         gst_amc_handle_drm_event ((GstElement *) self, event,
             &self->crypto_ctx);
         handled = TRUE;
@@ -614,6 +622,7 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
       GST_DEBUG_FUNCPTR (gst_amc_video_dec_handle_frame);
   videodec_class->finish = GST_DEBUG_FUNCPTR (gst_amc_video_dec_finish);
 
+  videodec_class->src_event = GST_DEBUG_FUNCPTR (gst_amc_video_dec_src_event);
   videodec_class->sink_event = GST_DEBUG_FUNCPTR (gst_amc_video_dec_sink_event);
 
   gobject_class->set_property =
@@ -667,8 +676,10 @@ gst_amc_video_dec_close (GstVideoDecoder * decoder)
   }
   self->codec = NULL;
 
+#if !USE_AMCVIDEOSINK
   if (self->surface)
     g_object_unref (self->surface);
+#endif
   self->surface = NULL;
 
   self->started = FALSE;
@@ -1257,6 +1268,25 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
       flow_ret = gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
       goto finish;
     } else if (klass->direct_rendering) {
+#if USE_AMCVIDEOSINK
+      /* Code for running with amcvideosink */
+      GstAmcDRBuffer *b;
+
+      b = gst_amc_dr_buffer_new (self->codec, idx);
+      frame->output_buffer = gst_buffer_new ();
+      GST_BUFFER_DATA (frame->output_buffer) = (guint8 *) b;
+      GST_BUFFER_SIZE (frame->output_buffer) = sizeof (GstAmcDRBuffer *);
+      GST_BUFFER_MALLOCDATA (frame->output_buffer) = (guint8 *) b;
+      GST_BUFFER_FREE_FUNC (frame->output_buffer) =
+          (GFreeFunc) gst_amc_dr_buffer_free;
+      flow_ret =
+          gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
+      /* Direct rendering sucess.
+         Don't release jni buffer, sink needs it. */
+      pushed_to_be_rendered_directly = TRUE;
+#else
+      /* This code is for iterating with eglglessink, it's disabled currently,
+       * because we use another code for amcvideosink */
       GstJniAmcDirectBuffer *b = gst_jni_amc_direct_buffer_new
           (self->surface->texture,
           self->codec->object,
@@ -1277,6 +1307,7 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
         flow_ret =
             gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
       }
+#endif
       goto finish;
     } else if (buffer_info.size > 0) {
       flow_ret = gst_video_decoder_alloc_output_frame (GST_VIDEO_DECODER
@@ -1386,6 +1417,32 @@ error:
   gst_pad_pause_task (GST_VIDEO_DECODER_SRC_PAD (self));
   self->srcpad_loop_started = FALSE;
   goto done;
+}
+
+static gboolean
+gst_amc_video_dec_src_event (GstVideoDecoder * decoder, GstEvent * event)
+{
+  GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
+
+  if (gst_amc_event_is_surface (event)) {
+    self->surface = gst_amc_event_parse_surface (event);
+    gst_event_unref (event);
+
+    /* If codec is already decoding at this moment,
+     * we call MediaCodec.setOutputSurface */
+    if (self->started && self->surface) {
+      GST_DEBUG_OBJECT (self, "Setting new surface %p", self->surface);
+      /* FIXME: This potentially can be racy */
+      if (!gst_amc_codec_set_output_surface (self->codec, self->surface)) {
+        GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL),
+            ("Couldn't set new surface to video decoder"));
+        self->downstream_flow_ret = GST_FLOW_ERROR;
+      }
+    }
+
+    return TRUE;
+  }
+  return FALSE;
 }
 
 static gboolean
@@ -1515,14 +1572,42 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   if (self->codec_data)
     gst_amc_format_set_buffer (format, "csd-0", self->codec_data);
 
+#if USE_AMCVIDEOSINK
+  if (klass->direct_rendering && self->surface == NULL) {
+    /* Exposes pads with decodebin with a dummy buffer to link with the sink
+     * and get the surface */
+    GstBuffer *buf = gst_buffer_new ();
+    GstCaps *caps = gst_caps_new_simple ("video/x-amc", NULL);
+
+    gst_pad_set_caps (decoder->srcpad, caps);
+    gst_buffer_set_caps (buf, caps);
+    gst_caps_unref (caps);
+    caps = NULL;
+    GST_BUFFER_DATA (buf) = NULL;
+    gst_pad_push (decoder->srcpad, buf);
+
+    if (self->surface == NULL) {
+      GstQuery *query = gst_amc_query_new_surface ();
+
+      if (gst_pad_peer_query (decoder->srcpad, query)) {
+        jsurface = self->surface = gst_amc_query_parse_surface (query);
+        if (G_UNLIKELY (!self->surface)) {
+          GST_WARNING_OBJECT (self, "Quering a surface from the sink failed");
+        }
+      }
+      gst_query_unref (query);
+    }
+  }
+#else /* Use eglglessink */
   if (klass->direct_rendering && self->surface == NULL) {
     self->surface = gst_jni_surface_new (gst_jni_surface_texture_new ());
     jsurface = self->surface->jobject;
   }
+#endif
 
   format_string = gst_amc_format_to_string (format);
   GST_DEBUG_OBJECT (self, "Configuring codec with format: %s surface: %p",
-      format_string, self->surface);
+      format_string, jsurface);
   g_free (format_string);
 
   /* We decide that stream is encrypted if we eather received and parsed

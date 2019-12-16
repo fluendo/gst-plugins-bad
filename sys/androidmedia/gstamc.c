@@ -82,6 +82,7 @@ static struct
   jmethodID release;
   jmethodID release_output_buffer;
   jmethodID release_output_buffer_ts;
+  jmethodID set_output_surface;
   jmethodID start;
   jmethodID stop;
   jint CRYPTO_MODE_AES_CTR;
@@ -1013,15 +1014,14 @@ error:
   return ret;
 }
 
-static gboolean
-gst_amc_codec_release_output_buffer_full (GstAmcCodec * codec, gint index,
-    gboolean render)
+gboolean
+gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index)
 {
   gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
 
   J_CALL_VOID (codec->object, media_codec.release_output_buffer,
-      index, render ? JNI_TRUE : JNI_FALSE);
+      index, JNI_FALSE);
 
   ret = TRUE;
 error:
@@ -1029,15 +1029,17 @@ error:
 }
 
 gboolean
-gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index)
+gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index,
+    GstClockTime ts)
 {
-  return gst_amc_codec_release_output_buffer_full (codec, index, FALSE);
-}
+  gboolean ret = FALSE;
+  JNIEnv *env = gst_jni_get_env ();
 
-gboolean
-gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index)
-{
-  return gst_amc_codec_release_output_buffer_full (codec, index, TRUE);
+  J_CALL_VOID (codec->object, media_codec.release_output_buffer_ts, index, ts);
+
+  ret = TRUE;
+error:
+  return ret;
 }
 
 GstAmcFormat *
@@ -1440,6 +1442,9 @@ get_java_classes (void)
   media_codec.release_output_buffer_ts =
       (*env)->GetMethodID (env, media_codec.klass, "releaseOutputBuffer",
       "(IJ)V");
+  media_codec.set_output_surface =
+      (*env)->GetMethodID (env, media_codec.klass, "setOutputSurface",
+      "(Landroid/view/Surface;)V");
   media_codec.start =
       (*env)->GetMethodID (env, media_codec.klass, "start", "()V");
   media_codec.stop =
@@ -1458,7 +1463,7 @@ get_java_classes (void)
       media_codec.release &&
       media_codec.release_output_buffer &&
       media_codec.release_output_buffer_ts &&
-      media_codec.start && media_codec.stop);
+      media_codec.set_output_surface && media_codec.start && media_codec.stop);
 
   tmp = (*env)->FindClass (env, "android/media/MediaCodec$BufferInfo");
   if (!tmp) {
@@ -1749,11 +1754,23 @@ error:
   return juuid;
 }
 
-jobject *
-gst_amc_global_ref_jobj (jobject * obj)
+jobject
+gst_amc_global_ref_jobj (jobject obj)
 {
   JNIEnv *env = gst_jni_get_env ();
   return (*env)->NewGlobalRef (env, obj);
+}
+
+gboolean
+gst_amc_codec_set_output_surface (GstAmcCodec * codec, guint8 * surface)
+{
+  JNIEnv *env = gst_jni_get_env ();
+  GST_DEBUG ("Set surface %p to codec %p", surface, codec->object);
+  J_CALL_VOID (codec->object, media_codec.set_output_surface, surface);
+  return TRUE;
+error:
+  GST_ERROR ("Failed to call MediaCodec.setOutputSurface (%p)", surface);
+  return FALSE;
 }
 
 void
@@ -3117,8 +3134,128 @@ plugin_init (GstPlugin * plugin)
   if (!register_codecs (plugin))
     return FALSE;
 
+  return gst_element_register (plugin, "amcvideosink", GST_RANK_PRIMARY,
+      GST_TYPE_AMC_VIDEO_SINK);
+
   return TRUE;
 }
+
+GstAmcDRBuffer *
+gst_amc_dr_buffer_new (GstAmcCodec * codec, guint idx)
+{
+  GstAmcDRBuffer *buf;
+
+  buf = g_new0 (GstAmcDRBuffer, 1);
+  buf->codec = *codec;
+  buf->codec.object = gst_amc_global_ref_jobj (buf->codec.object);
+  buf->idx = idx;
+  buf->released = FALSE;
+
+  return buf;
+}
+
+gboolean
+gst_amc_dr_buffer_render (GstAmcDRBuffer * buf, GstClockTime ts)
+{
+  gboolean ret = FALSE;
+
+  if (!buf->released) {
+    ret = gst_amc_codec_render_output_buffer (&buf->codec, buf->idx, ts);
+    buf->released = TRUE;
+  }
+
+  return ret;
+}
+
+void
+gst_amc_dr_buffer_free (GstAmcDRBuffer * buf)
+{
+  JNIEnv *env = gst_jni_get_env ();
+  if (!buf->released) {
+    gst_amc_codec_release_output_buffer (&buf->codec, buf->idx);
+  }
+  J_DELETE_GLOBAL_REF (buf->codec.object);
+  g_free (buf);
+}
+
+GstQuery *
+gst_amc_query_new_surface (void)
+{
+  GstQuery *query;
+  GstQueryType qtype;
+  GstStructure *structure;
+
+  query = (GstQuery *) gst_mini_object_new (GST_TYPE_QUERY);
+
+  qtype = gst_query_type_get_by_nick (GST_AMC_SURFACE);
+  if (qtype == GST_QUERY_NONE) {
+    qtype = gst_query_type_register (GST_AMC_SURFACE,
+        "Queries for a surface to render");
+  }
+  query->type = qtype;
+  GST_DEBUG ("creating new query %p %s", query,
+      gst_query_type_get_name (qtype));
+
+  structure = gst_structure_id_new (GST_QUARK (GST_AMC_SURFACE),
+      GST_QUARK (GST_AMC_SURFACE_POINTER), G_TYPE_POINTER, NULL, NULL);
+  query->structure = structure;
+  gst_structure_set_parent_refcount (query->structure,
+      &query->mini_object.refcount);
+
+  return query;
+}
+
+gpointer
+gst_amc_query_parse_surface (GstQuery * query)
+{
+  GstQueryType qtype = gst_query_type_get_by_nick (GST_AMC_SURFACE);
+
+  if (GST_QUERY_TYPE (query) != qtype)
+    return NULL;
+
+  return g_value_get_pointer (gst_structure_id_get_value (query->structure,
+          GST_QUARK (GST_AMC_SURFACE_POINTER)));
+}
+
+gboolean
+gst_amc_query_set_surface (GstQuery * query, gpointer surface)
+{
+  GstQueryType qtype;
+
+  qtype = gst_query_type_get_by_nick (GST_AMC_SURFACE);
+  if (GST_QUERY_TYPE (query) != qtype)
+    return FALSE;
+
+  gst_structure_id_set (query->structure,
+      GST_QUARK (GST_AMC_SURFACE_POINTER), G_TYPE_POINTER, surface, NULL);
+  return TRUE;
+}
+
+gboolean
+gst_amc_event_is_surface (GstEvent * event)
+{
+  return gst_event_has_name (event, GST_AMC_SURFACE);
+}
+
+GstEvent *
+gst_amc_event_new_surface (gpointer surface)
+{
+  GstEvent *event;
+
+  event = gst_event_new_custom (GST_EVENT_CUSTOM_UPSTREAM,
+      gst_structure_id_new (GST_QUARK (GST_AMC_SURFACE),
+          GST_QUARK (GST_AMC_SURFACE_POINTER), G_TYPE_POINTER, surface, NULL));
+  return event;
+}
+
+gpointer
+gst_amc_event_parse_surface (GstEvent * event)
+{
+  return
+      g_value_get_pointer (gst_structure_id_get_value (gst_event_get_structure
+          (event), GST_QUARK (GST_AMC_SURFACE_POINTER)));
+}
+
 
 #ifdef GST_PLUGIN_DEFINE2
 GST_PLUGIN_DEFINE2 (GST_VERSION_MAJOR,

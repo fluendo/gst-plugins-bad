@@ -35,6 +35,7 @@ typedef struct _GstAmcBufferInfo GstAmcBufferInfo;
 typedef struct _GstAmcFormat GstAmcFormat;
 typedef struct _GstAmcCrypto GstAmcCrypto;
 typedef struct _GstAmcBuffer GstAmcBuffer;
+typedef struct _GstAmcDRBuffer GstAmcDRBuffer;
 
 struct _GstAmcCodecType
 {
@@ -86,6 +87,12 @@ struct _GstAmcCodec
   jobject object;               /* global reference */
 };
 
+struct _GstAmcDRBuffer {
+  GstAmcCodec codec;
+  guint idx;
+  gboolean released;
+};
+
 struct _GstAmcBufferInfo
 {
   gint flags;
@@ -126,8 +133,9 @@ gboolean gst_amc_codec_queue_secure_input_buffer (GstAmcCodec * codec,
 gboolean gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
     const GstAmcBufferInfo * info);
 gboolean gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index);
-gboolean gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index);
-
+gboolean gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index,
+    GstClockTime ts);
+gboolean gst_amc_codec_set_output_surface (GstAmcCodec * codec, guint8 * surface);
 
 GstAmcFormat *gst_amc_format_new_audio (const gchar * mime, gint sample_rate,
     gint channels);
@@ -198,7 +206,18 @@ gboolean sysid_is_clearkey (const gchar * sysid);
 void gst_amc_handle_drm_event (GstElement * self, GstEvent * event,
     GstAmcCrypto * crypto_ctx);
 
-jobject * gst_amc_global_ref_jobj (jobject * obj);
+jobject gst_amc_global_ref_jobj (jobject obj);
+
+GstAmcDRBuffer * gst_amc_dr_buffer_new (GstAmcCodec *codec, guint idx);
+void gst_amc_dr_buffer_free (GstAmcDRBuffer *buf);
+gboolean gst_amc_dr_buffer_render (GstAmcDRBuffer *buf, GstClockTime ts);
+
+GstQuery * gst_amc_query_new_surface (void);
+gpointer gst_amc_query_parse_surface (GstQuery *query);
+gboolean gst_amc_query_set_surface (GstQuery *query, gpointer surface);
+GstEvent * gst_amc_event_new_surface (gpointer surface);
+gpointer gst_amc_event_parse_surface (GstEvent *event);
+gboolean gst_amc_event_is_surface (GstEvent *event);
 
 G_END_DECLS
 #endif /* __GST_AMC_H__ */

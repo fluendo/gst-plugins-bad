@@ -21,6 +21,11 @@
 #ifndef __GST_AMC_CONSTANTS_H__
 #define __GST_AMC_CONSTANTS_H__
 
+#define GST_AMC_SURFACE "amc-surface"
+#define GST_AMC_SURFACE_POINTER "amc-surface-pointer"
+#define GST_QUARK(x) g_quark_from_string(x)
+#define GST_VIDEO_FORMAT_AMC_SURFACE 256
+
 /* FIXME: We might need to get these values from Java if there's
  * ever a device or Android version that changes these values
  */
