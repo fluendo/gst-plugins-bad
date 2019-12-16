@@ -676,6 +676,12 @@ gst_amc_video_dec_close (GstVideoDecoder * decoder)
   }
   self->codec = NULL;
 
+#if !USE_AMCVIDEOSINK
+  if (self->surface)
+    g_object_unref (self->surface);
+#endif
+  self->surface = NULL;
+
   self->started = FALSE;
   GST_DEBUG_OBJECT (self, "Closed decoder");
 
@@ -1262,7 +1268,23 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
       flow_ret = gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
       goto finish;
     } else if (klass->direct_rendering) {
-#if 0
+#if USE_AMCVIDEOSINK
+      /* Code for running with amcvideosink */
+      GstAmcDRBuffer *b;
+
+      b = gst_amc_dr_buffer_new (self->codec, idx);
+      frame->output_buffer = gst_buffer_new ();
+      GST_BUFFER_DATA (frame->output_buffer) = (guint8 *) b;
+      GST_BUFFER_SIZE (frame->output_buffer) = sizeof (GstAmcDRBuffer *);
+      GST_BUFFER_MALLOCDATA (frame->output_buffer) = (guint8 *) b;
+      GST_BUFFER_FREE_FUNC (frame->output_buffer) =
+          (GFreeFunc) gst_amc_dr_buffer_free;
+      flow_ret =
+          gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
+      /* Direct rendering sucess.
+         Don't release jni buffer, sink needs it. */
+      pushed_to_be_rendered_directly = TRUE;
+#else
       /* This code is for iterating with eglglessink, it's disabled currently,
        * because we use another code for amcvideosink */
       GstJniAmcDirectBuffer *b = gst_jni_amc_direct_buffer_new
@@ -1285,22 +1307,6 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
         flow_ret =
             gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
       }
-#else
-      /* Code for running with amcvideosink */
-      GstAmcDRBuffer *b;
-
-      b = gst_amc_dr_buffer_new (self->codec, idx);
-      frame->output_buffer = gst_buffer_new ();
-      GST_BUFFER_DATA (frame->output_buffer) = (guint8 *) b;
-      GST_BUFFER_SIZE (frame->output_buffer) = sizeof (GstAmcDRBuffer *);
-      GST_BUFFER_MALLOCDATA (frame->output_buffer) = (guint8 *) b;
-      GST_BUFFER_FREE_FUNC (frame->output_buffer) =
-          (GFreeFunc) gst_amc_dr_buffer_free;
-      flow_ret =
-          gst_video_decoder_finish_frame (GST_VIDEO_DECODER (self), frame);
-      /* Direct rendering sucess.
-         Don't release jni buffer, sink needs it. */
-      pushed_to_be_rendered_directly = TRUE;
 #endif
       goto finish;
     } else if (buffer_info.size > 0) {
@@ -1496,6 +1502,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   gboolean is_format_change = FALSE;
   gboolean needs_disable = FALSE;
   gchar *format_string;
+  jobject jsurface = NULL;
 
   self = GST_AMC_VIDEO_DEC (decoder);
   klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
@@ -1565,7 +1572,8 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   if (self->codec_data)
     gst_amc_format_set_buffer (format, "csd-0", self->codec_data);
 
-  if (klass->direct_rendering) {
+#if USE_AMCVIDEOSINK
+  if (klass->direct_rendering && self->surface == NULL) {
     /* Exposes pads with decodebin with a dummy buffer to link with the sink
      * and get the surface */
     GstBuffer *buf = gst_buffer_new ();
@@ -1575,23 +1583,29 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     gst_buffer_set_caps (buf, caps);
     GST_BUFFER_DATA (buf) = NULL;
     gst_pad_push (decoder->srcpad, buf);
-  }
 
-  if (self->surface == NULL) {
-    GstQuery *query = gst_amc_query_new_surface ();
+    if (self->surface == NULL) {
+      GstQuery *query = gst_amc_query_new_surface ();
 
-    if (gst_pad_peer_query (decoder->srcpad, query)) {
-      self->surface = gst_amc_query_parse_surface (query);
-      if (G_UNLIKELY (!self->surface)) {
-        GST_WARNING_OBJECT (self, "Quering a surface from the sink failed");
+      if (gst_pad_peer_query (decoder->srcpad, query)) {
+        jsurface = self->surface = gst_amc_query_parse_surface (query);
+        if (G_UNLIKELY (!self->surface)) {
+          GST_WARNING_OBJECT (self, "Quering a surface from the sink failed");
+        }
       }
+      gst_query_unref (query);
     }
-    gst_query_unref (query);
   }
+#else /* Use eglglessink */
+  if (klass->direct_rendering && self->surface == NULL) {
+    self->surface = gst_jni_surface_new (gst_jni_surface_texture_new ());
+    jsurface = self->surface->jobject;
+  }
+#endif
 
   format_string = gst_amc_format_to_string (format);
   GST_DEBUG_OBJECT (self, "Configuring codec with format: %s surface: %p",
-      format_string, self->surface);
+      format_string, jsurface);
   g_free (format_string);
 
   /* We decide that stream is encrypted if we eather received and parsed
@@ -1600,7 +1614,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   if (self->crypto_ctx.mcrypto)
     self->is_encrypted = TRUE;
 
-  if (!gst_amc_codec_configure (self->codec, format, self->surface,
+  if (!gst_amc_codec_configure (self->codec, format, jsurface,
           self->crypto_ctx.mcrypto, 0)) {
     gst_amc_format_free (format);
     GST_ERROR_OBJECT (self, "Failed to configure codec");
