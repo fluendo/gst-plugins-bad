@@ -1581,6 +1581,8 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
 
     gst_pad_set_caps (decoder->srcpad, caps);
     gst_buffer_set_caps (buf, caps);
+    gst_caps_unref (caps);
+    caps = NULL;
     GST_BUFFER_DATA (buf) = NULL;
     gst_pad_push (decoder->srcpad, buf);
 
