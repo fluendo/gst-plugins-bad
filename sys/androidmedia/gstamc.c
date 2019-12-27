@@ -1975,7 +1975,7 @@ scan_codecs (GstPlugin * plugin)
     jobject codec_info = NULL;
     jclass codec_info_class = NULL;
     jmethodID get_capabilities_for_type_id, get_name_id;
-    jmethodID get_supported_types_id, is_encoder_id;
+    jmethodID get_supported_types_id, is_encoder_id, is_feature_supported_id;
     jobject name = NULL;
     const gchar *name_str = NULL;
     jboolean is_encoder;
@@ -2015,8 +2015,9 @@ scan_codecs (GstPlugin * plugin)
         "()[Ljava/lang/String;");
     is_encoder_id =
         (*env)->GetMethodID (env, codec_info_class, "isEncoder", "()Z");
+
     if (!get_capabilities_for_type_id || !get_name_id
-        || !get_supported_types_id || !is_encoder_id) {
+        || !get_supported_types_id || !is_encoder_id ) {
       (*env)->ExceptionClear (env);
       GST_ERROR ("Failed to get codec info method IDs");
       valid_codec = FALSE;
@@ -2191,6 +2192,35 @@ scan_codecs (GstPlugin * plugin)
         goto next_supported_type;
       }
 
+
+      is_feature_supported_id =
+        (*env)->GetMethodID (env, capabilities_class, "isFeatureSupported",
+        "(Ljava/lang/String;)Z");
+
+      if (is_feature_supported_id)
+      {
+        gboolean adaptivePlaybackSupported;
+        jstring jtmpstr;
+
+        jtmpstr = (*env)->NewStringUTF (env, "adaptive-playback");
+        adaptivePlaybackSupported =
+            (*env)->CallBooleanMethod (env, capabilities, is_feature_supported_id,
+            jtmpstr);
+        if ((*env)->ExceptionCheck (env)) {
+          GST_ERROR
+              ("Caught exception on quering if adaptive-playback is supported");
+          (*env)->ExceptionClear (env);
+        }
+        J_DELETE_LOCAL_REF (jtmpstr);
+        GST_ERROR
+            ("&&& Codec %s: adaptive-playback %ssupported",
+            name_str, adaptivePlaybackSupported ? "" : "not " );
+      }else
+      {
+        GST_ERROR ("&&& isFeatureSupported not found " );
+      }
+      
+          
       color_formats_id =
           (*env)->GetFieldID (env, capabilities_class, "colorFormats", "[I");
       profile_levels_id =
