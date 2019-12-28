@@ -237,14 +237,36 @@ gst_opensles_sink_get_property (GObject * object, guint prop_id,
   }
 }
 
+/* Copied from gstbasesink.c */
+static void
+gst_opensles_sink_default_basesinks_get_times (GstBaseSink * basesink,
+    GstBuffer * buffer, GstClockTime * start, GstClockTime * end)
+{
+  GstClockTime timestamp, duration;
+
+  timestamp = GST_BUFFER_TIMESTAMP (buffer);
+  if (GST_CLOCK_TIME_IS_VALID (timestamp)) {
+
+    /* get duration to calculate end time */
+    duration = GST_BUFFER_DURATION (buffer);
+    if (GST_CLOCK_TIME_IS_VALID (duration)) {
+      *end = timestamp + duration;
+    }
+    *start = timestamp;
+  }
+}
+
+
 static void
 gst_opensles_sink_class_init (GstOpenSLESSinkClass * klass)
 {
   GObjectClass *gobject_class;
   GstBaseAudioSinkClass *gstbaseaudiosink_class;
+  GstBaseSinkClass *gstbasesink_class;
 
   gobject_class = (GObjectClass *) klass;
   gstbaseaudiosink_class = (GstBaseAudioSinkClass *) klass;
+  gstbasesink_class = (GstBaseSinkClass *) klass;
 
   parent_class = g_type_class_peek_parent (klass);
 
@@ -261,6 +283,9 @@ gst_opensles_sink_class_init (GstOpenSLESSinkClass * klass)
 
   gstbaseaudiosink_class->create_ringbuffer =
       GST_DEBUG_FUNCPTR (gst_opensles_sink_create_ringbuffer);
+
+  gstbasesink_class->get_times =
+      GST_DEBUG_FUNCPTR (gst_opensles_sink_default_basesinks_get_times);
 }
 
 static void
