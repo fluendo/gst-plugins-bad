@@ -752,15 +752,11 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
     goto error;
   }
 
-  GST_ERROR ("&&& Codec %s: adaptive-playback %ssupported", mime,
-      adaptivePlaybackSupported ? "" : "not ");
-
   if (adaptivePlaybackSupported) {
     int width = 0;
     int height = 0;
     gst_amc_format_get_int (format, "width", &width);
     gst_amc_format_get_int (format, "height", &height);
-    GST_ERROR ("TEST WIDTH=%d HEIGHT =%d", width, height);
 
     GST_ERROR ("Setting max-width = %d max-height = %d", width, height);
     gst_amc_format_set_int (format, "max-width", width);
@@ -787,38 +783,7 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
     GST_ERROR ("{{{ configuring with MCrypto [%p]", mcrypto_obj);
     AMC_CHK ((*env)->IsInstanceOf (env, mcrypto_obj, media_crypto.klass));
   }
-/*
-  jclass tmp;
-  jmethodID set_integer_id;
-  jmethodID get_integer_id;
-  jclass tmp = (*env)->FindClass (env, "android/media/MediaFormat");
-  if (!tmp) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get format class");
-    goto error;
-  }
 
-  get_integer_id =
-      (*env)->GetMethodID (env, tmp, "getInteger",
-      "(Ljava/lang/String;)I");
-
-  set_integer_id =
-      (*env)->GetMethodID (env, tmp, "setInteger",
-      "(Ljava/lang/String;I)V");
-      
-  format.setInteger(MediaFormat.KEY_MAX_WIDTH, 1920);
-  format.setInteger(MediaFormat.KEY_MAX_HEIGHT, 1080);
-*/
-
-/*
-
-  MediaCodecInfo info = aCodec.getCodecInfo();
-  MediaCodecInfo.CodecCapabilities capabilities = info.getCapabilitiesForType(aMimeType);
-  return capabilities != null &&
-          capabilities.isFeatureSupported(
-              MediaCodecInfo.CodecCapabilities.FEATURE_AdaptivePlayback);
-*/
   gst_amc_codec_enable_adaptive_playback (codec, format);
   J_CALL_VOID (codec->object, media_codec.configure,
       format->object, surface, mcrypto_obj, flags);
