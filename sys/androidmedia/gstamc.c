@@ -679,7 +679,7 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   }
 
   get_codec_info_id =
-      (*env)->GetStaticMethodID (env, media_codec_class, "getCodecInfo",
+      (*env)->GetMethodID (env, media_codec_class, "getCodecInfo",
       "()Landroid/media/MediaCodecInfo;");
   if (!get_codec_info_id) {
     (*env)->ExceptionClear (env);
@@ -688,7 +688,7 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   }
 
   jobject codec_info =
-      (*env)->CallStaticObjectMethod (env, codec->object, get_codec_info_id);
+      (*env)->CallObjectMethod (env, codec->object, get_codec_info_id);
   if ((*env)->ExceptionCheck (env)) {
     (*env)->ExceptionClear (env);
     GST_ERROR ("Failed to get MediaCodecInfo from codec");
