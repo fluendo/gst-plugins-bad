@@ -672,10 +672,10 @@ gst_amc_video_dec_close (GstVideoDecoder * decoder)
 
   if (self->codec) {
     gst_amc_codec_release (self->codec);
-    gst_amc_codec_free (self->codec, &self->crypto_ctx);
+    gst_amc_crypto_ctx_free (&self->crypto_ctx);
+    gst_amc_codec_unref (self->codec);
+    self->codec = NULL;
   }
-  self->codec = NULL;
-
 #if !USE_AMCVIDEOSINK
   if (self->surface)
     g_object_unref (self->surface);
