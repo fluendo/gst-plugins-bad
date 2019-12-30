@@ -60,6 +60,9 @@ static gboolean ignore_unknown_color_formats = FALSE;
 
 static gboolean accepted_color_formats (GstAmcCodecType * type,
     gboolean is_encoder);
+static gboolean
+gst_amc_format_get_jstring (GstAmcFormat * format, const gchar * key,
+    jstring * value);
 
 /* Global cached references */
 static struct
@@ -87,7 +90,18 @@ static struct
   jmethodID stop;
   jint CRYPTO_MODE_AES_CTR;
   jmethodID queue_secure_input_buffer;
+  jmethodID get_codec_info;
 } media_codec;
+static struct
+{
+  jclass klass;
+  jmethodID get_capabilities_for_type;
+} media_codec_info;
+static struct
+{
+  jclass klass;
+  jmethodID is_feature_supported;
+} codec_capabilities;
 static struct
 {
   jclass klass;
@@ -117,6 +131,7 @@ static struct
   jmethodID set_string;
   jmethodID get_byte_buffer;
   jmethodID set_byte_buffer;
+  jmethodID set_feature_enabled;
 } media_format;
 static struct
 {
@@ -684,133 +699,32 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
     GstAmcFormat * format)
 {
   gboolean adaptivePlaybackSupported = FALSE;
-  jclass codec_info_class = NULL;
-  jclass media_codec_class = NULL;
-  jobject capabilities = NULL;
-  jmethodID get_codec_info_id;
-  jmethodID get_capabilities_for_type_id;
-  jmethodID is_feature_supported_id;
-  char *mime = NULL;
-  jclass capabilities_class = NULL;
   jstring jtmpstr = NULL;
+  jobject codec_info = NULL;
+  jobject capabilities = NULL;
+  gint width = 0;
+  gint height = 0;
 
-  GST_DEBUG ("Calling gst_amc_codec_enable_adaptive_playback()");
   JNIEnv *env = gst_jni_get_env ();
 
-  media_codec_class = (*env)->GetObjectClass (env, codec->object);
-  if ((*env)->ExceptionCheck (env)) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get media_codec class");
-    goto error;
-  }
+  J_CALL_OBJ (codec_info /* = */ , codec->object, media_codec.get_codec_info);
 
-  get_codec_info_id =
-      (*env)->GetMethodID (env, media_codec_class, "getCodecInfo",
-      "()Landroid/media/MediaCodecInfo;");
-  if (!get_codec_info_id) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get get_codec_info_id method");
-    goto error;
-  }
+  AMC_CHK (gst_amc_format_get_jstring (format, "mime", &jtmpstr));
 
-  jobject codec_info =
-      (*env)->CallObjectMethod (env, codec->object, get_codec_info_id);
-  if ((*env)->ExceptionCheck (env)) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get MediaCodecInfo from codec");
-    goto error;
-  }
-
-  codec_info_class = (*env)->GetObjectClass (env, codec_info);
-  if ((*env)->ExceptionCheck (env)) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get codec_info_class class");
-    goto error;
-  }
-
-  if (!gst_amc_format_get_string (format, "mime", &mime)) {
-    GST_ERROR ("Can't read mime from codec format");
-    goto error;
-  }
-
-  jtmpstr = (*env)->NewStringUTF (env, mime);
-
-  get_capabilities_for_type_id =
-      (*env)->GetMethodID (env, codec_info_class, "getCapabilitiesForType",
-      "(Ljava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;");
-  if (!get_capabilities_for_type_id) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get get_capabilities_for_type_id method");
-    goto error;
-  }
-
-  capabilities =
-      (*env)->CallObjectMethod (env, codec_info, get_capabilities_for_type_id,
-      jtmpstr);
-  if ((*env)->ExceptionCheck (env)) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get capabilities for %s", mime);
-    goto error;
-  }
-
-  if (jtmpstr != NULL) {
-    J_DELETE_LOCAL_REF (jtmpstr);
-    jtmpstr = NULL;
-  }
-
-  capabilities_class = (*env)->GetObjectClass (env, capabilities);
-  if ((*env)->ExceptionCheck (env)) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get capabilities class");
-    goto error;
-  }
-
-  is_feature_supported_id =
-      (*env)->GetMethodID (env, capabilities_class, "isFeatureSupported",
-      "(Ljava/lang/String;)Z");
-  if (!is_feature_supported_id) {
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get isFeatureSupported method");
-    goto error;
-  }
+  J_CALL_OBJ (capabilities /* = */ , codec_info,
+      media_codec_info.get_capabilities_for_type, jtmpstr);
+  J_DELETE_LOCAL_REF (jtmpstr);
 
   jtmpstr = (*env)->NewStringUTF (env, "adaptive-playback");
-  adaptivePlaybackSupported =
-      (*env)->CallBooleanMethod (env, capabilities, is_feature_supported_id,
-      jtmpstr);
 
-  if ((*env)->ExceptionCheck (env)) {
-    GST_ERROR ("Caught exception on quering if adaptive-playback is supported");
-    (*env)->ExceptionClear (env);
-    goto error;
-  }
+  J_CALL_BOOL (adaptivePlaybackSupported /* = */ , capabilities,
+      codec_capabilities.is_feature_supported, jtmpstr);
 
-  if (adaptivePlaybackSupported) {
-    int width = 0;
-    int height = 0;
-    jclass media_format_class = NULL;
-    jmethodID enable_feature_id;
+  if (adaptivePlaybackSupported &&
+      gst_amc_format_get_int (format, "width", &width) &&
+      gst_amc_format_get_int (format, "height", &height) && width && height) {
 
-    media_format_class = (*env)->GetObjectClass (env, format->object);
-    if ((*env)->ExceptionCheck (env)) {
-      GST_ERROR ("Can't get media_format class");
-      (*env)->ExceptionClear (env);
-      goto error;
-    }
-
-    enable_feature_id =
-        (*env)->GetMethodID (env, media_format_class, "setFeatureEnabled",
-        "(Ljava/lang/String;Z)V");
-    if (!enable_feature_id) {
-      GST_ERROR ("Can't get method setFeatureEnabled");
-      (*env)->ExceptionClear (env);
-      goto error;
-    }
-
-    gst_amc_format_get_int (format, "width", &width);
-    gst_amc_format_get_int (format, "height", &height);
-
-    (*env)->CallVoidMethod (env, format->object, enable_feature_id, jtmpstr, 1);
+    J_CALL_VOID (format->object, media_format.set_feature_enabled, jtmpstr, 1);
 
     GST_DEBUG ("Setting max-width = %d max-height = %d", width, height);
     gst_amc_format_set_int (format, "max-width", width);
@@ -820,12 +734,8 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
 
 error:
   J_DELETE_LOCAL_REF (jtmpstr);
-  g_free (mime);
-
-  J_DELETE_LOCAL_REF (codec_info_class);
-  J_DELETE_LOCAL_REF (media_codec_class);
-  J_DELETE_LOCAL_REF (capabilities_class);
   J_DELETE_LOCAL_REF (capabilities);
+  J_DELETE_LOCAL_REF (codec_info);
   GST_DEBUG ("Feature adaptive-playback %ssupported",
       (!adaptivePlaybackSupported) ? "not " : "");
   return adaptivePlaybackSupported;
@@ -1415,13 +1325,12 @@ error:
   J_DELETE_LOCAL_REF (key_str);
 }
 
-gboolean
-gst_amc_format_get_string (GstAmcFormat * format, const gchar * key,
-    gchar ** value)
+static gboolean
+gst_amc_format_get_jstring (GstAmcFormat * format, const gchar * key,
+    jstring * value)
 {
   gboolean ret = FALSE;
   jstring key_str = NULL;
-  jstring v_str = NULL;
   JNIEnv *env = gst_jni_get_env ();
 
   AMC_CHK (format && key && value);
@@ -1430,14 +1339,31 @@ gst_amc_format_get_string (GstAmcFormat * format, const gchar * key,
   key_str = (*env)->NewStringUTF (env, key);
   AMC_CHK (key_str);
 
-  J_CALL_OBJ (v_str /* = */ , format->object, media_format.get_string, key_str);
+  J_CALL_OBJ (*value /* = */ , format->object, media_format.get_string,
+      key_str);
 
-  *value = gst_amc_get_string_utf8 (env, v_str);
-  AMC_CHK (*value);
   ret = TRUE;
 error:
   J_DELETE_LOCAL_REF (key_str);
-  J_DELETE_LOCAL_REF (v_str);
+  return ret;
+}
+
+gboolean
+gst_amc_format_get_string (GstAmcFormat * format, const gchar * key,
+    gchar ** value)
+{
+  gboolean ret = FALSE;
+  jstring tmp_str = NULL;
+  JNIEnv *env = gst_jni_get_env ();
+
+  if (!gst_amc_format_get_jstring (format, key, &tmp_str))
+    goto error;
+
+  *value = gst_amc_get_string_utf8 (env, tmp_str);
+  AMC_CHK (*value);
+  ret = TRUE;
+error:
+  J_DELETE_LOCAL_REF (tmp_str);
   return ret;
 }
 
@@ -1636,6 +1562,9 @@ get_java_classes (void)
       (*env)->GetMethodID (env, media_codec.klass, "start", "()V");
   media_codec.stop =
       (*env)->GetMethodID (env, media_codec.klass, "stop", "()V");
+  media_codec.get_codec_info =
+      (*env)->GetMethodID (env, media_codec.klass, "getCodecInfo",
+      "()Landroid/media/MediaCodecInfo;");
 
   AMC_CHK (media_codec.queue_secure_input_buffer &&
       media_codec.configure &&
@@ -1650,7 +1579,8 @@ get_java_classes (void)
       media_codec.release &&
       media_codec.release_output_buffer &&
       media_codec.release_output_buffer_ts &&
-      media_codec.set_output_surface && media_codec.start && media_codec.stop);
+      media_codec.set_output_surface && media_codec.start && media_codec.stop
+      && media_codec.get_codec_info);
 
   tmp = (*env)->FindClass (env, "android/media/MediaCodec$BufferInfo");
   if (!tmp) {
@@ -1741,17 +1671,38 @@ get_java_classes (void)
   media_format.set_byte_buffer =
       (*env)->GetMethodID (env, media_format.klass, "setByteBuffer",
       "(Ljava/lang/String;Ljava/nio/ByteBuffer;)V");
+  media_format.set_feature_enabled =
+      (*env)->GetMethodID (env, media_format.klass, "setFeatureEnabled",
+      "(Ljava/lang/String;Z)V");
+
   if (!media_format.create_audio_format || !media_format.create_video_format
       || !media_format.contains_key || !media_format.get_float
       || !media_format.set_float || !media_format.get_integer
       || !media_format.set_integer || !media_format.get_string
       || !media_format.set_string || !media_format.get_byte_buffer
-      || !media_format.set_byte_buffer) {
+      || !media_format.set_byte_buffer || !media_format.set_feature_enabled) {
     ret = FALSE;
     (*env)->ExceptionClear (env);
     GST_ERROR ("Failed to get format methods");
     goto done;
   }
+
+  /* MediaCodecInfo */
+  media_codec_info.klass = j_find_class (env, "android/media/MediaCodecInfo");
+  if (!media_codec_info.klass)
+    goto error;
+
+  J_INIT_METHOD_ID (media_codec_info, get_capabilities_for_type,
+      "getCapabilitiesForType",
+      "(Ljava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;");
+
+  codec_capabilities.klass =
+      j_find_class (env, "android/media/MediaCodecInfo$CodecCapabilities");
+  if (!codec_capabilities.klass)
+    goto error;
+
+  J_INIT_METHOD_ID (codec_capabilities, is_feature_supported,
+      "isFeatureSupported", "(Ljava/lang/String;)Z");
 
   /* MEDIA DRM */
   media_drm.klass = j_find_class (env, "android/media/MediaDrm");
