@@ -3388,7 +3388,6 @@ gst_amc_dr_buffer_render (GstAmcDRBuffer * buf, GstClockTime ts)
 void
 gst_amc_dr_buffer_free (GstAmcDRBuffer * buf)
 {
-  JNIEnv *env = gst_jni_get_env ();
   if (!buf->released) {
     g_mutex_lock (&buf->codec->buffers_lock);
     if (buf->codec->flush_id == buf->flush_id)
