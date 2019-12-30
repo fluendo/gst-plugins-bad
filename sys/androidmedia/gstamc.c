@@ -603,6 +603,7 @@ gst_amc_codec_new (const gchar * name)
   AMC_CHK (codec->object);
 
   g_mutex_init (&codec->buffers_lock);
+  codec->ref_count = 1;
 done:
   J_DELETE_LOCAL_REF (object);
   J_DELETE_LOCAL_REF (name_str);
