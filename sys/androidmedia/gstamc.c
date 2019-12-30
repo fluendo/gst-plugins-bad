@@ -753,10 +753,31 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   }
 
   if (adaptivePlaybackSupported) {
+    jclass media_format_class = NULL;
+    jmethodID enable_feature_id;
+
+    media_format_class = (*env)->GetObjectClass (env, format->object);
+    if ((*env)->ExceptionCheck (env)) {
+      GST_ERROR ("Can't get media_format class");
+      (*env)->ExceptionClear (env);
+      goto error;
+    }
+
+    enable_feature_id =
+        (*env)->GetMethodID (env, media_format_class, "setFeatureEnabled",
+        "(Ljava/lang/String;Z)");
+    if (!enable_feature_id) {
+      GST_ERROR ("Can't get method setFeatureEnabled");
+      (*env)->ExceptionClear (env);
+      goto error;
+    }
     int width = 0;
     int height = 0;
     gst_amc_format_get_int (format, "width", &width);
     gst_amc_format_get_int (format, "height", &height);
+
+
+    (*env)->CallVoidMethod (env, format->object, enable_feature_id, jtmpstr, 1);
 
     GST_ERROR ("Setting max-width = %d max-height = %d", width, height);
     gst_amc_format_set_int (format, "max-width", width);
@@ -1216,62 +1237,6 @@ gst_amc_format_new_video (const gchar * mime, gint width, gint height)
   AMC_CHK (object);
   format->object = (*env)->NewGlobalRef (env, object);
   AMC_CHK (format->object);
-
-  {
-    /*
-       gboolean adaptivePlaybackSupported = false;
-       jclass codec_info_class = NULL;
-       jmethodID get_codec_info_id;
-       get_codec_info_id =
-       (*env)->GetStaticMethodID (env, codec.object, "getCodecInfo",
-       "()Landroid/media/MediaCodecInfo;");
-
-       jobject codec_info =
-       (*env)->CallStaticObjectMethod (env, codec_list_class,
-       get_codec_info_id);
-
-       codec_info_class = (*env)->GetObjectClass (env, codec_info);
-
-       get_capabilities_for_type_id =
-       (*env)->GetMethodID (env, codec_info_class, "getCapabilitiesForType",
-       "(Ljava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;");
-
-       is_feature_supported_id =
-       (*env)->GetMethodID (env, capabilities_class, "isFeatureSupported",
-       "(Ljava/lang/String;)Z");
-
-       if (is_feature_supported_id)
-       {
-       jstring jtmpstr;
-
-       jtmpstr = (*env)->NewStringUTF (env, "adaptive-playback");
-       adaptivePlaybackSupported =
-       (*env)->CallBooleanMethod (env, capabilities, is_feature_supported_id,
-       jtmpstr);
-       if ((*env)->ExceptionCheck (env)) {
-       GST_ERROR
-       ("Caught exception on quering if adaptive-playback is supported");
-       (*env)->ExceptionClear (env);
-       }
-       J_DELETE_LOCAL_REF (jtmpstr);
-       GST_ERROR
-       ("&&& Codec %s: adaptive-playback %ssupported",
-       name_str, adaptivePlaybackSupported ? "" : "not " );
-       }else
-       {
-       GST_ERROR ("&&& isFeatureSupported not found " );
-       }
-
-       if (adaptivePlaybackSupported)
-     */
-    {
-      GST_ERROR ("Setting max-width = %d max-height = %d", width, height);
-      gst_amc_format_set_int (format, "max-width", width);
-      gst_amc_format_set_int (format, "max-height", height);
-      gst_amc_format_set_int (format, "adaptive-playback", 1);
-    }
-  }
-
 
 done:
   J_DELETE_LOCAL_REF (object);
