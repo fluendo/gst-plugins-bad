@@ -83,14 +83,18 @@ struct _GstAmcCrypto
 
 struct _GstAmcCodec
 {
+  guint flush_id;
+  GMutex buffers_lock;
   /* < private > */
   jobject object;               /* global reference */
+  gint ref_count;
 };
 
 struct _GstAmcDRBuffer {
-  GstAmcCodec codec;
+  GstAmcCodec *codec;
   guint idx;
   gboolean released;
+  guint flush_id;
 };
 
 struct _GstAmcBufferInfo
@@ -104,7 +108,10 @@ struct _GstAmcBufferInfo
 extern GQuark gst_amc_codec_info_quark;
 
 GstAmcCodec *gst_amc_codec_new (const gchar * name);
-void gst_amc_codec_free (GstAmcCodec * codec, GstAmcCrypto * crypto_ctx);
+GstAmcCodec *gst_amc_codec_ref (GstAmcCodec * codec);
+void gst_amc_codec_unref (GstAmcCodec * codec);
+
+void gst_amc_crypto_ctx_free (GstAmcCrypto * crypto_ctx);
 
 jmethodID gst_amc_codec_get_release_method_id (GstAmcCodec * codec);
 jmethodID gst_amc_codec_get_release_ts_method_id (GstAmcCodec * codec);
@@ -218,6 +225,7 @@ gboolean gst_amc_query_set_surface (GstQuery *query, gpointer surface);
 GstEvent * gst_amc_event_new_surface (gpointer surface);
 gpointer gst_amc_event_parse_surface (GstEvent *event);
 gboolean gst_amc_event_is_surface (GstEvent *event);
+gboolean gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec, GstAmcFormat * format);
 
 G_END_DECLS
 #endif /* __GST_AMC_H__ */

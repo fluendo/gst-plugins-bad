@@ -471,10 +471,11 @@ gst_amc_audio_dec_close (GstAudioDecoder * decoder)
 
   if (self->codec) {
     gst_amc_codec_release (self->codec);
-    gst_amc_codec_free (self->codec, &self->crypto_ctx);
+    gst_amc_crypto_ctx_free (&self->crypto_ctx);
+    gst_amc_codec_unref (self->codec);
+    self->codec = NULL;
     GST_ERROR_OBJECT (self, "Audio decoder have been released");
   }
-  self->codec = NULL;
 
   self->started = FALSE;
   self->flushing = TRUE;

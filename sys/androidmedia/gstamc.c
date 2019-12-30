@@ -60,6 +60,9 @@ static gboolean ignore_unknown_color_formats = FALSE;
 
 static gboolean accepted_color_formats (GstAmcCodecType * type,
     gboolean is_encoder);
+static gboolean
+gst_amc_format_get_jstring (GstAmcFormat * format, const gchar * key,
+    jstring * value);
 
 /* Global cached references */
 static struct
@@ -87,7 +90,18 @@ static struct
   jmethodID stop;
   jint CRYPTO_MODE_AES_CTR;
   jmethodID queue_secure_input_buffer;
+  jmethodID get_codec_info;
 } media_codec;
+static struct
+{
+  jclass klass;
+  jmethodID get_capabilities_for_type;
+} media_codec_info;
+static struct
+{
+  jclass klass;
+  jmethodID is_feature_supported;
+} codec_capabilities;
 static struct
 {
   jclass klass;
@@ -117,6 +131,7 @@ static struct
   jmethodID set_string;
   jmethodID get_byte_buffer;
   jmethodID set_byte_buffer;
+  jmethodID set_feature_enabled;
 } media_format;
 static struct
 {
@@ -602,6 +617,8 @@ gst_amc_codec_new (const gchar * name)
   codec->object = (*env)->NewGlobalRef (env, object);
   AMC_CHK (codec->object);
 
+  g_mutex_init (&codec->buffers_lock);
+  codec->ref_count = 1;
 done:
   J_DELETE_LOCAL_REF (object);
   J_DELETE_LOCAL_REF (name_str);
@@ -614,31 +631,54 @@ error:
 }
 
 void
-gst_amc_codec_free (GstAmcCodec * codec, GstAmcCrypto * crypto_ctx)
+gst_amc_crypto_ctx_free (GstAmcCrypto * crypto_ctx)
 {
   JNIEnv *env = gst_jni_get_env ();
-  g_return_if_fail (codec != NULL);
 
-  env = gst_jni_get_env ();
+  g_return_if_fail (crypto_ctx != NULL);
 
-  if (crypto_ctx) {
-    if (crypto_ctx->mdrm) {
-      // If we have mdrm, we think that the mcrypto is created by us, not the user
-      J_DELETE_GLOBAL_REF (crypto_ctx->mcrypto);
-      if (crypto_ctx->mdrm_session_id) {
-        J_CALL_VOID (crypto_ctx->mdrm, media_drm.close_session,
-            crypto_ctx->mdrm_session_id);
-      }
-    error:                     // <-- to resolve J_CALL_VOID
-      J_DELETE_GLOBAL_REF (crypto_ctx->mdrm_session_id);
-      J_DELETE_GLOBAL_REF (crypto_ctx->mdrm);
+  if (crypto_ctx->mdrm) {
+    // If we have mdrm, we think that the mcrypto is created by us, not the user
+    J_DELETE_GLOBAL_REF (crypto_ctx->mcrypto);
+    if (crypto_ctx->mdrm_session_id) {
+      J_CALL_VOID (crypto_ctx->mdrm, media_drm.close_session,
+          crypto_ctx->mdrm_session_id);
     }
-
-    memset (crypto_ctx, 0, sizeof (GstAmcCrypto));
+  error:                       // <-- to resolve J_CALL_VOID
+    J_DELETE_GLOBAL_REF (crypto_ctx->mdrm_session_id);
+    J_DELETE_GLOBAL_REF (crypto_ctx->mdrm);
   }
 
+  memset (crypto_ctx, 0, sizeof (GstAmcCrypto));
+}
+
+static void
+gst_amc_codec_free (GstAmcCodec * codec)
+{
+  JNIEnv *env = gst_jni_get_env ();
+
   J_DELETE_GLOBAL_REF (codec->object);
+  g_mutex_clear (&codec->buffers_lock);
   g_slice_free (GstAmcCodec, codec);
+}
+
+GstAmcCodec *
+gst_amc_codec_ref (GstAmcCodec * codec)
+{
+  g_return_val_if_fail (codec, NULL);
+
+  g_atomic_int_inc (&codec->ref_count);
+
+  return codec;
+}
+
+void
+gst_amc_codec_unref (GstAmcCodec * codec)
+{
+  g_return_if_fail (codec != NULL);
+
+  if (g_atomic_int_dec_and_test (&codec->ref_count))
+    gst_amc_codec_free (codec);
 }
 
 jmethodID
@@ -651,6 +691,54 @@ jmethodID
 gst_amc_codec_get_release_method_id (GstAmcCodec * codec)
 {
   return media_codec.release_output_buffer;
+}
+
+
+gboolean
+gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
+    GstAmcFormat * format)
+{
+  gboolean adaptivePlaybackSupported = FALSE;
+  jstring jtmpstr = NULL;
+  jobject codec_info = NULL;
+  jobject capabilities = NULL;
+  gint width = 0;
+  gint height = 0;
+
+  JNIEnv *env = gst_jni_get_env ();
+
+  J_CALL_OBJ (codec_info /* = */ , codec->object, media_codec.get_codec_info);
+
+  AMC_CHK (gst_amc_format_get_jstring (format, "mime", &jtmpstr));
+
+  J_CALL_OBJ (capabilities /* = */ , codec_info,
+      media_codec_info.get_capabilities_for_type, jtmpstr);
+  J_DELETE_LOCAL_REF (jtmpstr);
+
+  jtmpstr = (*env)->NewStringUTF (env, "adaptive-playback");
+
+  J_CALL_BOOL (adaptivePlaybackSupported /* = */ , capabilities,
+      codec_capabilities.is_feature_supported, jtmpstr);
+
+  if (adaptivePlaybackSupported &&
+      gst_amc_format_get_int (format, "width", &width) &&
+      gst_amc_format_get_int (format, "height", &height) && width && height) {
+
+    J_CALL_VOID (format->object, media_format.set_feature_enabled, jtmpstr, 1);
+
+    GST_DEBUG ("Setting max-width = %d max-height = %d", width, height);
+    gst_amc_format_set_int (format, "max-width", width);
+    gst_amc_format_set_int (format, "max-height", height);
+    gst_amc_format_set_int (format, "adaptive-playback", 1);
+  }
+
+error:
+  J_DELETE_LOCAL_REF (jtmpstr);
+  J_DELETE_LOCAL_REF (capabilities);
+  J_DELETE_LOCAL_REF (codec_info);
+  GST_DEBUG ("Feature adaptive-playback %ssupported",
+      (!adaptivePlaybackSupported) ? "not " : "");
+  return adaptivePlaybackSupported;
 }
 
 gboolean
@@ -666,6 +754,7 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
     AMC_CHK ((*env)->IsInstanceOf (env, mcrypto_obj, media_crypto.klass));
   }
 
+  gst_amc_codec_enable_adaptive_playback (codec, format);
   J_CALL_VOID (codec->object, media_codec.configure,
       format->object, surface, mcrypto_obj, flags);
   ret = TRUE;
@@ -730,7 +819,14 @@ gst_amc_codec_flush (GstAmcCodec * codec)
   JNIEnv *env = gst_jni_get_env ();
 
   AMC_CHK (codec);
+
+  /* Before we flush, we "invalidate all previously pushed buffers,
+   * because it's incorrect to call releaseOutputBuffer after flush. */
+  g_mutex_lock (&codec->buffers_lock);
+  /* Now buffers with previous flush-id won't be ever released */
+  codec->flush_id++;
   J_CALL_VOID (codec->object, media_codec.flush);
+  g_mutex_unlock (&codec->buffers_lock);
   ret = TRUE;
 error:
   return ret;
@@ -1090,6 +1186,7 @@ gst_amc_format_new_video (const gchar * mime, gint width, gint height)
     goto error;
 
   format = g_slice_new0 (GstAmcFormat);
+
   J_CALL_STATIC_OBJ (object /* = */ , media_format, create_video_format,
       mime_str, width, height);
 
@@ -1228,13 +1325,12 @@ error:
   J_DELETE_LOCAL_REF (key_str);
 }
 
-gboolean
-gst_amc_format_get_string (GstAmcFormat * format, const gchar * key,
-    gchar ** value)
+static gboolean
+gst_amc_format_get_jstring (GstAmcFormat * format, const gchar * key,
+    jstring * value)
 {
   gboolean ret = FALSE;
   jstring key_str = NULL;
-  jstring v_str = NULL;
   JNIEnv *env = gst_jni_get_env ();
 
   AMC_CHK (format && key && value);
@@ -1243,14 +1339,31 @@ gst_amc_format_get_string (GstAmcFormat * format, const gchar * key,
   key_str = (*env)->NewStringUTF (env, key);
   AMC_CHK (key_str);
 
-  J_CALL_OBJ (v_str /* = */ , format->object, media_format.get_string, key_str);
+  J_CALL_OBJ (*value /* = */ , format->object, media_format.get_string,
+      key_str);
 
-  *value = gst_amc_get_string_utf8 (env, v_str);
-  AMC_CHK (*value);
   ret = TRUE;
 error:
   J_DELETE_LOCAL_REF (key_str);
-  J_DELETE_LOCAL_REF (v_str);
+  return ret;
+}
+
+gboolean
+gst_amc_format_get_string (GstAmcFormat * format, const gchar * key,
+    gchar ** value)
+{
+  gboolean ret = FALSE;
+  jstring tmp_str = NULL;
+  JNIEnv *env = gst_jni_get_env ();
+
+  if (!gst_amc_format_get_jstring (format, key, &tmp_str))
+    goto error;
+
+  *value = gst_amc_get_string_utf8 (env, tmp_str);
+  AMC_CHK (*value);
+  ret = TRUE;
+error:
+  J_DELETE_LOCAL_REF (tmp_str);
   return ret;
 }
 
@@ -1449,6 +1562,9 @@ get_java_classes (void)
       (*env)->GetMethodID (env, media_codec.klass, "start", "()V");
   media_codec.stop =
       (*env)->GetMethodID (env, media_codec.klass, "stop", "()V");
+  media_codec.get_codec_info =
+      (*env)->GetMethodID (env, media_codec.klass, "getCodecInfo",
+      "()Landroid/media/MediaCodecInfo;");
 
   AMC_CHK (media_codec.queue_secure_input_buffer &&
       media_codec.configure &&
@@ -1463,7 +1579,8 @@ get_java_classes (void)
       media_codec.release &&
       media_codec.release_output_buffer &&
       media_codec.release_output_buffer_ts &&
-      media_codec.set_output_surface && media_codec.start && media_codec.stop);
+      media_codec.set_output_surface && media_codec.start && media_codec.stop
+      && media_codec.get_codec_info);
 
   tmp = (*env)->FindClass (env, "android/media/MediaCodec$BufferInfo");
   if (!tmp) {
@@ -1554,17 +1671,38 @@ get_java_classes (void)
   media_format.set_byte_buffer =
       (*env)->GetMethodID (env, media_format.klass, "setByteBuffer",
       "(Ljava/lang/String;Ljava/nio/ByteBuffer;)V");
+  media_format.set_feature_enabled =
+      (*env)->GetMethodID (env, media_format.klass, "setFeatureEnabled",
+      "(Ljava/lang/String;Z)V");
+
   if (!media_format.create_audio_format || !media_format.create_video_format
       || !media_format.contains_key || !media_format.get_float
       || !media_format.set_float || !media_format.get_integer
       || !media_format.set_integer || !media_format.get_string
       || !media_format.set_string || !media_format.get_byte_buffer
-      || !media_format.set_byte_buffer) {
+      || !media_format.set_byte_buffer || !media_format.set_feature_enabled) {
     ret = FALSE;
     (*env)->ExceptionClear (env);
     GST_ERROR ("Failed to get format methods");
     goto done;
   }
+
+  /* MediaCodecInfo */
+  media_codec_info.klass = j_find_class (env, "android/media/MediaCodecInfo");
+  if (!media_codec_info.klass)
+    goto error;
+
+  J_INIT_METHOD_ID (media_codec_info, get_capabilities_for_type,
+      "getCapabilitiesForType",
+      "(Ljava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;");
+
+  codec_capabilities.klass =
+      j_find_class (env, "android/media/MediaCodecInfo$CodecCapabilities");
+  if (!codec_capabilities.klass)
+    goto error;
+
+  J_INIT_METHOD_ID (codec_capabilities, is_feature_supported,
+      "isFeatureSupported", "(Ljava/lang/String;)Z");
 
   /* MEDIA DRM */
   media_drm.klass = j_find_class (env, "android/media/MediaDrm");
@@ -1975,7 +2113,7 @@ scan_codecs (GstPlugin * plugin)
     jobject codec_info = NULL;
     jclass codec_info_class = NULL;
     jmethodID get_capabilities_for_type_id, get_name_id;
-    jmethodID get_supported_types_id, is_encoder_id;
+    jmethodID get_supported_types_id, is_encoder_id, is_feature_supported_id;
     jobject name = NULL;
     const gchar *name_str = NULL;
     jboolean is_encoder;
@@ -2015,6 +2153,7 @@ scan_codecs (GstPlugin * plugin)
         "()[Ljava/lang/String;");
     is_encoder_id =
         (*env)->GetMethodID (env, codec_info_class, "isEncoder", "()Z");
+
     if (!get_capabilities_for_type_id || !get_name_id
         || !get_supported_types_id || !is_encoder_id) {
       (*env)->ExceptionClear (env);
@@ -2190,6 +2329,33 @@ scan_codecs (GstPlugin * plugin)
         valid_codec = FALSE;
         goto next_supported_type;
       }
+
+
+      is_feature_supported_id =
+          (*env)->GetMethodID (env, capabilities_class, "isFeatureSupported",
+          "(Ljava/lang/String;)Z");
+
+      if (is_feature_supported_id) {
+        gboolean adaptivePlaybackSupported;
+        jstring jtmpstr;
+
+        jtmpstr = (*env)->NewStringUTF (env, "adaptive-playback");
+        adaptivePlaybackSupported =
+            (*env)->CallBooleanMethod (env, capabilities,
+            is_feature_supported_id, jtmpstr);
+        if ((*env)->ExceptionCheck (env)) {
+          GST_ERROR
+              ("Caught exception on quering if adaptive-playback is supported");
+          (*env)->ExceptionClear (env);
+        }
+        J_DELETE_LOCAL_REF (jtmpstr);
+        GST_ERROR
+            ("&&& Codec %s: adaptive-playback %ssupported",
+            name_str, adaptivePlaybackSupported ? "" : "not ");
+      } else {
+        GST_ERROR ("&&& isFeatureSupported not found ");
+      }
+
 
       color_formats_id =
           (*env)->GetFieldID (env, capabilities_class, "colorFormats", "[I");
@@ -3146,8 +3312,9 @@ gst_amc_dr_buffer_new (GstAmcCodec * codec, guint idx)
   GstAmcDRBuffer *buf;
 
   buf = g_new0 (GstAmcDRBuffer, 1);
-  buf->codec = *codec;
-  buf->codec.object = gst_amc_global_ref_jobj (buf->codec.object);
+  buf->codec = gst_amc_codec_ref (codec);
+  /* No need to lock because we are sure we don't flush at this moment. */
+  buf->flush_id = codec->flush_id;
   buf->idx = idx;
   buf->released = FALSE;
 
@@ -3160,7 +3327,10 @@ gst_amc_dr_buffer_render (GstAmcDRBuffer * buf, GstClockTime ts)
   gboolean ret = FALSE;
 
   if (!buf->released) {
-    ret = gst_amc_codec_render_output_buffer (&buf->codec, buf->idx, ts);
+    g_mutex_lock (&buf->codec->buffers_lock);
+    if (buf->codec->flush_id == buf->flush_id)
+      ret = gst_amc_codec_render_output_buffer (buf->codec, buf->idx, ts);
+    g_mutex_unlock (&buf->codec->buffers_lock);
     buf->released = TRUE;
   }
 
@@ -3170,11 +3340,14 @@ gst_amc_dr_buffer_render (GstAmcDRBuffer * buf, GstClockTime ts)
 void
 gst_amc_dr_buffer_free (GstAmcDRBuffer * buf)
 {
-  JNIEnv *env = gst_jni_get_env ();
   if (!buf->released) {
-    gst_amc_codec_release_output_buffer (&buf->codec, buf->idx);
+    g_mutex_lock (&buf->codec->buffers_lock);
+    if (buf->codec->flush_id == buf->flush_id)
+      gst_amc_codec_release_output_buffer (buf->codec, buf->idx);
+    g_mutex_unlock (&buf->codec->buffers_lock);
   }
-  J_DELETE_GLOBAL_REF (buf->codec.object);
+
+  gst_amc_codec_unref (buf->codec);
   g_free (buf);
 }
 
