@@ -681,7 +681,7 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   get_codec_info_id =
       (*env)->GetStaticMethodID (env, media_codec_class, "getCodecInfo",
       "()Landroid/media/MediaCodecInfo;");
-  if ((*env)->ExceptionCheck (env)) {
+  if (!get_codec_info_id) {
     (*env)->ExceptionClear (env);
     GST_ERROR ("Failed to get get_codec_info_id method");
     goto error;
@@ -710,6 +710,11 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   get_capabilities_for_type_id =
       (*env)->GetMethodID (env, codec_info_class, "getCapabilitiesForType",
       "(Ljava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;");
+  if (!get_capabilities_for_type_id) {
+    (*env)->ExceptionClear (env);
+    GST_ERROR ("Failed to get get_capabilities_for_type_id method");
+    goto error;
+  }
 
   capabilities =
       (*env)->CallObjectMethod (env, codec_info, get_capabilities_for_type_id,
@@ -721,7 +726,7 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   }
 
   capabilities_class = (*env)->GetObjectClass (env, capabilities);
-  if (!capabilities_class) {
+  if ((*env)->ExceptionCheck (env)) {
     (*env)->ExceptionClear (env);
     GST_ERROR ("Failed to get capabilities class");
     goto error;
@@ -730,7 +735,7 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   is_feature_supported_id =
       (*env)->GetMethodID (env, capabilities_class, "isFeatureSupported",
       "(Ljava/lang/String;)Z");
-  if ((*env)->ExceptionCheck (env)) {
+  if (!is_feature_supported_id) {
     (*env)->ExceptionClear (env);
     GST_ERROR ("Failed to get isFeatureSupported method");
     goto error;
