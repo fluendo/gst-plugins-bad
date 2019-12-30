@@ -652,7 +652,7 @@ gst_amc_video_dec_open (GstVideoDecoder * decoder)
   GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
   GstAmcVideoDecClass *klass = GST_AMC_VIDEO_DEC_GET_CLASS (self);
 
-  GST_DEBUG_OBJECT (self, "Opening decoder");
+  GST_ERROR_OBJECT (self, "Occupying video decoder");
 
   self->codec = gst_amc_codec_new (klass->codec_info->name);
   if (!self->codec)
@@ -673,6 +673,7 @@ gst_amc_video_dec_close (GstVideoDecoder * decoder)
   if (self->codec) {
     gst_amc_codec_release (self->codec);
     gst_amc_codec_free (self->codec, &self->crypto_ctx);
+    GST_ERROR_OBJECT (self, "Video decoder have been released");
   }
   self->codec = NULL;
 

@@ -449,7 +449,7 @@ gst_amc_audio_dec_open (GstAudioDecoder * decoder)
   GstAmcAudioDec *self = GST_AMC_AUDIO_DEC (decoder);
   GstAmcAudioDecClass *klass = GST_AMC_AUDIO_DEC_GET_CLASS (self);
 
-  GST_DEBUG_OBJECT (self, "Opening decoder");
+  GST_ERROR_OBJECT (self, "Occupying audio decoder");
 
   self->codec = gst_amc_codec_new (klass->codec_info->name);
   if (!self->codec)
@@ -472,6 +472,7 @@ gst_amc_audio_dec_close (GstAudioDecoder * decoder)
   if (self->codec) {
     gst_amc_codec_release (self->codec);
     gst_amc_codec_free (self->codec, &self->crypto_ctx);
+    GST_ERROR_OBJECT (self, "Audio decoder have been released");
   }
   self->codec = NULL;
 
