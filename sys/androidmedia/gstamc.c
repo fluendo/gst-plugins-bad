@@ -669,6 +669,7 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   jclass capabilities_class = NULL;
   jstring jtmpstr = NULL;
 
+  GST_DEBUG ("Calling gst_amc_codec_enable_adaptive_playback()");
   JNIEnv *env = gst_jni_get_env ();
 
   media_codec_class = (*env)->GetObjectClass (env, codec->object);
@@ -774,7 +775,7 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
 
     enable_feature_id =
         (*env)->GetMethodID (env, media_format_class, "setFeatureEnabled",
-        "(Ljava/lang/String;Z)");
+        "(Ljava/lang/String;Z)V");
     if (!enable_feature_id) {
       GST_ERROR ("Can't get method setFeatureEnabled");
       (*env)->ExceptionClear (env);
@@ -786,16 +787,22 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
 
     (*env)->CallVoidMethod (env, format->object, enable_feature_id, jtmpstr, 1);
 
-    GST_LOG ("Setting max-width = %d max-height = %d", width, height);
+    GST_DEBUG ("Setting max-width = %d max-height = %d", width, height);
     gst_amc_format_set_int (format, "max-width", width);
     gst_amc_format_set_int (format, "max-height", height);
     gst_amc_format_set_int (format, "adaptive-playback", 1);
   }
 
 error:
-  if (jtmpstr != NULL)
-    J_DELETE_LOCAL_REF (jtmpstr);
+  J_DELETE_LOCAL_REF (jtmpstr);
   g_free (mime);
+
+  J_DELETE_LOCAL_REF (codec_info_class);
+  J_DELETE_LOCAL_REF (media_codec_class);
+  J_DELETE_LOCAL_REF (capabilities_class);
+  J_DELETE_LOCAL_REF (capabilities);
+  GST_DEBUG ("Feature adaptive-playback %ssupported",
+      (!adaptivePlaybackSupported) ? "not " : "");
   return adaptivePlaybackSupported;
 }
 
