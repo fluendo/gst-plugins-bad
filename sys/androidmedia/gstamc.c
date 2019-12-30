@@ -636,6 +636,16 @@ gst_amc_crypto_ctx_free (GstAmcCrypto * crypto_ctx)
   memset (crypto_ctx, 0, sizeof (GstAmcCrypto));
 }
 
+void
+gst_amc_codec_free (GstAmcCodec * codec)
+{
+  JNIEnv *env = gst_jni_get_env ();
+
+  J_DELETE_GLOBAL_REF (codec->object);
+  g_mutex_clear (&codec->buffers_lock);
+  g_slice_free (GstAmcCodec, codec);
+}
+
 GstAmcCodec *
 gst_amc_codec_ref (GstAmcCodec * codec)
 {
@@ -653,16 +663,6 @@ gst_amc_codec_unref (GstAmcCodec * codec)
 
   if (g_atomic_int_dec_and_test (&codec->ref_count))
     gst_amc_codec_free (codec);
-}
-
-void
-gst_amc_codec_free (GstAmcCodec * codec)
-{
-  JNIEnv *env = gst_jni_get_env ();
-
-  J_DELETE_GLOBAL_REF (codec->object);
-  g_mutex_clear (&codec->buffers_lock);
-  g_slice_free (GstAmcCodec, codec);
 }
 
 jmethodID
