@@ -753,6 +753,8 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   }
 
   if (adaptivePlaybackSupported) {
+    int width = 0;
+    int height = 0;
     jclass media_format_class = NULL;
     jmethodID enable_feature_id;
 
@@ -771,15 +773,13 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
       (*env)->ExceptionClear (env);
       goto error;
     }
-    int width = 0;
-    int height = 0;
+
     gst_amc_format_get_int (format, "width", &width);
     gst_amc_format_get_int (format, "height", &height);
 
-
     (*env)->CallVoidMethod (env, format->object, enable_feature_id, jtmpstr, 1);
 
-    GST_ERROR ("Setting max-width = %d max-height = %d", width, height);
+    GST_LOG ("Setting max-width = %d max-height = %d", width, height);
     gst_amc_format_set_int (format, "max-width", width);
     gst_amc_format_set_int (format, "max-height", height);
     gst_amc_format_set_int (format, "adaptive-playback", 1);
