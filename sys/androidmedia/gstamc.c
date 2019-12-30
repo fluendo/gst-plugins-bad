@@ -660,6 +660,7 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
 {
   gboolean adaptivePlaybackSupported = FALSE;
   jclass codec_info_class = NULL;
+  jclass media_codec_class = NULL;
   jobject capabilities = NULL;
   jmethodID get_codec_info_id;
   jmethodID get_capabilities_for_type_id;
@@ -669,8 +670,16 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   jstring jtmpstr = NULL;
 
   JNIEnv *env = gst_jni_get_env ();
+
+  media_codec_class = (*env)->GetObjectClass (env, codec->object);
+  if ((*env)->ExceptionCheck (env)) {
+    (*env)->ExceptionClear (env);
+    GST_ERROR ("Failed to get media_codec class");
+    goto error;
+  }
+
   get_codec_info_id =
-      (*env)->GetStaticMethodID (env, codec->object, "getCodecInfo",
+      (*env)->GetStaticMethodID (env, media_codec_class, "getCodecInfo",
       "()Landroid/media/MediaCodecInfo;");
   if ((*env)->ExceptionCheck (env)) {
     (*env)->ExceptionClear (env);
