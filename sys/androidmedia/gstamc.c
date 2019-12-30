@@ -707,6 +707,8 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
     goto error;
   }
 
+  jtmpstr = (*env)->NewStringUTF (env, mime);
+
   get_capabilities_for_type_id =
       (*env)->GetMethodID (env, codec_info_class, "getCapabilitiesForType",
       "(Ljava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;");
@@ -718,11 +720,16 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
 
   capabilities =
       (*env)->CallObjectMethod (env, codec_info, get_capabilities_for_type_id,
-      mime);
+      jtmpstr);
   if ((*env)->ExceptionCheck (env)) {
     (*env)->ExceptionClear (env);
     GST_ERROR ("Failed to get capabilities for %s", mime);
     goto error;
+  }
+
+  if (jtmpstr != NULL) {
+    J_DELETE_LOCAL_REF (jtmpstr);
+    jtmpstr = NULL;
   }
 
   capabilities_class = (*env)->GetObjectClass (env, capabilities);
