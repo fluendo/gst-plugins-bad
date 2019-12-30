@@ -636,7 +636,7 @@ gst_amc_crypto_ctx_free (GstAmcCrypto * crypto_ctx)
   memset (crypto_ctx, 0, sizeof (GstAmcCrypto));
 }
 
-void
+static void
 gst_amc_codec_free (GstAmcCodec * codec)
 {
   JNIEnv *env = gst_jni_get_env ();
