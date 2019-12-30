@@ -653,6 +653,114 @@ gst_amc_codec_get_release_method_id (GstAmcCodec * codec)
   return media_codec.release_output_buffer;
 }
 
+
+gboolean
+gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
+    GstAmcFormat * format)
+{
+  gboolean adaptivePlaybackSupported = FALSE;
+  jclass codec_info_class = NULL;
+  jobject capabilities = NULL;
+  jmethodID get_codec_info_id;
+  jmethodID get_capabilities_for_type_id;
+  jmethodID is_feature_supported_id;
+  char *mime = NULL;
+  jclass capabilities_class = NULL;
+  jstring jtmpstr = NULL;
+
+  JNIEnv *env = gst_jni_get_env ();
+  get_codec_info_id =
+      (*env)->GetStaticMethodID (env, codec->object, "getCodecInfo",
+      "()Landroid/media/MediaCodecInfo;");
+  if ((*env)->ExceptionCheck (env)) {
+    (*env)->ExceptionClear (env);
+    GST_ERROR ("Failed to get get_codec_info_id method");
+    goto error;
+  }
+
+  jobject codec_info =
+      (*env)->CallStaticObjectMethod (env, codec->object, get_codec_info_id);
+  if ((*env)->ExceptionCheck (env)) {
+    (*env)->ExceptionClear (env);
+    GST_ERROR ("Failed to get MediaCodecInfo from codec");
+    goto error;
+  }
+
+  codec_info_class = (*env)->GetObjectClass (env, codec_info);
+  if ((*env)->ExceptionCheck (env)) {
+    (*env)->ExceptionClear (env);
+    GST_ERROR ("Failed to get codec_info_class class");
+    goto error;
+  }
+
+  if (!gst_amc_format_get_string (format, "mime", &mime)) {
+    GST_ERROR ("Can't read mime from codec format");
+    goto error;
+  }
+
+  get_capabilities_for_type_id =
+      (*env)->GetMethodID (env, codec_info_class, "getCapabilitiesForType",
+      "(Ljava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;");
+
+  capabilities =
+      (*env)->CallObjectMethod (env, codec_info, get_capabilities_for_type_id,
+      mime);
+  if ((*env)->ExceptionCheck (env)) {
+    (*env)->ExceptionClear (env);
+    GST_ERROR ("Failed to get capabilities for %s", mime);
+    goto error;
+  }
+
+  capabilities_class = (*env)->GetObjectClass (env, capabilities);
+  if (!capabilities_class) {
+    (*env)->ExceptionClear (env);
+    GST_ERROR ("Failed to get capabilities class");
+    goto error;
+  }
+
+  is_feature_supported_id =
+      (*env)->GetMethodID (env, capabilities_class, "isFeatureSupported",
+      "(Ljava/lang/String;)Z");
+  if ((*env)->ExceptionCheck (env)) {
+    (*env)->ExceptionClear (env);
+    GST_ERROR ("Failed to get isFeatureSupported method");
+    goto error;
+  }
+
+  jtmpstr = (*env)->NewStringUTF (env, "adaptive-playback");
+  adaptivePlaybackSupported =
+      (*env)->CallBooleanMethod (env, capabilities, is_feature_supported_id,
+      jtmpstr);
+
+  if ((*env)->ExceptionCheck (env)) {
+    GST_ERROR ("Caught exception on quering if adaptive-playback is supported");
+    (*env)->ExceptionClear (env);
+    goto error;
+  }
+
+  GST_ERROR ("&&& Codec %s: adaptive-playback %ssupported", mime,
+      adaptivePlaybackSupported ? "" : "not ");
+
+  if (adaptivePlaybackSupported) {
+    int width = 0;
+    int height = 0;
+    gst_amc_format_get_int (format, "width", &width);
+    gst_amc_format_get_int (format, "height", &height);
+    GST_ERROR ("TEST WIDTH=%d HEIGHT =%d", width, height);
+
+    GST_ERROR ("Setting max-width = %d max-height = %d", width, height);
+    gst_amc_format_set_int (format, "max-width", width);
+    gst_amc_format_set_int (format, "max-height", height);
+    gst_amc_format_set_int (format, "adaptive-playback", 1);
+  }
+
+error:
+  if (jtmpstr != NULL)
+    J_DELETE_LOCAL_REF (jtmpstr);
+  g_free (mime);
+  return adaptivePlaybackSupported;
+}
+
 gboolean
 gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
     guint8 * surface, jobject mcrypto_obj, gint flags)
@@ -665,7 +773,39 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
     GST_ERROR ("{{{ configuring with MCrypto [%p]", mcrypto_obj);
     AMC_CHK ((*env)->IsInstanceOf (env, mcrypto_obj, media_crypto.klass));
   }
+/*
+  jclass tmp;
+  jmethodID set_integer_id;
+  jmethodID get_integer_id;
+  jclass tmp = (*env)->FindClass (env, "android/media/MediaFormat");
+  if (!tmp) {
+    ret = FALSE;
+    (*env)->ExceptionClear (env);
+    GST_ERROR ("Failed to get format class");
+    goto error;
+  }
 
+  get_integer_id =
+      (*env)->GetMethodID (env, tmp, "getInteger",
+      "(Ljava/lang/String;)I");
+
+  set_integer_id =
+      (*env)->GetMethodID (env, tmp, "setInteger",
+      "(Ljava/lang/String;I)V");
+      
+  format.setInteger(MediaFormat.KEY_MAX_WIDTH, 1920);
+  format.setInteger(MediaFormat.KEY_MAX_HEIGHT, 1080);
+*/
+
+/*
+
+  MediaCodecInfo info = aCodec.getCodecInfo();
+  MediaCodecInfo.CodecCapabilities capabilities = info.getCapabilitiesForType(aMimeType);
+  return capabilities != null &&
+          capabilities.isFeatureSupported(
+              MediaCodecInfo.CodecCapabilities.FEATURE_AdaptivePlayback);
+*/
+  gst_amc_codec_enable_adaptive_playback (codec, format);
   J_CALL_VOID (codec->object, media_codec.configure,
       format->object, surface, mcrypto_obj, flags);
   ret = TRUE;
@@ -1090,12 +1230,69 @@ gst_amc_format_new_video (const gchar * mime, gint width, gint height)
     goto error;
 
   format = g_slice_new0 (GstAmcFormat);
+
   J_CALL_STATIC_OBJ (object /* = */ , media_format, create_video_format,
       mime_str, width, height);
 
   AMC_CHK (object);
   format->object = (*env)->NewGlobalRef (env, object);
   AMC_CHK (format->object);
+
+  {
+    /*
+       gboolean adaptivePlaybackSupported = false;
+       jclass codec_info_class = NULL;
+       jmethodID get_codec_info_id;
+       get_codec_info_id =
+       (*env)->GetStaticMethodID (env, codec.object, "getCodecInfo",
+       "()Landroid/media/MediaCodecInfo;");
+
+       jobject codec_info =
+       (*env)->CallStaticObjectMethod (env, codec_list_class,
+       get_codec_info_id);
+
+       codec_info_class = (*env)->GetObjectClass (env, codec_info);
+
+       get_capabilities_for_type_id =
+       (*env)->GetMethodID (env, codec_info_class, "getCapabilitiesForType",
+       "(Ljava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;");
+
+       is_feature_supported_id =
+       (*env)->GetMethodID (env, capabilities_class, "isFeatureSupported",
+       "(Ljava/lang/String;)Z");
+
+       if (is_feature_supported_id)
+       {
+       jstring jtmpstr;
+
+       jtmpstr = (*env)->NewStringUTF (env, "adaptive-playback");
+       adaptivePlaybackSupported =
+       (*env)->CallBooleanMethod (env, capabilities, is_feature_supported_id,
+       jtmpstr);
+       if ((*env)->ExceptionCheck (env)) {
+       GST_ERROR
+       ("Caught exception on quering if adaptive-playback is supported");
+       (*env)->ExceptionClear (env);
+       }
+       J_DELETE_LOCAL_REF (jtmpstr);
+       GST_ERROR
+       ("&&& Codec %s: adaptive-playback %ssupported",
+       name_str, adaptivePlaybackSupported ? "" : "not " );
+       }else
+       {
+       GST_ERROR ("&&& isFeatureSupported not found " );
+       }
+
+       if (adaptivePlaybackSupported)
+     */
+    {
+      GST_ERROR ("Setting max-width = %d max-height = %d", width, height);
+      gst_amc_format_set_int (format, "max-width", width);
+      gst_amc_format_set_int (format, "max-height", height);
+      gst_amc_format_set_int (format, "adaptive-playback", 1);
+    }
+  }
+
 
 done:
   J_DELETE_LOCAL_REF (object);
@@ -2017,7 +2214,7 @@ scan_codecs (GstPlugin * plugin)
         (*env)->GetMethodID (env, codec_info_class, "isEncoder", "()Z");
 
     if (!get_capabilities_for_type_id || !get_name_id
-        || !get_supported_types_id || !is_encoder_id ) {
+        || !get_supported_types_id || !is_encoder_id) {
       (*env)->ExceptionClear (env);
       GST_ERROR ("Failed to get codec info method IDs");
       valid_codec = FALSE;
@@ -2194,18 +2391,17 @@ scan_codecs (GstPlugin * plugin)
 
 
       is_feature_supported_id =
-        (*env)->GetMethodID (env, capabilities_class, "isFeatureSupported",
-        "(Ljava/lang/String;)Z");
+          (*env)->GetMethodID (env, capabilities_class, "isFeatureSupported",
+          "(Ljava/lang/String;)Z");
 
-      if (is_feature_supported_id)
-      {
+      if (is_feature_supported_id) {
         gboolean adaptivePlaybackSupported;
         jstring jtmpstr;
 
         jtmpstr = (*env)->NewStringUTF (env, "adaptive-playback");
         adaptivePlaybackSupported =
-            (*env)->CallBooleanMethod (env, capabilities, is_feature_supported_id,
-            jtmpstr);
+            (*env)->CallBooleanMethod (env, capabilities,
+            is_feature_supported_id, jtmpstr);
         if ((*env)->ExceptionCheck (env)) {
           GST_ERROR
               ("Caught exception on quering if adaptive-playback is supported");
@@ -2214,13 +2410,12 @@ scan_codecs (GstPlugin * plugin)
         J_DELETE_LOCAL_REF (jtmpstr);
         GST_ERROR
             ("&&& Codec %s: adaptive-playback %ssupported",
-            name_str, adaptivePlaybackSupported ? "" : "not " );
-      }else
-      {
-        GST_ERROR ("&&& isFeatureSupported not found " );
+            name_str, adaptivePlaybackSupported ? "" : "not ");
+      } else {
+        GST_ERROR ("&&& isFeatureSupported not found ");
       }
-      
-          
+
+
       color_formats_id =
           (*env)->GetFieldID (env, capabilities_class, "colorFormats", "[I");
       profile_levels_id =

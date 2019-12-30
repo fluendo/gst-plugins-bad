@@ -218,6 +218,7 @@ gboolean gst_amc_query_set_surface (GstQuery *query, gpointer surface);
 GstEvent * gst_amc_event_new_surface (gpointer surface);
 gpointer gst_amc_event_parse_surface (GstEvent *event);
 gboolean gst_amc_event_is_surface (GstEvent *event);
+gboolean gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec, GstAmcFormat * format);
 
 G_END_DECLS
 #endif /* __GST_AMC_H__ */
