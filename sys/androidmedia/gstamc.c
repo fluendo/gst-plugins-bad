@@ -602,6 +602,8 @@ gst_amc_codec_new (const gchar * name)
   codec->object = (*env)->NewGlobalRef (env, object);
   AMC_CHK (codec->object);
 
+  g_mutex_init (&codec->buffers_lock);
+  codec->ref_count = 1;
 done:
   J_DELETE_LOCAL_REF (object);
   J_DELETE_LOCAL_REF (name_str);
@@ -614,31 +616,54 @@ error:
 }
 
 void
-gst_amc_codec_free (GstAmcCodec * codec, GstAmcCrypto * crypto_ctx)
+gst_amc_crypto_ctx_free (GstAmcCrypto * crypto_ctx)
 {
   JNIEnv *env = gst_jni_get_env ();
-  g_return_if_fail (codec != NULL);
 
-  env = gst_jni_get_env ();
+  g_return_if_fail (crypto_ctx != NULL);
 
-  if (crypto_ctx) {
-    if (crypto_ctx->mdrm) {
-      // If we have mdrm, we think that the mcrypto is created by us, not the user
-      J_DELETE_GLOBAL_REF (crypto_ctx->mcrypto);
-      if (crypto_ctx->mdrm_session_id) {
-        J_CALL_VOID (crypto_ctx->mdrm, media_drm.close_session,
-            crypto_ctx->mdrm_session_id);
-      }
-    error:                     // <-- to resolve J_CALL_VOID
-      J_DELETE_GLOBAL_REF (crypto_ctx->mdrm_session_id);
-      J_DELETE_GLOBAL_REF (crypto_ctx->mdrm);
+  if (crypto_ctx->mdrm) {
+    // If we have mdrm, we think that the mcrypto is created by us, not the user
+    J_DELETE_GLOBAL_REF (crypto_ctx->mcrypto);
+    if (crypto_ctx->mdrm_session_id) {
+      J_CALL_VOID (crypto_ctx->mdrm, media_drm.close_session,
+          crypto_ctx->mdrm_session_id);
     }
-
-    memset (crypto_ctx, 0, sizeof (GstAmcCrypto));
+  error:                       // <-- to resolve J_CALL_VOID
+    J_DELETE_GLOBAL_REF (crypto_ctx->mdrm_session_id);
+    J_DELETE_GLOBAL_REF (crypto_ctx->mdrm);
   }
 
+  memset (crypto_ctx, 0, sizeof (GstAmcCrypto));
+}
+
+static void
+gst_amc_codec_free (GstAmcCodec * codec)
+{
+  JNIEnv *env = gst_jni_get_env ();
+
   J_DELETE_GLOBAL_REF (codec->object);
+  g_mutex_clear (&codec->buffers_lock);
   g_slice_free (GstAmcCodec, codec);
+}
+
+GstAmcCodec *
+gst_amc_codec_ref (GstAmcCodec * codec)
+{
+  g_return_val_if_fail (codec, NULL);
+
+  g_atomic_int_inc (&codec->ref_count);
+
+  return codec;
+}
+
+void
+gst_amc_codec_unref (GstAmcCodec * codec)
+{
+  g_return_if_fail (codec != NULL);
+
+  if (g_atomic_int_dec_and_test (&codec->ref_count))
+    gst_amc_codec_free (codec);
 }
 
 jmethodID
@@ -884,7 +909,14 @@ gst_amc_codec_flush (GstAmcCodec * codec)
   JNIEnv *env = gst_jni_get_env ();
 
   AMC_CHK (codec);
+
+  /* Before we flush, we "invalidate all previously pushed buffers,
+   * because it's incorrect to call releaseOutputBuffer after flush. */
+  g_mutex_lock (&codec->buffers_lock);
+  /* Now buffers with previous flush-id won't be ever released */
+  codec->flush_id++;
   J_CALL_VOID (codec->object, media_codec.flush);
+  g_mutex_unlock (&codec->buffers_lock);
   ret = TRUE;
 error:
   return ret;
@@ -3329,8 +3361,9 @@ gst_amc_dr_buffer_new (GstAmcCodec * codec, guint idx)
   GstAmcDRBuffer *buf;
 
   buf = g_new0 (GstAmcDRBuffer, 1);
-  buf->codec = *codec;
-  buf->codec.object = gst_amc_global_ref_jobj (buf->codec.object);
+  buf->codec = gst_amc_codec_ref (codec);
+  /* No need to lock because we are sure we don't flush at this moment. */
+  buf->flush_id = codec->flush_id;
   buf->idx = idx;
   buf->released = FALSE;
 
@@ -3343,7 +3376,10 @@ gst_amc_dr_buffer_render (GstAmcDRBuffer * buf, GstClockTime ts)
   gboolean ret = FALSE;
 
   if (!buf->released) {
-    ret = gst_amc_codec_render_output_buffer (&buf->codec, buf->idx, ts);
+    g_mutex_lock (&buf->codec->buffers_lock);
+    if (buf->codec->flush_id == buf->flush_id)
+      ret = gst_amc_codec_render_output_buffer (buf->codec, buf->idx, ts);
+    g_mutex_unlock (&buf->codec->buffers_lock);
     buf->released = TRUE;
   }
 
@@ -3353,11 +3389,14 @@ gst_amc_dr_buffer_render (GstAmcDRBuffer * buf, GstClockTime ts)
 void
 gst_amc_dr_buffer_free (GstAmcDRBuffer * buf)
 {
-  JNIEnv *env = gst_jni_get_env ();
   if (!buf->released) {
-    gst_amc_codec_release_output_buffer (&buf->codec, buf->idx);
+    g_mutex_lock (&buf->codec->buffers_lock);
+    if (buf->codec->flush_id == buf->flush_id)
+      gst_amc_codec_release_output_buffer (buf->codec, buf->idx);
+    g_mutex_unlock (&buf->codec->buffers_lock);
   }
-  J_DELETE_GLOBAL_REF (buf->codec.object);
+
+  gst_amc_codec_unref (buf->codec);
   g_free (buf);
 }
 
