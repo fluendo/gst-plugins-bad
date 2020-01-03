@@ -1,6 +1,7 @@
 plugin_LTLIBRARIES = libgstandroidmedia.la
 
 libgstandroidmedia_la_SOURCES = \
+	gstaudiotracksink.c \
 	gstamc.c \
 	gstamcaudiodec.c \
 	gstamcvideodec.c \
@@ -11,8 +12,8 @@ libgstandroidmedia_la_SOURCES = \
 	video/gstvideoutils.c
 
 noinst_HEADERS = \
+	gstaudiotracksink.h \
 	gstamc.h \
-	gstamcmacro.h \
 	gstamc-constants.h \
 	gstamcaudiodec.h \
 	gstamcvideodec.h \
