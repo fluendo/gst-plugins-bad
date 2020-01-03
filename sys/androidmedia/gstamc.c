@@ -28,6 +28,7 @@
 #include "gstamcvideodec.h"
 #include "gstamcaudiodec.h"
 #include "gstamcvideosink.h"
+#include "gstaudiotracksink.h"
 
 #include <gst/gst.h>
 #include <gst/video/video.h>
@@ -37,14 +38,6 @@
 #include <jni.h>
 
 #include <curl/curl.h>
-
-/* Macros have next rules:
-   J_CALL_<TYPE> (), J_CALL_STATIC_<TYPE> () - first parameter is a variable
-   to write to, if it's not J_CALL_VOID () or J_CALL_STATIC_VOID ().
-   If exception occured, it jumps to "error" label, and the variable
-   is kept untouched.
- */
-#include <gstamcmacro.h>
 
 GST_DEBUG_CATEGORY (gst_amc_debug);
 #define GST_CAT_DEFAULT gst_amc_debug
@@ -430,7 +423,7 @@ hack_pssh_initdata (guchar * payload, gsize payload_size,
     GST_ERROR ("### Size of data field inside pssh: %d", data_field_size);
   }
 
-  /* Now we have to hack pssh a little because of Android libmediadrm's pitfall: 
+  /* Now we have to hack pssh a little because of Android libmediadrm's pitfall:
      It requires initData (pssh) to have "data" size == 0, and if "data" size != 0,
      android will just refuse to parse in
      av/drm/mediadrm/plugins/clearkey/InitDataParcer.cpp:112
@@ -3300,8 +3293,15 @@ plugin_init (GstPlugin * plugin)
   if (!register_codecs (plugin))
     return FALSE;
 
-  return gst_element_register (plugin, "amcvideosink", GST_RANK_PRIMARY,
-      GST_TYPE_AMC_VIDEO_SINK);
+  if (!gst_element_register (plugin, "amcvideosink", GST_RANK_PRIMARY,
+      GST_TYPE_AMC_VIDEO_SINK)) {
+    return FALSE;
+  };
+
+  if (!gst_element_register (plugin, "audiotracksink", GST_RANK_PRIMARY,
+      GST_TYPE_AUDIOTRACK_SINK)) {
+    return FALSE;
+  };
 
   return TRUE;
 }
