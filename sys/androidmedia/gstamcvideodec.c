@@ -73,7 +73,8 @@ static gboolean gst_amc_video_dec_src_event (GstVideoDecoder * decoder,
 enum
 {
   PROP_0,
-  PROP_DRM_AGENT_HANDLE
+  PROP_DRM_AGENT_HANDLE,
+  PROP_AUDIO_SESSION_ID,
 };
 
 /* class initialization */
@@ -538,6 +539,9 @@ gst_amc_video_dec_get_property (GObject * object, guint prop_id, GValue * value,
     case PROP_DRM_AGENT_HANDLE:
       g_value_set_pointer (value, (gpointer) thiz->crypto_ctx.mcrypto);
       break;
+    case PROP_AUDIO_SESSION_ID:
+      g_value_set_int (value, thiz->audio_session_id);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -559,6 +563,9 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
           gst_amc_global_ref_jobj (thiz->crypto_ctx.mcrypto);
       GST_ERROR_OBJECT (object, "{{{ after global ref mcrypto is [%p]",
           thiz->crypto_ctx.mcrypto);
+      break;
+    case PROP_AUDIO_SESSION_ID:
+      thiz->audio_session_id = g_value_get_int (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -634,6 +641,11 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
       g_param_spec_pointer ("drm-agent-handle", "DRM Agent handle",
           "The DRM Agent handle to use for decrypting",
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_AUDIO_SESSION_ID,
+      g_param_spec_int ("audio-session-id", "Audio Session ID",
+          "Audio Session ID for tunneled video playback",
+          0, G_MAXINT, 0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
 }
 
@@ -1618,7 +1630,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     self->is_encrypted = TRUE;
 
   if (!gst_amc_codec_configure (self->codec, format, jsurface,
-          self->crypto_ctx.mcrypto, 0)) {
+          self->crypto_ctx.mcrypto, 0, self->audio_session_id)) {
     gst_amc_format_free (format);
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
@@ -1795,7 +1807,7 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
 
     /* We've send some jni buffer to decoder, now let's start the thread, that
        fetches decoded frames and pushes them to srcpad: */
-    if (G_UNLIKELY (!self->srcpad_loop_started)) {
+    if (G_UNLIKELY (!self->srcpad_loop_started) && !self->codec->tunneled_playback_enabled) {
       /* We do it once after each flush */
       gst_pad_start_task (GST_VIDEO_DECODER_SRC_PAD (self),
           (GstTaskFunction) gst_amc_video_dec_loop, decoder);
@@ -1825,7 +1837,6 @@ gst_amc_video_dec_finish (GstVideoDecoder * decoder)
   /* There's a naming confusion in a base class: "finish" function is called on eos */
   return gst_amc_video_dec_eos (decoder);
 }
-
 
 static GstFlowReturn
 gst_amc_video_dec_eos (GstVideoDecoder * decoder)

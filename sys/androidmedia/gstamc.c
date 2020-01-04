@@ -686,17 +686,14 @@ gst_amc_codec_get_release_method_id (GstAmcCodec * codec)
   return media_codec.release_output_buffer;
 }
 
-
 gboolean
-gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
-    GstAmcFormat * format)
+gst_amc_codec_is_feature_supported (GstAmcCodec * codec,
+  GstAmcFormat * format, const gchar * feature)
 {
-  gboolean adaptivePlaybackSupported = FALSE;
+  gboolean is_feature_supported = FALSE;
   jstring jtmpstr = NULL;
   jobject codec_info = NULL;
   jobject capabilities = NULL;
-  gint width = 0;
-  gint height = 0;
 
   JNIEnv *env = gst_jni_get_env ();
 
@@ -708,35 +705,74 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
       media_codec_info.get_capabilities_for_type, jtmpstr);
   J_DELETE_LOCAL_REF (jtmpstr);
 
-  jtmpstr = (*env)->NewStringUTF (env, "adaptive-playback");
+  jtmpstr = (*env)->NewStringUTF (env, feature);
 
-  J_CALL_BOOL (adaptivePlaybackSupported /* = */ , capabilities,
+  J_CALL_BOOL (is_feature_supported /* = */ , capabilities,
       codec_capabilities.is_feature_supported, jtmpstr);
-
-  if (adaptivePlaybackSupported &&
-      gst_amc_format_get_int (format, "width", &width) &&
-      gst_amc_format_get_int (format, "height", &height) && width && height) {
-
-    J_CALL_VOID (format->object, media_format.set_feature_enabled, jtmpstr, 1);
-
-    GST_DEBUG ("Setting max-width = %d max-height = %d", width, height);
-    gst_amc_format_set_int (format, "max-width", width);
-    gst_amc_format_set_int (format, "max-height", height);
-    gst_amc_format_set_int (format, "adaptive-playback", 1);
-  }
 
 error:
   J_DELETE_LOCAL_REF (jtmpstr);
   J_DELETE_LOCAL_REF (capabilities);
   J_DELETE_LOCAL_REF (codec_info);
-  GST_DEBUG ("Feature adaptive-playback %ssupported",
-      (!adaptivePlaybackSupported) ? "not " : "");
-  return adaptivePlaybackSupported;
+
+  GST_DEBUG ("Feature %s %ssupported", feature,
+      (!is_feature_supported) ? "not " : "");
+  return is_feature_supported;
+}
+
+
+gboolean
+gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
+    GstAmcFormat * format)
+{
+  gint width = 0;
+  gint height = 0;
+  jstring jtmpstr;
+
+  JNIEnv *env = gst_jni_get_env ();
+
+  if (!gst_amc_codec_is_feature_supported (codec, format, "adaptive-playback") ||
+      !gst_amc_format_get_int (format, "width", &width) ||
+      !gst_amc_format_get_int (format, "height", &height) || !width || !height) {
+    return FALSE;
+  }
+
+  jtmpstr = (*env)->NewStringUTF (env, "adaptive-playback");
+  J_CALL_VOID (format->object, media_format.set_feature_enabled, jtmpstr, 1);
+
+  GST_DEBUG ("Setting max-width = %d max-height = %d", width, height);
+  gst_amc_format_set_int (format, "max-width", width);
+  gst_amc_format_set_int (format, "max-height", height);
+  gst_amc_format_set_int (format, "adaptive-playback", 1);
+
+error:
+  J_DELETE_LOCAL_REF (jtmpstr);
+  return TRUE;
+}
+
+gboolean
+gst_amc_codec_enable_tunneled_video_playback (GstAmcCodec * codec,
+    GstAmcFormat * format, gint audio_session_id)
+{
+  jstring jtmpstr;
+  JNIEnv *env = gst_jni_get_env ();
+
+  if (!gst_amc_codec_is_feature_supported (codec, format, "tunneled-playback")) {
+    return FALSE;
+  }
+
+  jtmpstr = (*env)->NewStringUTF (env, "tunneled-playback");
+  J_CALL_VOID (format->object, media_format.set_feature_enabled, jtmpstr, 1);
+  gst_amc_format_set_int (format, "audio-session-id", audio_session_id);
+
+error:
+  J_DELETE_LOCAL_REF (jtmpstr);
+  return TRUE;
 }
 
 gboolean
 gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
-    guint8 * surface, jobject mcrypto_obj, gint flags)
+    guint8 * surface, jobject mcrypto_obj, gint flags, gint audio_session_id)
 {
   gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
@@ -748,6 +784,11 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
   }
 
   gst_amc_codec_enable_adaptive_playback (codec, format);
+  if (audio_session_id) {
+    gst_amc_codec_enable_tunneled_video_playback (codec, format, audio_session_id);
+    codec->tunneled_playback_enabled = TRUE;
+  }
+
   J_CALL_VOID (codec->object, media_codec.configure,
       format->object, surface, mcrypto_obj, flags);
   ret = TRUE;
