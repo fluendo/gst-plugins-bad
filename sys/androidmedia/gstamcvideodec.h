@@ -50,6 +50,9 @@ struct _GstAmcVideoDec
 {
   GstVideoDecoder parent;
 
+  /* Properties */
+  gint audio_session_id;
+
   /* < private > */
   GstAmcCodec *codec;
   GstAmcBuffer *input_buffers, *output_buffers;
@@ -57,6 +60,8 @@ struct _GstAmcVideoDec
 
   GstVideoCodecState *input_state;
   gboolean input_state_changed;
+
+  gboolean tunneled_playback_enabled;
 
   /* Output format of the codec */
   GstVideoFormat format;

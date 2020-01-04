@@ -85,6 +85,7 @@ struct _GstAmcCodec
 {
   guint flush_id;
   GMutex buffers_lock;
+  gint tunneled_playback_enabled;
   /* < private > */
   jobject object;               /* global reference */
   gint ref_count;
@@ -116,7 +117,7 @@ void gst_amc_crypto_ctx_free (GstAmcCrypto * crypto_ctx);
 jmethodID gst_amc_codec_get_release_method_id (GstAmcCodec * codec);
 jmethodID gst_amc_codec_get_release_ts_method_id (GstAmcCodec * codec);
 gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
-    guint8 * surface, jobject mcrypto_obj, gint flags);
+    guint8 * surface, jobject mcrypto_obj, gint flags, gint audio_session_id);
 GstAmcFormat *gst_amc_codec_get_output_format (GstAmcCodec * codec);
 
 gboolean gst_amc_codec_start (GstAmcCodec * codec);
@@ -225,7 +226,10 @@ gboolean gst_amc_query_set_surface (GstQuery *query, gpointer surface);
 GstEvent * gst_amc_event_new_surface (gpointer surface);
 gpointer gst_amc_event_parse_surface (GstEvent *event);
 gboolean gst_amc_event_is_surface (GstEvent *event);
+
+gboolean gst_amc_codec_is_feature_supported (GstAmcCodec * codec, GstAmcFormat * format, const gchar * feature);
 gboolean gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec, GstAmcFormat * format);
+gboolean gst_amc_codec_enable_tunneled_video_playback (GstAmcCodec * codec, GstAmcFormat * format, gint audio_session_id);
 
 G_END_DECLS
 #endif /* __GST_AMC_H__ */
