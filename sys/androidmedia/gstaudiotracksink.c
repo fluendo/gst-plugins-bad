@@ -252,7 +252,10 @@ gst_audio_track_sink_setcaps (GstBaseSink * bsink, GstCaps * caps)
       gst_jni_audio_track_new (sink->rate, sink->channels, sink->width,
       buffer_size * BUFFER_SIZE_FACTOR, sink->audio_session_id);
   if (sink->audio_track == NULL) {
-    GST_ERROR_OBJECT (sink, "Could not create AudioTrack.");
+    GST_ELEMENT_ERROR (sink, LIBRARY, SETTINGS,
+        ("failed to create AudioTrack, incorrect settings"),
+        ("failed to create AudioTrack, incorrect settings"));
+    return FALSE;
   }
   GST_INFO_OBJECT (sink,
       "Created AudioTrack: min_buffer_size=%d latency=%lld session_id=%d",
