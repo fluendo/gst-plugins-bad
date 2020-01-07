@@ -24,6 +24,7 @@
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/audio/multichannel.h>
+#include <gst/androidjni/gstjnimediaformat.h>
 #include <jni.h>
 #include <fluc/drm/flucdrm.h>
 
@@ -32,7 +33,6 @@ typedef struct _GstAmcCodecInfo GstAmcCodecInfo;
 typedef struct _GstAmcCodecType GstAmcCodecType;
 typedef struct _GstAmcCodec GstAmcCodec;
 typedef struct _GstAmcBufferInfo GstAmcBufferInfo;
-typedef struct _GstAmcFormat GstAmcFormat;
 typedef struct _GstAmcCrypto GstAmcCrypto;
 typedef struct _GstAmcBuffer GstAmcBuffer;
 typedef struct _GstAmcDRBuffer GstAmcDRBuffer;
@@ -65,12 +65,6 @@ struct _GstAmcBuffer
   jobject object;               /* global reference */
   guint8 *data;
   gsize size;
-};
-
-struct _GstAmcFormat
-{
-  /* < private > */
-  jobject object;               /* global reference */
 };
 
 struct _GstAmcCrypto
@@ -145,32 +139,7 @@ gboolean gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index,
     GstClockTime ts);
 gboolean gst_amc_codec_set_output_surface (GstAmcCodec * codec, guint8 * surface);
 
-GstAmcFormat *gst_amc_format_new_audio (const gchar * mime, gint sample_rate,
-    gint channels);
-GstAmcFormat *gst_amc_format_new_video (const gchar * mime, gint width,
-    gint height);
-void gst_amc_format_free (GstAmcFormat * format);
 
-gchar *gst_amc_format_to_string (GstAmcFormat * format);
-
-gboolean gst_amc_format_contains_key (GstAmcFormat * format, const gchar * key);
-
-gboolean gst_amc_format_get_float (GstAmcFormat * format, const gchar * key,
-    gfloat * value);
-void gst_amc_format_set_float (GstAmcFormat * format, const gchar * key,
-    gfloat value);
-gboolean gst_amc_format_get_int (const GstAmcFormat * format, const gchar * key,
-    gint * value);
-void gst_amc_format_set_int (GstAmcFormat * format, const gchar * key,
-    gint value);
-gboolean gst_amc_format_get_string (GstAmcFormat * format, const gchar * key,
-    gchar ** value);
-void gst_amc_format_set_string (GstAmcFormat * format, const gchar * key,
-    const gchar * value);
-gboolean gst_amc_format_get_buffer (GstAmcFormat * format, const gchar * key,
-    GstBuffer ** value);
-void gst_amc_format_set_buffer (GstAmcFormat * format, const gchar * key,
-    GstBuffer * value);
 
 GstVideoFormat gst_amc_color_format_to_video_format (gint color_format);
 
