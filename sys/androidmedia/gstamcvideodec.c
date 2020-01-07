@@ -31,6 +31,7 @@
 
 #include <gst/gst.h>
 #include <gst/androidjni/gstjniamcdirectbuffer.h>
+#include <gst/androidjni/gstjniamcutils.h>
 #include <string.h>
 
 #ifdef HAVE_ORC
@@ -413,47 +414,6 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
   }
 
   return ret;
-}
-
-static const gchar *
-caps_to_mime (GstCaps * caps)
-{
-  GstStructure *s;
-  const gchar *name;
-
-  s = gst_caps_get_structure (caps, 0);
-  if (!s)
-    return NULL;
-
-  name = gst_structure_get_name (s);
-
-  if (strcmp (name, "video/mpeg") == 0) {
-    gint mpegversion;
-
-    if (!gst_structure_get_int (s, "mpegversion", &mpegversion))
-      return NULL;
-
-    if (mpegversion == 4)
-      return "video/mp4v-es";
-    else if (mpegversion == 1 || mpegversion == 2)
-      return "video/mpeg2";
-  } else if (strcmp (name, "video/x-h263") == 0) {
-    return "video/3gpp";
-  } else if (strcmp (name, "video/x-h264") == 0) {
-    return "video/avc";
-  } else if (strcmp (name, "video/x-h265") == 0) {
-    return "video/hevc";
-  } else if (strcmp (name, "video/x-vp8") == 0) {
-    return "video/x-vnd.on2.vp8";
-  } else if (strcmp (name, "video/x-divx") == 0) {
-    return "video/mp4v-es";
-  } else if (strcmp (name, "video/x-xvid") == 0) {
-    return "video/mp4v-es";
-  } else if (strcmp (name, "video/x-3ivx") == 0) {
-    return "video/mp4v-es";
-  }
-
-  return NULL;
 }
 
 static GstCaps *
@@ -1568,7 +1528,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
 
   gst_buffer_replace (&self->codec_data, state->codec_data);
 
-  mime = caps_to_mime (state->caps);
+  mime = gst_jni_amc_video_caps_to_mime (state->caps);
   if (!mime) {
     GST_ERROR_OBJECT (self, "Failed to convert caps to mime");
     return FALSE;
