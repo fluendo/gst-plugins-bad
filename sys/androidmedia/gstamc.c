@@ -2935,12 +2935,12 @@ plugin_init (GstPlugin * plugin)
     return FALSE;
 
   if (!gst_element_register (plugin, "amcvideosink", GST_RANK_PRIMARY,
-      GST_TYPE_AMC_VIDEO_SINK)) {
+          GST_TYPE_AMC_VIDEO_SINK)) {
     return FALSE;
   };
 
-  if (!gst_element_register (plugin, "audiotracksink", GST_RANK_PRIMARY,
-      GST_TYPE_AUDIOTRACK_SINK)) {
+  if (!gst_element_register (plugin, "audiotracksink", GST_RANK_SECONDARY,
+          GST_TYPE_AUDIOTRACK_SINK)) {
     return FALSE;
   };
 
