@@ -34,6 +34,7 @@
 #include <gst/video/video.h>
 #include <gst/audio/audio.h>
 #include <gst/androidjni/gstjniutils.h>
+#include <gst/androidjni/gstjnimediacodeclist.h>
 #include <string.h>
 #include <jni.h>
 
@@ -1167,8 +1168,6 @@ get_java_classes (void)
 
   GST_DEBUG ("Retrieving Java classes");
 
-  gst_amc_media_format_init ();
-
   env = gst_jni_get_env ();
 
   tmp = (*env)->FindClass (env, "java/lang/String");
@@ -1631,9 +1630,9 @@ scan_codecs (GstPlugin * plugin)
 {
   gboolean ret = FALSE;
   JNIEnv *env;
-  jclass codec_list_class = NULL;
-  jmethodID get_codec_count_id, get_codec_info_at_id;
+  GstJniMediaCodecList *codec_list = NULL;
   jint codec_count, i;
+  jobjectArray jcodec_infos;
   const GstStructure *cache_data;
 
   GST_DEBUG ("Scanning codecs");
@@ -1709,10 +1708,6 @@ scan_codecs (GstPlugin * plugin)
           l = gst_value_array_get_value (plv, 1);
           gst_codec_type->profile_levels[k].profile = g_value_get_int (p);
           gst_codec_type->profile_levels[k].level = g_value_get_int (l);
-
-          //GST_ERROR ("&&& Found levels for %s: prof = %d, lev = %d",
-          //    mime, gst_codec_type->profile_levels[k].profile,
-          //    gst_codec_type->profile_levels[k].level);
         }
       }
 
@@ -1724,20 +1719,10 @@ scan_codecs (GstPlugin * plugin)
 
   env = gst_jni_get_env ();
 
-  codec_list_class = (*env)->FindClass (env, "android/media/MediaCodecList");
-  AMC_CHK (codec_list_class);
-
-  get_codec_count_id =
-      (*env)->GetStaticMethodID (env, codec_list_class, "getCodecCount", "()I");
-  get_codec_info_at_id =
-      (*env)->GetStaticMethodID (env, codec_list_class, "getCodecInfoAt",
-      "(I)Landroid/media/MediaCodecInfo;");
-  AMC_CHK (get_codec_count_id && get_codec_info_at_id);
-
-  // J_CALL_STATIC_INT
-  codec_count =
-      (*env)->CallStaticIntMethod (env, codec_list_class, get_codec_count_id);
-  J_EXCEPTION_CHECK ("codec_list_class->get_codec_count_id");
+  codec_list = gst_jni_media_codec_list_new ();
+  jcodec_infos = gst_jni_media_codec_list_get_codec_infos (codec_list);
+  gst_jni_object_unref (codec_list);
+  codec_count = (*env)->GetArrayLength (env, jcodec_infos);
 
   GST_LOG ("Found %d available codecs", codec_count);
 
@@ -1757,9 +1742,7 @@ scan_codecs (GstPlugin * plugin)
 
     gst_codec_info = g_new0 (GstAmcCodecInfo, 1);
 
-    codec_info =
-        (*env)->CallStaticObjectMethod (env, codec_list_class,
-        get_codec_info_at_id, i);
+    codec_info = (*env)->GetObjectArrayElement(env, jcodec_infos, i);
     if ((*env)->ExceptionCheck (env) || !codec_info) {
       (*env)->ExceptionClear (env);
       GST_ERROR ("Failed to get codec info %d", i);
@@ -1768,7 +1751,7 @@ scan_codecs (GstPlugin * plugin)
     }
 
     codec_info_class = (*env)->GetObjectClass (env, codec_info);
-    if (!codec_list_class) {
+    if (!codec_list) {
       (*env)->ExceptionClear (env);
       GST_ERROR ("Failed to get codec info class");
       valid_codec = FALSE;
@@ -2179,6 +2162,7 @@ scan_codecs (GstPlugin * plugin)
   }
 
   ret = codec_infos != NULL;
+  gst_jni_object_unref (codec_infos);
 
   /* If successful we store a cache of the codec information in
    * the registry. Otherwise we would always load all codecs during
@@ -2267,10 +2251,7 @@ scan_codecs (GstPlugin * plugin)
     save_codecs (plugin, new_cache_data);
   }
 
-  ret = TRUE;
-error:
-  J_DELETE_LOCAL_REF (codec_list_class);
-  return ret;
+  return TRUE;
 }
 
 static const struct
@@ -2888,6 +2869,19 @@ register_codecs (GstPlugin * plugin)
         rank = GST_RANK_SECONDARY;
       else
         rank = GST_RANK_PRIMARY;
+
+      /* FIXME: this should be done looking at the codec feature and it
+       * needs to create one element for each supported mime in the codec
+       * as each mime could support or not some features
+       * In the practice venders splits the codec in regular, tunneled and secure */
+      /* Give the tunneled decoder a rank lower than the non-tunneled */
+      if (g_str_has_suffix (codec_info->name, "tunneled")) {
+        rank = rank - 1;
+      }
+      /* Give the secure decoder a rank lower than the non-secure */
+      if (g_str_has_suffix (codec_info->name, "secure")) {
+        rank = rank - 2;
+      }
 
       ret |= gst_element_register (plugin, element_name, rank, subtype);
       g_free (element_name);

@@ -42,5 +42,8 @@ void gst_jni_media_codec_list_free (GstJniMediaCodecList * self);
 gchar *gst_jni_media_codec_list_find_decoder_for_format (GstJniMediaCodecList *
     self, GstAmcFormat * format);
 
+jobjectArray gst_jni_media_codec_list_get_codec_infos (GstJniMediaCodecList *
+    self);
+
 G_END_DECLS
 #endif

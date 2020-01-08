@@ -32,6 +32,7 @@ static struct
   jclass klass;
   jmethodID constructor;
   jmethodID find_decoder_for_format;
+  jmethodID get_codec_infos;
 } media_codec_list;
 
 gboolean
@@ -63,13 +64,17 @@ gst_jni_media_codec_list_init (void)
 
   J_INIT_METHOD_ID (media_codec_list, constructor, "<init>", "(I)V");
   J_INIT_METHOD_ID (media_codec_list, find_decoder_for_format,
-      "FindDecoderForFormat",
+      "findDecoderForFormat",
       "(Landroid/media/MediaFormat;)Ljava/lang/String;");
+  J_INIT_METHOD_ID (media_codec_list, get_codec_infos,
+      "getCodecInfos", "()[Landroid/media/MediaCodecInfo;");
 
 done:
   _initialized = ret;
   return ret;
 error:
+  ret = FALSE;
+  GST_ERROR ("Could not initialize android/media/MediaCodecList");
   goto done;
 }
 
@@ -114,10 +119,18 @@ gst_jni_media_codec_list_find_decoder_for_format (GstJniMediaCodecList * self,
   JNIEnv *env = gst_jni_get_env ();
 
   j_codec_name = gst_jni_call_object_method (env, self->object,
-      media_codec_list.find_decoder_for_format, format);
+      media_codec_list.find_decoder_for_format, format->object);
 
   if (j_codec_name == NULL) {
     return NULL;
   }
   return gst_jni_string_to_gchar (env, j_codec_name, TRUE);
+}
+
+jobjectArray
+gst_jni_media_codec_list_get_codec_infos (GstJniMediaCodecList * self)
+{
+  JNIEnv *env = gst_jni_get_env ();
+  return gst_jni_call_object_method (env, self->object,
+      media_codec_list.get_codec_infos);
 }
