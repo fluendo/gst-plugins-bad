@@ -1767,7 +1767,8 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
 
     /* We've send some jni buffer to decoder, now let's start the thread, that
        fetches decoded frames and pushes them to srcpad: */
-    if (G_UNLIKELY (!self->srcpad_loop_started) && !self->codec->tunneled_playback_enabled) {
+    if (G_UNLIKELY (!self->srcpad_loop_started)
+        && !self->codec->tunneled_playback_enabled) {
       /* We do it once after each flush */
       gst_pad_start_task (GST_VIDEO_DECODER_SRC_PAD (self),
           (GstTaskFunction) gst_amc_video_dec_loop, decoder);
