@@ -1721,7 +1721,7 @@ scan_codecs (GstPlugin * plugin)
 
   codec_list = gst_jni_media_codec_list_new ();
   jcodec_infos = gst_jni_media_codec_list_get_codec_infos (codec_list);
-  gst_jni_object_unref (codec_list);
+  gst_jni_object_unref (env, codec_list);
   codec_count = (*env)->GetArrayLength (env, jcodec_infos);
 
   GST_LOG ("Found %d available codecs", codec_count);
@@ -2162,7 +2162,7 @@ scan_codecs (GstPlugin * plugin)
   }
 
   ret = codec_infos != NULL;
-  gst_jni_object_unref (codec_infos);
+  gst_jni_object_unref (env, codec_infos);
 
   /* If successful we store a cache of the codec information in
    * the registry. Otherwise we would always load all codecs during
