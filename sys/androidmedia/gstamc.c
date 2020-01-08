@@ -757,6 +757,8 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
 
   gst_amc_codec_enable_adaptive_playback (codec, format);
   if (audio_session_id) {
+    GST_DEBUG ("Enabling tunneled playback with session id %d",
+        audio_session_id);
     gst_amc_codec_enable_tunneled_video_playback (codec, format,
         audio_session_id);
     codec->tunneled_playback_enabled = TRUE;
