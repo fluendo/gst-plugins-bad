@@ -361,7 +361,7 @@ gst_jni_audio_track_set_playback_params (GstJniAudioTrack * self, gfloat speed,
       playback_params.set_pitch, pitch);
   gst_jni_call_void_method (env, self->jobject, audio_track.set_playback_params,
       playback_params_obj);
-  gst_jni_object_local_unref (env, playback_params_obj);
+  gst_jni_object_unref (env, playback_params_obj);
 }
 
 void

@@ -74,9 +74,7 @@ _type gst_jni_get_##_name##_field (JNIEnv *env, jobject obj, jfieldID fieldID)  
   }
 GET_TYPE_FIELD (gint, int, Int, G_MININT)
 GET_TYPE_FIELD (glong, long, Long, G_MINLONG)
-
-
-  jclass
+    jclass
 gst_jni_get_class (JNIEnv * env, const gchar * name)
 {
   jclass tmp, ret = NULL;
@@ -386,6 +384,13 @@ gst_jni_initialize (JavaVM * java_vm)
       __java_vm = java_vm;
     }
   }
+  if (!gst_amc_media_format_init ()) {
+    return FALSE;
+  }
+  if (!gst_jni_media_codec_list_init ()) {
+    return FALSE;
+  }
+
   return __initialized;
 }
 
