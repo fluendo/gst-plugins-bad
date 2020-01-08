@@ -1580,7 +1580,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
 
   format_string = gst_amc_format_to_string (format);
   GST_DEBUG_OBJECT (self, "Configuring codec with format: %s surface: %p "
-      "audio session id:%d", format_string, jsurface, thiz->audio_session_id);
+      "audio session id:%d", format_string, jsurface, self->audio_session_id);
   g_free (format_string);
 
   /* We decide that stream is encrypted if we eather received and parsed

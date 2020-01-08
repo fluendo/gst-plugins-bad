@@ -717,11 +717,11 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   }
 
   gst_amc_format_set_feature_enabled (format, "adaptive-playback", TRUE);
-
+  /* FIXME: is this really needed or it's set in the previous call ? */
+  gst_amc_format_set_int (format, "adaptive-playback", 1);
   GST_DEBUG ("Setting max-width = %d max-height = %d", width, height);
   gst_amc_format_set_int (format, "max-width", width);
   gst_amc_format_set_int (format, "max-height", height);
-  gst_amc_format_set_int (format, "adaptive-playback", 1);
 
   return TRUE;
 }
@@ -737,6 +737,9 @@ gst_amc_codec_enable_tunneled_video_playback (GstAmcCodec * codec,
 
   gst_amc_format_set_feature_enabled (format,
       GST_AMC_MEDIA_FORMAT_TUNNELED_PLAYBACK, TRUE);
+  /* FIXME: is this really needed or it's set in the previous call ? */
+  gst_amc_format_set_int (format, "tunneled-playback", 1);
+  gst_amc_format_set_int (format, "audio-hw-sync", audio_session_id);
   gst_amc_format_set_int (format, "audio-session-id", audio_session_id);
 
   return TRUE;
