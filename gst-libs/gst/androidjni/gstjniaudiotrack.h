@@ -35,6 +35,8 @@ G_BEGIN_DECLS
 typedef struct _GstJniAudioTrack GstJniAudioTrack;
 typedef struct _GstJniAudioTrackClass GstJniAudioTrackClass;
 
+#define GST_JNI_AUDIO_TRACK_SESSION_ID_GENERATE 0
+
 typedef enum
 {
   GST_AUDIO_TRACK_PLAY_STATE_STOPPED = 1,
