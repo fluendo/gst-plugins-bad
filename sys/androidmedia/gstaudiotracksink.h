@@ -38,6 +38,10 @@ struct _GstAudioTrackSink
 {
   GstBaseSink sink;
 
+  GCond render_cond;
+  GMutex render_lock;
+  gboolean unlocking;
+
   /* Internal */
   GstJniAudioTrack *audio_track;
   gboolean needs_start;

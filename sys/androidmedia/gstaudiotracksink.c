@@ -35,7 +35,9 @@
 #  include <config.h>
 #endif
 
+#include <gst/androidjni/gstjniutils.h>
 #include "gstaudiotracksink.h"
+
 
 GST_DEBUG_CATEGORY_STATIC (audiotrack_sink_debug);
 #define GST_CAT_DEFAULT audiotrack_sink_debug
@@ -342,7 +344,13 @@ static GstFlowReturn
 gst_audio_track_sink_render (GstBaseSink * bsink, GstBuffer * buf)
 {
   GstAudioTrackSink *sink = GST_AUDIOTRACK_SINK (bsink);
+  JNIEnv *env;
   GstAudioTrackError res;
+  jobject jbuffer;
+  gint remaining;
+  GstFlowReturn ret = GST_FLOW_OK;
+
+  env = gst_jni_get_env ();
 
   if (G_UNLIKELY (sink->needs_start)) {
     GST_DEBUG_OBJECT (sink, "Playing AudioTrack");
@@ -353,21 +361,85 @@ gst_audio_track_sink_render (GstBaseSink * bsink, GstBuffer * buf)
   GST_DEBUG_OBJECT (sink, "Writting buffer to AudioTrack PTS:%" GST_TIME_FORMAT,
       GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (buf)));
 
+  remaining = GST_BUFFER_SIZE (buf);
+  jbuffer = (*env)->NewDirectByteBuffer (env, GST_BUFFER_DATA (buf),
+      GST_BUFFER_SIZE (buf));
+
+write:
   if (sink->audio_session_id > 0) {
-    res = gst_jni_audio_track_write_hw_sync (sink->audio_track, buf);
+    res = gst_jni_audio_track_write_hw_sync (sink->audio_track, jbuffer,
+        remaining, GST_AUDIO_TRACK_WRITE_NON_BLOCKING,
+        GST_BUFFER_TIMESTAMP (buf));
   } else {
     // FIXME: synchronization is completly broken, it's only enabled here
     // for debugging
-    res = gst_jni_audio_track_write (sink->audio_track, buf);
+    res = gst_jni_audio_track_write (sink->audio_track, jbuffer,
+        remaining, GST_AUDIO_TRACK_WRITE_NON_BLOCKING);
   }
+
   if (res < 0) {
     GST_ELEMENT_ERROR (sink, RESOURCE, FAILED,
         ("failed to write buffer"), ("failed to write buffer error:%d", res));
-    return GST_FLOW_ERROR;
+    ret = GST_FLOW_ERROR;
+    goto exit;
   }
 
+  remaining -= res;
+
+  GST_DEBUG_OBJECT (sink, "Written %d out of %d, remaining %d",
+      res, GST_BUFFER_SIZE (buf), remaining);
+
+  if (remaining > 0) {
+    gint64 end_time;
+
+    /* Wait until there is space in the AudioTrack */
+    end_time = g_get_monotonic_time () + 10 * G_TIME_SPAN_MILLISECOND;
+    g_mutex_lock (&sink->render_lock);
+    if (sink->unlocking) {
+      g_mutex_unlock (&sink->render_lock);
+      goto exit;
+    }
+    if (!g_cond_wait_until (&sink->render_cond, &sink->render_lock, end_time)) {
+      GST_DEBUG_OBJECT (sink, "Trying to write remaining data %d", remaining);
+      g_mutex_unlock (&sink->render_lock);
+      goto write;
+    } else {
+      GST_DEBUG_OBJECT (sink, "Woken up to unlock");
+      g_mutex_unlock (&sink->render_lock);
+      goto exit;
+    }
+    goto write;
+  }
+
+exit:
+  gst_jni_object_local_unref (env, jbuffer);
   GST_DEBUG_OBJECT (sink, "Writting buffer to AudioTrack done");
-  return GST_FLOW_OK;
+  return ret;
+}
+
+
+static gboolean
+gst_audio_track_sink_unlock (GstBaseSink * bsink)
+{
+  GstAudioTrackSink *sink = GST_AUDIOTRACK_SINK (bsink);
+  GST_DEBUG_OBJECT (sink, "Unlock");
+
+  g_mutex_lock (&sink->render_lock);
+  sink->unlocking = TRUE;
+  g_cond_signal (&sink->render_cond);
+  g_mutex_unlock (&sink->render_lock);
+  return TRUE;
+}
+
+static gboolean
+gst_audio_track_sink_unlock_stop (GstBaseSink * bsink)
+{
+  GstAudioTrackSink *sink = GST_AUDIOTRACK_SINK (bsink);
+  GST_DEBUG_OBJECT (sink, "Unlock stop");
+  g_mutex_lock (&sink->render_lock);
+  sink->unlocking = FALSE;
+  g_mutex_unlock (&sink->render_lock);
+  return TRUE;
 }
 
 static void
@@ -380,7 +452,7 @@ gst_audiotrack_sink_base_init (gpointer g_class)
   gst_element_class_set_details_simple (element_class, "AudioTrack Sink",
       "Sink/Audio",
       "Output sound using the Audio Track APIs",
-      "Josep Torra <support@fluendo.com>");
+      "Andoni Morales <support@fluendo.com>");
 }
 
 static void
@@ -443,6 +515,21 @@ gst_audiotrack_sink_get_property (GObject * object, guint prop_id,
 }
 
 static void
+gst_audiotrack_sink_dispose (GObject * gobject)
+{
+  GstAudioTrackSink *sink = GST_AUDIOTRACK_SINK (gobject);
+
+  if (sink->audio_track != NULL) {
+    g_object_unref (sink->audio_track);
+    sink->audio_track = NULL;
+  }
+  g_mutex_clear (&sink->render_lock);
+  g_cond_clear (&sink->render_cond);
+
+  G_OBJECT_CLASS (parent_class)->dispose (gobject);
+}
+
+static void
 gst_audiotrack_sink_class_init (GstAudioTrackSinkClass * klass)
 {
   GObjectClass *gobject_class;
@@ -455,6 +542,7 @@ gst_audiotrack_sink_class_init (GstAudioTrackSinkClass * klass)
 
   parent_class = g_type_class_peek_parent (klass);
 
+  gobject_class->dispose = gst_audiotrack_sink_dispose;
   gobject_class->set_property = gst_audiotrack_sink_set_property;
   gobject_class->get_property = gst_audiotrack_sink_get_property;
 
@@ -484,6 +572,9 @@ gst_audiotrack_sink_class_init (GstAudioTrackSinkClass * klass)
   gstbasesink_class->fixate = GST_DEBUG_FUNCPTR (gst_audio_track_sink_fixate);
   gstbasesink_class->async_play =
       GST_DEBUG_FUNCPTR (gst_audio_track_sink_async_play);
+  gstbasesink_class->unlock = GST_DEBUG_FUNCPTR (gst_audio_track_sink_unlock);
+  gstbasesink_class->unlock_stop =
+      GST_DEBUG_FUNCPTR (gst_audio_track_sink_unlock_stop);
 }
 
 static void
@@ -492,4 +583,6 @@ gst_audiotrack_sink_init (GstAudioTrackSink * sink,
 {
   sink->volume = DEFAULT_VOLUME;
   sink->mute = DEFAULT_MUTE;
+  g_mutex_init (&sink->render_lock);
+  g_cond_init (&sink->render_cond);
 }

@@ -32,7 +32,6 @@
 #define AUDIO_FORMAT_CHANNEL_OUT_MONO 4
 #define AUDIO_FORMAT_CHANNEL_OUT_STEREO 12
 #define AUDIO_TRACK_MODE_STREAM 1
-#define AUDIO_TRACK_WRITE_BLOCKING 0
 
 G_DEFINE_TYPE (GstJniAudioTrack, gst_jni_audio_track, G_TYPE_OBJECT);
 
@@ -393,36 +392,23 @@ gst_jni_audio_track_get_min_buffer_size (gint rate, gint channels, gint width)
 }
 
 GstAudioTrackError
-gst_jni_audio_track_write (GstJniAudioTrack * self, GstBuffer * buf)
+gst_jni_audio_track_write (GstJniAudioTrack * self, jobject jbuffer,
+    gint size, GstAudioTrackWriteMode mode)
 {
   JNIEnv *env;
-  jobject j_buffer;
-  GstAudioTrackError ret;
 
   env = gst_jni_get_env ();
-  j_buffer = (*env)->NewDirectByteBuffer (env, GST_BUFFER_DATA (buf),
-      GST_BUFFER_SIZE (buf));
-  ret = (GstAudioTrackError) gst_jni_call_int_method (env, self->jobject,
-      audio_track.write_buffer, j_buffer, GST_BUFFER_SIZE (buf),
-      AUDIO_TRACK_WRITE_BLOCKING);
-  gst_jni_object_local_unref (env, j_buffer);
-
-  return ret;
+  return (GstAudioTrackError) gst_jni_call_int_method (env, self->jobject,
+      audio_track.write_buffer, jbuffer, size, mode);
 }
 
 GstAudioTrackError
-gst_jni_audio_track_write_hw_sync (GstJniAudioTrack * self, GstBuffer * buf)
+gst_jni_audio_track_write_hw_sync (GstJniAudioTrack * self, jobject jbuffer,
+    gint size, GstAudioTrackWriteMode mode, GstClockTime ts)
 {
   JNIEnv *env;
-  jobject j_buffer;
-  GstAudioTrackError ret;
 
   env = gst_jni_get_env ();
-  j_buffer = (*env)->NewDirectByteBuffer (env, GST_BUFFER_DATA (buf),
-      GST_BUFFER_SIZE (buf));
-  ret = (GstAudioTrackError) gst_jni_call_int_method (env, self->jobject,
-      audio_track.write_buffer_hw_sync, j_buffer, GST_BUFFER_SIZE (buf),
-      AUDIO_TRACK_WRITE_BLOCKING, GST_BUFFER_TIMESTAMP (buf));
-  gst_jni_object_local_unref (env, j_buffer);
-  return ret;
+  return (GstAudioTrackError) gst_jni_call_int_method (env, self->jobject,
+      audio_track.write_buffer_hw_sync, jbuffer, size, mode, ts);
 }

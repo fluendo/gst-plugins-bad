@@ -46,6 +46,12 @@ typedef enum
 
 typedef enum
 {
+  GST_AUDIO_TRACK_WRITE_BLOCKING = 0,
+  GST_AUDIO_TRACK_WRITE_NON_BLOCKING = 1,
+} GstAudioTrackWriteMode;
+
+typedef enum
+{
   GST_AUDIO_TRACK_ERROR = -1,
   GST_AUDIO_TRACK_ERROR_BAD_VALUE = -2,
   GST_AUDIO_TRACK_ERROR_ERROR_INVALID_OPERATION = -3,
@@ -106,10 +112,11 @@ void gst_jni_audio_track_set_volume (GstJniAudioTrack * audio_track,
     float volume);
 
 GstAudioTrackError gst_jni_audio_track_write (GstJniAudioTrack * audio_track,
-    GstBuffer * buf);
+    jobject jbuffer, gint size, GstAudioTrackWriteMode mode);
 
 GstAudioTrackError gst_jni_audio_track_write_hw_sync (GstJniAudioTrack *
-    audio_track, GstBuffer * buf);
+    audio_track, jobject jbuffer, gint size,
+    GstAudioTrackWriteMode mode, GstClockTime ts);
 
 void gst_jni_audio_track_set_playback_params (GstJniAudioTrack * audio_track,
     gfloat speed, gfloat pitch);
