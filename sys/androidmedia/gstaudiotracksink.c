@@ -350,7 +350,8 @@ gst_audio_track_sink_render (GstBaseSink * bsink, GstBuffer * buf)
     sink->needs_start = FALSE;
   }
 
-  GST_DEBUG_OBJECT (sink, "Writting buffer to AudioTrack");
+  GST_DEBUG_OBJECT (sink, "Writting buffer to AudioTrack PTS:%" GST_TIME_FORMAT,
+      GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (buf)));
 
   if (sink->audio_session_id > 0) {
     res = gst_jni_audio_track_write_hw_sync (sink->audio_track, buf);
@@ -365,6 +366,7 @@ gst_audio_track_sink_render (GstBaseSink * bsink, GstBuffer * buf)
     return GST_FLOW_ERROR;
   }
 
+  GST_DEBUG_OBJECT (sink, "Writting buffer to AudioTrack done");
   return GST_FLOW_OK;
 }
 
