@@ -426,8 +426,6 @@ static GstFlowReturn gst_video_decoder_decode_frame (GstVideoDecoder * decoder,
     GstVideoCodecFrame * frame);
 static gboolean gst_video_decoder_set_src_caps (GstVideoDecoder * decoder);
 
-static void gst_video_decoder_release_frame (GstVideoDecoder * dec,
-    GstVideoCodecFrame * frame);
 static GstClockTime gst_video_decoder_get_frame_duration (GstVideoDecoder *
     decoder, GstVideoCodecFrame * frame);
 static GstVideoCodecFrame *gst_video_decoder_new_frame (GstVideoDecoder *
@@ -2177,7 +2175,7 @@ no_output_buffer:
   }
 }
 
-static void
+void
 gst_video_decoder_release_frame (GstVideoDecoder * dec,
     GstVideoCodecFrame * frame)
 {

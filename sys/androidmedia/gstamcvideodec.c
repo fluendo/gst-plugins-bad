@@ -1776,8 +1776,23 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     }
   }
 
+  if (self->codec->tunneled_playback_enabled) {
+    GstBuffer *buf = gst_buffer_new ();
+    GstCaps *caps = gst_caps_new_simple ("video/x-amc", NULL);
+
+    gst_pad_set_caps (decoder->srcpad, caps);
+    gst_buffer_set_caps (buf, caps);
+    gst_caps_unref (caps);
+    caps = NULL;
+    GST_BUFFER_DATA (buf) = NULL;
+    self->downstream_flow_ret = gst_pad_push (decoder->srcpad, buf);
+    gst_video_decoder_release_frame (GST_VIDEO_DECODER (self),
+        gst_video_codec_frame_ref (frame));
+  }
+
   /* Sucess */
   error_msg = NULL;
+
 error:
   if (G_UNLIKELY (!queued_input_buffer) && idx >= 0) {
     /* cache input buffer for next time. It will be dropped on flush/reconfigure */
