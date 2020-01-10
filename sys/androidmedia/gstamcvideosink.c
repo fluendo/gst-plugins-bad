@@ -141,6 +141,8 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
   GST_DEBUG_OBJECT (avs, "Got buffer: %p", buf);
   drbuf = (GstAmcDRBuffer *) GST_BUFFER_DATA (buf);
   if (drbuf != NULL) {
+    GstClockTime diff;
+    GstClockTime mindelay;
     gint64 wakeup = g_get_monotonic_time () * 1000;
     GstClockTime base_time = gst_element_get_base_time (GST_ELEMENT (avs));
     /* Calculate the timestamp we'll pass to MediaCodec.releaseOutputBuffer.
@@ -159,12 +161,43 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
         " , render ts = %" G_GUINT64_FORMAT " , base_time = %" G_GUINT64_FORMAT,
         avs->playing ? "playing" : "not playing", wakeup, render_ts, base_time);
 
-    if (!gst_amc_dr_buffer_render (drbuf, render_ts)) {
-      GST_ERROR_OBJECT (avs, "Could not render buffer %p", buf);
+    diff = GST_BUFFER_TIMESTAMP (buf) - avs->last_render_ts;
+    mindelay = 1000 * 1000 * 1000 * avs->fps_denom / avs -> fps_num * 2;
+
+    if (avs->width > 2000 && avs->fps_num / avs->fps_denom > 30 && diff < mindelay) {
+      GST_DEBUG_OBJECT (avs, "Skiping rendering");
+      gst_amc_dr_buffer_release (drbuf);
+    } else {
+      if (!gst_amc_dr_buffer_render (drbuf, render_ts)) {
+          GST_ERROR_OBJECT (avs, "Could not render buffer %p", buf);
+      } else {
+        avs->last_render_ts = GST_BUFFER_TIMESTAMP (buf);
+      }
     }
   }
   return GST_FLOW_OK;
 }
+
+static gboolean
+gst_amc_video_sink_setcaps (GstBaseSink * bsink, GstCaps * caps)
+{
+  GstAmcVideoSink *avs;
+  GstStructure *s;
+
+  avs = GST_AMC_VIDEO_SINK (bsink);
+
+  GST_DEBUG_OBJECT (avs, "parsing caps");
+
+  s = gst_caps_get_structure (caps, 0);
+  gst_structure_get_int (s, "width", &avs->width);
+  gst_structure_get_int (s, "height", &avs->height);
+  gst_structure_get_fraction (s, "framerate", &avs->fps_num, &avs->fps_denom);
+
+  GST_ERROR_OBJECT (avs, "Setting caps width %d height %d fps %d / %d",
+    avs->width, avs->height, avs->fps_num, avs->fps_denom);
+  return TRUE;
+}
+
 
 static void
 gst_amc_video_sink_base_init (gpointer gclass)
@@ -195,6 +228,7 @@ gst_amc_video_sink_class_init (GstAmcVideoSinkClass * klass)
       GST_DEBUG_FUNCPTR (gst_amc_video_sink_change_state);
 
   gstbasesink_class->query = GST_DEBUG_FUNCPTR (gst_amc_video_sink_query);
+  gstbasesink_class->set_caps = GST_DEBUG_FUNCPTR (gst_amc_video_sink_setcaps);
 
   gstvideosink_class->show_frame =
       GST_DEBUG_FUNCPTR (gst_amc_video_sink_show_frame);

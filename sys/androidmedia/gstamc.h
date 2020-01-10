@@ -218,6 +218,7 @@ jobject gst_amc_global_ref_jobj (jobject obj);
 GstAmcDRBuffer * gst_amc_dr_buffer_new (GstAmcCodec *codec, guint idx);
 void gst_amc_dr_buffer_free (GstAmcDRBuffer *buf);
 gboolean gst_amc_dr_buffer_render (GstAmcDRBuffer *buf, GstClockTime ts);
+gboolean gst_amc_dr_buffer_release (GstAmcDRBuffer * buf);
 
 GstQuery * gst_amc_query_new_surface (void);
 gpointer gst_amc_query_parse_surface (GstQuery *query);

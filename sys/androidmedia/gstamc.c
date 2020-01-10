@@ -3338,15 +3338,26 @@ gst_amc_dr_buffer_render (GstAmcDRBuffer * buf, GstClockTime ts)
   return ret;
 }
 
-void
-gst_amc_dr_buffer_free (GstAmcDRBuffer * buf)
+gboolean
+gst_amc_dr_buffer_release (GstAmcDRBuffer * buf)
 {
+  gboolean ret = FALSE;
+
   if (!buf->released) {
     g_mutex_lock (&buf->codec->buffers_lock);
     if (buf->codec->flush_id == buf->flush_id)
-      gst_amc_codec_release_output_buffer (buf->codec, buf->idx);
+      ret = gst_amc_codec_release_output_buffer (buf->codec, buf->idx);
     g_mutex_unlock (&buf->codec->buffers_lock);
+    buf->released = TRUE;
   }
+
+  return ret;
+}
+
+void
+gst_amc_dr_buffer_free (GstAmcDRBuffer * buf)
+{
+  gst_amc_dr_buffer_release (buf);
 
   gst_amc_codec_unref (buf->codec);
   g_free (buf);

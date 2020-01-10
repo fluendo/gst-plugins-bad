@@ -74,6 +74,12 @@ struct _GstAmcVideoSink
 
   guint * surface;              /* Pointer the java Surface object */
   volatile gboolean playing;
+
+  gint width;
+  gint height;
+  gint fps_num;
+  gint fps_denom;
+  GstClockTime last_render_ts;
 };
 
 struct _GstAmcVideoSinkClass
