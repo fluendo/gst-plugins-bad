@@ -690,7 +690,6 @@ static GstStateChangeReturn
 gst_amc_video_dec_change_state (GstElement * element, GstStateChange transition)
 {
   GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (element);
-  GstFlowReturn ret = GST_FLOW_OK;
 
   switch (transition) {
     case GST_STATE_CHANGE_READY_TO_PAUSED:
@@ -707,26 +706,7 @@ gst_amc_video_dec_change_state (GstElement * element, GstStateChange transition)
       break;
   }
 
-  ret = GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
-
-  switch (transition) {
-    case GST_STATE_CHANGE_PLAYING_TO_PAUSED:{
-      if (self->codec->tunneled_playback_enabled) {
-        GST_DEBUG_OBJECT (self, "Pushing dummy buffer for preroll");
-        GST_VIDEO_DECODER_STREAM_LOCK (self);
-        if (gst_amc_video_dec_push_dummy (self) != GST_FLOW_OK) {
-          GST_ERROR_OBJECT (self, "Could not push dummy buffer for preroll");
-        }
-        GST_VIDEO_DECODER_STREAM_UNLOCK (self);
-      }
-    }
-      break;
-    default:
-      break;
-  }
-
-  return ret;
-
+  return GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
 }
 
 static gboolean
@@ -1705,6 +1685,12 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     return GST_FLOW_UNEXPECTED;
   }
 
+  if (self->codec->tunneled_playback_enabled) {
+    self->downstream_flow_ret = gst_amc_video_dec_push_dummy (self);
+    gst_video_decoder_release_frame (GST_VIDEO_DECODER (self),
+        gst_video_codec_frame_ref (frame));
+  }
+
   timestamp = frame->pts;
   duration = frame->duration;
 
@@ -1800,12 +1786,6 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
           (GstTaskFunction) gst_amc_video_dec_loop, decoder);
       self->srcpad_loop_started = TRUE;
     }
-  }
-
-  if (self->codec->tunneled_playback_enabled) {
-    self->downstream_flow_ret = gst_amc_video_dec_push_dummy (self);
-    gst_video_decoder_release_frame (GST_VIDEO_DECODER (self),
-        gst_video_codec_frame_ref (frame));
   }
 
   /* Sucess */
