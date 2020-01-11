@@ -1705,6 +1705,15 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
       idx = gst_amc_codec_dequeue_input_buffer (self->codec, 100000);
       GST_VIDEO_DECODER_STREAM_LOCK (self);
     }
+
+    /* If pushing loop has to be stopped (which is case of PAUSED-> READY) -
+     * then we don't enqueue anything and just drop the buffer.
+     * Otherwise we can deadlock in infinite loop. */
+    if (self->stop_loop) {
+      error_msg = NULL;
+      goto error;
+    }
+
     /* First let's analyse the state of srcpad's loop
        and codec's state (it may be flushing) */
     if (self->downstream_flow_ret != GST_FLOW_OK) {
