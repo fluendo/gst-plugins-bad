@@ -667,7 +667,6 @@ gst_amc_video_dec_close (GstVideoDecoder * decoder)
 
   if (self->codec) {
     gst_amc_codec_release (self->codec);
-    gst_amc_crypto_ctx_free (&self->crypto_ctx);
     gst_amc_codec_unref (self->codec);
     self->codec = NULL;
     GST_ERROR_OBJECT (self, "Video decoder have been released");
@@ -694,6 +693,7 @@ gst_amc_video_dec_finalize (GObject * object)
     self->x_amc_empty_caps = NULL;
   }
 
+  gst_amc_crypto_ctx_free (&self->crypto_ctx);
   g_mutex_free (self->drain_lock);
   g_cond_free (self->drain_cond);
 
