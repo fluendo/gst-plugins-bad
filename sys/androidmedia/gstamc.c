@@ -701,29 +701,21 @@ error:
   return is_feature_supported;
 }
 
-
 gboolean
 gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
     GstAmcFormat * format)
 {
-  gint width = 0;
-  gint height = 0;
+  gboolean adaptive_supported;
 
-  if (!gst_amc_codec_is_feature_supported (codec, format, "adaptive-playback")
-      || !gst_amc_format_get_int (format, "width", &width)
-      || !gst_amc_format_get_int (format, "height", &height) || !width
-      || !height) {
-    return FALSE;
+  adaptive_supported = gst_amc_codec_is_feature_supported (codec, format,
+      "adaptive-playback");
+  if (adaptive_supported) {
+    gst_amc_format_set_int (format, "adaptive-playback", 1);
+    /* FIXME: is this really needed or it's set in the previous call ? */
+    // gst_amc_format_set_feature_enabled (format, "adaptive-playback", TRUE);
   }
-
-  gst_amc_format_set_feature_enabled (format, "adaptive-playback", TRUE);
-  /* FIXME: is this really needed or it's set in the previous call ? */
-  gst_amc_format_set_int (format, "adaptive-playback", 1);
-  GST_DEBUG ("Setting max-width = %d max-height = %d", width, height);
-  gst_amc_format_set_int (format, "max-width", width);
-  gst_amc_format_set_int (format, "max-height", height);
-
-  return TRUE;
+  codec->adaptive_enabled = adaptive_supported;
+  return codec->adaptive_enabled;
 }
 
 gboolean
@@ -766,6 +758,8 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
         audio_session_id);
     codec->tunneled_playback_enabled = TRUE;
   }
+  GST_INFO ("Configure: tunneled=%d, adaptive=%d",
+      codec->tunneled_playback_enabled, codec->adaptive_enabled);
 
   J_CALL_VOID (codec->object, media_codec.configure,
       format->object, surface, mcrypto_obj, flags);
@@ -1325,8 +1319,6 @@ get_java_classes (void)
     GST_ERROR ("Failed to get buffer info methods and fields");
     goto done;
   }
-
-
 
   /* MediaCodecInfo */
   media_codec_info.klass = j_find_class (env, "android/media/MediaCodecInfo");
