@@ -1507,7 +1507,10 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   GstAmcFormat *format;
   const gchar *mime;
   gboolean is_format_change = FALSE;
+  gboolean is_size_change = FALSE;
   gboolean needs_disable = FALSE;
+  gboolean needs_config = FALSE;
+  gboolean adaptive;
   gchar *format_string;
   jobject jsurface = NULL;
 
@@ -1519,29 +1522,18 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   /* Check if the caps change is a real format change or if only irrelevant
    * parts of the caps have changed or nothing at all.
    */
-  is_format_change |= self->width != state->info.width;
-  is_format_change |= self->height != state->info.height;
+  is_size_change |= self->width != state->info.width;
+  is_size_change |= self->height != state->info.height;
   is_format_change |= (self->codec_data != state->codec_data);
 
-  needs_disable = self->started;
+  adaptive = self->codec->adaptive_enabled;
+  needs_disable = self->started &&
+      (is_format_change || (is_size_change && !adaptive));
+  needs_config = !self->started || needs_disable;
 
-  /* If the component is not started and a real format change happens
-   * we have to restart the component. If no real format change
-   * happened we can just exit here.
-   */
-  if (needs_disable && !is_format_change) {
-    /* Framerate or something minor changed */
-    self->input_state_changed = TRUE;
-    if (self->input_state)
-      gst_video_codec_state_unref (self->input_state);
-    self->input_state = gst_video_codec_state_ref (state);
-    GST_DEBUG_OBJECT (self,
-        "Already running and caps did not change the format");
-    return TRUE;
-  }
-
-  if (needs_disable && is_format_change) {
+  if (needs_disable) {
     /* Completely reinit decoder */
+    GST_ERROR_OBJECT (self, "reinitializing decoder");
     GST_VIDEO_DECODER_STREAM_UNLOCK (self);
     gst_amc_video_dec_stop (GST_VIDEO_DECODER (self));
     GST_VIDEO_DECODER_STREAM_LOCK (self);
@@ -1550,100 +1542,101 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
       GST_ERROR_OBJECT (self, "Failed to open codec again");
       return FALSE;
     }
-
     if (!gst_amc_video_dec_start (GST_VIDEO_DECODER (self))) {
       GST_ERROR_OBJECT (self, "Failed to start codec again");
     }
   }
-  /* srcpad task is not running at this point */
+
   if (self->input_state)
     gst_video_codec_state_unref (self->input_state);
   self->input_state = NULL;
 
-  gst_buffer_replace (&self->codec_data, state->codec_data);
-
-  mime = gst_jni_amc_video_caps_to_mime (state->caps);
-  if (!mime) {
-    GST_ERROR_OBJECT (self, "Failed to convert caps to mime");
-    return FALSE;
-  }
-
-  format =
-      gst_amc_format_new_video (mime, state->info.width, state->info.height);
-  if (!format) {
-    GST_ERROR_OBJECT (self, "Failed to create video format");
-    return FALSE;
-  }
-
-  /* FIXME: This buffer needs to be valid until the codec is stopped again */
-  if (self->codec_data)
-    gst_amc_format_set_buffer (format, "csd-0", self->codec_data);
+  if (needs_config) {
+    gst_buffer_replace (&self->codec_data, state->codec_data);
 
 #if USE_AMCVIDEOSINK
-  if (klass->direct_rendering && self->surface == NULL) {
-    /* Exposes pads with decodebin with a dummy buffer to link with the sink
-     * and get the surface */
-    gst_amc_video_dec_push_dummy (self);
+    if (klass->direct_rendering && self->surface == NULL) {
+      /* Exposes pads with decodebin with a dummy buffer to link with the sink
+       * and get the surface */
+      GST_INFO_OBJECT (self, "Sending a dummy buffer");
+      gst_amc_video_dec_push_dummy (self);
 
-    if (self->surface == NULL) {
-      GstQuery *query = gst_amc_query_new_surface ();
+      if (self->surface == NULL) {
+        GstQuery *query = gst_amc_query_new_surface ();
 
-      if (gst_pad_peer_query (decoder->srcpad, query)) {
-        jsurface = self->surface = gst_amc_query_parse_surface (query);
-        if (G_UNLIKELY (!self->surface)) {
-          GST_WARNING_OBJECT (self, "Quering a surface from the sink failed");
+        if (gst_pad_peer_query (decoder->srcpad, query)) {
+          jsurface = self->surface = gst_amc_query_parse_surface (query);
+          if (G_UNLIKELY (!self->surface)) {
+            GST_WARNING_OBJECT (self, "Quering a surface from the sink failed");
+          }
         }
+        gst_query_unref (query);
       }
-      gst_query_unref (query);
     }
-  }
 #else /* Use eglglessink */
-  if (klass->direct_rendering && self->surface == NULL) {
-    self->surface = gst_jni_surface_new (gst_jni_surface_texture_new ());
-    jsurface = self->surface->jobject;
-  }
+    if (klass->direct_rendering && self->surface == NULL) {
+      self->surface = gst_jni_surface_new (gst_jni_surface_texture_new ());
+      jsurface = self->surface->jobject;
+    }
 #endif
 
-  format_string = gst_amc_format_to_string (format);
-  GST_DEBUG_OBJECT (self, "Configuring codec with format: %s surface: %p "
-      "audio session id:%d", format_string, jsurface, self->audio_session_id);
-  g_free (format_string);
+    mime = gst_jni_amc_video_caps_to_mime (state->caps);
+    if (!mime) {
+      GST_ERROR_OBJECT (self, "Failed to convert caps to mime");
+      return FALSE;
+    }
 
-  /* We decide that stream is encrypted if we eather received and parsed
-     drm event, eather received crypto ctx from user. It may be not completely correct.
-     Other way - is to base on caps of sinkpad (if they're x-cenc) */
-  if (self->crypto_ctx.mcrypto)
-    self->is_encrypted = TRUE;
+    format = gst_amc_format_new_video (mime, state->info.width,
+        state->info.height);
+    if (!format) {
+      GST_ERROR_OBJECT (self, "Failed to create video format");
+      return FALSE;
+    }
 
-  if (!gst_amc_codec_configure (self->codec, format, jsurface,
-          self->crypto_ctx.mcrypto, 0, self->audio_session_id)) {
+    /* FIXME: This buffer needs to be valid until the codec is stopped again */
+    if (self->codec_data)
+      gst_amc_format_set_buffer (format, "csd-0", self->codec_data);
+
+    /* We decide that stream is encrypted if we eather received and parsed
+       drm event, eather received crypto ctx from user. It may be not completely correct.
+       Other way - is to base on caps of sinkpad (if they're x-cenc) */
+    if (self->crypto_ctx.mcrypto)
+      self->is_encrypted = TRUE;
+
+    format_string = gst_amc_format_to_string (format);
+    GST_DEBUG_OBJECT (self, "Configuring codec with format: %s surface: %p "
+        "audio session id:%d", format_string, jsurface, self->audio_session_id);
+    g_free (format_string);
+
+    if (!gst_amc_codec_configure (self->codec, format, jsurface,
+            self->crypto_ctx.mcrypto, 0, self->audio_session_id)) {
+      GST_ERROR_OBJECT (self, "Failed to configure codec");
+      gst_amc_format_free (format);
+      return FALSE;
+    }
+
+    if (!gst_amc_codec_start (self->codec)) {
+      GST_ERROR_OBJECT (self, "Failed to start codec");
+      gst_amc_format_free (format);
+      return FALSE;
+    }
     gst_amc_format_free (format);
-    GST_ERROR_OBJECT (self, "Failed to configure codec");
-    return FALSE;
+
+    gst_amc_codec_free_buffers (self->input_buffers, self->n_input_buffers);
+    self->input_buffers =
+        gst_amc_codec_get_input_buffers (self->codec, &self->n_input_buffers);
+    if (!self->input_buffers) {
+      GST_ERROR_OBJECT (self, "Failed to get input buffers");
+      return FALSE;
+    }
   }
 
-  gst_amc_format_free (format);
-
-  if (!gst_amc_codec_start (self->codec)) {
-    GST_ERROR_OBJECT (self, "Failed to start codec");
-    return FALSE;
-  }
-
-  gst_amc_codec_free_buffers (self->input_buffers, self->n_input_buffers);
-  self->input_buffers =
-      gst_amc_codec_get_input_buffers (self->codec, &self->n_input_buffers);
-  if (!self->input_buffers) {
-    GST_ERROR_OBJECT (self, "Failed to get input buffers");
-    return FALSE;
-  }
-
-  self->started = TRUE;
   self->input_state = gst_video_codec_state_ref (state);
   self->input_state_changed = TRUE;
+  self->started = TRUE;
 
   return TRUE;
 }
-
 
 static gboolean
 gst_amc_video_dec_reset (GstVideoDecoder * decoder, gboolean hard)
