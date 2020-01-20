@@ -79,7 +79,8 @@ struct _GstAmcCodec
 {
   guint flush_id;
   GMutex buffers_lock;
-  gint tunneled_playback_enabled;
+  gboolean tunneled_playback_enabled;
+  gboolean adaptive_enabled;
   /* < private > */
   jobject object;               /* global reference */
   gint ref_count;
