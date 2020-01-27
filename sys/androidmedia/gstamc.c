@@ -61,6 +61,19 @@ static struct
   jclass klass;
   jmethodID constructor;
 } java_string;
+
+static struct
+{
+  jclass klass;
+  jmethodID int_value;
+} java_int;
+
+static struct
+{
+  jclass klass;
+  jmethodID get_upper;
+} android_range;
+
 static struct
 {
   jclass klass;
@@ -83,21 +96,33 @@ static struct
   jmethodID queue_secure_input_buffer;
   jmethodID get_codec_info;
 } media_codec;
+
 static struct
 {
   jclass klass;
   jmethodID get_capabilities_for_type;
+  struct
+  {
+    jclass klass;
+    jmethodID is_size_supported;
+    jmethodID get_supported_heights;
+    jmethodID get_supported_widths_for;
+  } video_caps;
 } media_codec_info;
+
 static struct
 {
   jclass klass;
   jmethodID is_feature_supported;
+  jmethodID get_video_caps;
 } codec_capabilities;
+
 static struct
 {
   jclass klass;
   jmethodID get_error_code;
 } crypto_exception;
+
 static struct
 {
   jclass klass;
@@ -114,6 +139,7 @@ static struct
   jmethodID constructor;
   jmethodID set;
 } media_codec_crypto_info;
+
 static struct
 {
   jclass klass;
@@ -123,12 +149,14 @@ static struct
   jmethodID provide_key_response;
   jmethodID close_session;
 } media_drm;
+
 static struct
 {
   jclass klass;
   jmethodID get_default_url;
   jmethodID get_data;
 } media_drm_key_request;
+
 static struct
 {
   jclass klass;
@@ -136,6 +164,7 @@ static struct
   jmethodID is_crypto_scheme_supported;
   jmethodID set_media_drm_session;
 } media_crypto;
+
 static struct
 {
   jclass klass;
@@ -709,10 +738,115 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
 
   adaptive_supported = gst_amc_codec_is_feature_supported (codec, format,
       "adaptive-playback");
+
   if (adaptive_supported) {
+    JNIEnv *env = gst_jni_get_env ();
+    /* if unlikely we cannot retrieve the maximum frame size supported,
+     * the following 4K UHD values will be set */
+    jint max_height = 2160;
+    jint max_width = 3840;
+
+    if (!media_codec_info.video_caps.klass) {
+      GST_ERROR ("Video caps not supported, requires API 21");
+    } else {
+      jobject codec_info = NULL;
+      jobject capabilities = NULL;
+      jobject video_caps = NULL;
+      jstring jtmpstr = NULL;
+      jboolean supported;
+      jobject heights = NULL;
+      jobject widths = NULL;
+      jobject upper = NULL;
+
+      J_CALL_OBJ (codec_info /* = */ , codec->object,
+          media_codec.get_codec_info);
+
+      AMC_CHK (gst_amc_format_get_jstring (format, "mime", &jtmpstr));
+      J_CALL_OBJ (capabilities /* = */ , codec_info,
+          media_codec_info.get_capabilities_for_type, jtmpstr);
+
+      J_CALL_OBJ (video_caps /* = */ , capabilities,
+          codec_capabilities.get_video_caps);
+
+      /* NOTE: We tried getSupportedHeights and getSupportedWidthsFor
+       *  but we obtained non standard resolutions like 1072x8688.
+       *  So we implemented the other way below to obtain the maximum standard
+       *  size supported, trying 8K, then 4K DCI, then 4K UHD and using FHD
+       *  otherwise.
+       *  For now we keep this unneeded code because it was tricky to have it
+       *  working (Range is a template class) and we want the values reported
+       *  logged for every board. It may be safely deleted if we finally find
+       *  it unnecessary. */
+      {
+        J_CALL_OBJ (heights /* = */ , video_caps,
+            media_codec_info.video_caps.get_supported_heights);
+        J_CALL_OBJ (upper /* = */ , heights,
+            android_range.get_upper);
+        J_CALL_INT (max_height /* = */ , upper, java_int.int_value);
+        J_DELETE_LOCAL_REF (upper);
+        upper = NULL;
+
+        J_CALL_OBJ (widths /* = */ , video_caps,
+            media_codec_info.video_caps.get_supported_widths_for, max_height);
+        J_CALL_OBJ (upper /* = */ , widths,
+            android_range.get_upper);
+        J_CALL_INT (max_width /* = */ , upper, java_int.int_value);
+        /* FIXME: This is not an error, but we want to force this log
+         * and for now we can only achieve it in android using GST_ERROR */
+        GST_ERROR ("supported size reported by old method (ignored): %dx%d",
+            max_width, max_height);
+      }
+
+      /* This is the new approach to obtain the max standard size. */
+      for (;;) {
+        max_height = 4320;
+        max_width = 7680;
+        J_CALL_BOOL (supported /* = */ , video_caps,
+            media_codec_info.video_caps.is_size_supported, max_width,
+            max_height);
+        if (supported)
+          break;
+
+        max_height = 2160;
+        max_width = 4096;
+        J_CALL_BOOL (supported /* = */ , video_caps,
+            media_codec_info.video_caps.is_size_supported, max_width,
+            max_height);
+        if (supported)
+          break;
+
+        max_width = 3840;
+        J_CALL_BOOL (supported /* = */ , video_caps,
+            media_codec_info.video_caps.is_size_supported, max_width,
+            max_height);
+        if (supported)
+          break;
+
+        max_height = 1080;
+        max_width = 1920;
+        break;
+
+      error:
+        GST_ERROR ("Could not retrieve maximum frame size supported,"
+            " using defaults");
+        break;
+      }
+      J_DELETE_LOCAL_REF (upper);
+      J_DELETE_LOCAL_REF (widths);
+      J_DELETE_LOCAL_REF (heights);
+      J_DELETE_LOCAL_REF (jtmpstr);
+      J_DELETE_LOCAL_REF (video_caps);
+      J_DELETE_LOCAL_REF (capabilities);
+      J_DELETE_LOCAL_REF (codec_info);
+    }
+
+    /* FIXME: This is not an error, but we want to force this log
+     * and for now we can only achieve it in android using GST_ERROR */
+    GST_ERROR ("Adaptive enabled: max_width=%d, max_height=%d",
+        max_width, max_height);
+    gst_amc_format_set_int (format, "max-height", max_height);
+    gst_amc_format_set_int (format, "max-width", max_width);
     gst_amc_format_set_int (format, "adaptive-playback", 1);
-    /* FIXME: is this really needed or it's set in the previous call ? */
-    // gst_amc_format_set_feature_enabled (format, "adaptive-playback", TRUE);
   }
   codec->adaptive_enabled = adaptive_supported;
   return codec->adaptive_enabled;
@@ -758,7 +892,10 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
         audio_session_id);
     codec->tunneled_playback_enabled = TRUE;
   }
-  GST_INFO ("Configure: tunneled=%d, adaptive=%d",
+
+  /* FIXME: This is not an error, but we want to force this log
+   * and for now we can only achieve it in android using GST_ERROR */
+  GST_ERROR ("Configure: tunneled=%d, adaptive=%d",
       codec->tunneled_playback_enabled, codec->adaptive_enabled);
 
   J_CALL_VOID (codec->object, media_codec.configure,
@@ -1199,6 +1336,19 @@ get_java_classes (void)
     goto done;
   }
 
+  java_int.klass = j_find_class (env, "java/lang/Integer");
+  java_int.int_value = gst_jni_get_method (env, java_int.klass,
+      "intValue", "()I");
+
+  android_range.klass = j_find_class (env, "android/util/Range");
+  GST_ERROR ("range.klass=%p", android_range.klass);
+  if (!android_range.klass) {
+    GST_ERROR ("android/util/Range not found (requires API 21)");
+  } else {
+    android_range.get_upper = gst_jni_get_method (env, android_range.klass,
+        "getUpper", "()Ljava/lang/Comparable;");
+  }
+
   tmp = (*env)->FindClass (env, "android/media/MediaCodec");
   if (!tmp) {
     ret = FALSE;
@@ -1336,6 +1486,23 @@ get_java_classes (void)
 
   J_INIT_METHOD_ID (codec_capabilities, is_feature_supported,
       "isFeatureSupported", "(Ljava/lang/String;)Z");
+  J_INIT_METHOD_ID (codec_capabilities, get_video_caps,
+      "getVideoCapabilities",
+      "()Landroid/media/MediaCodecInfo$VideoCapabilities;");
+
+  media_codec_info.video_caps.klass = j_find_class (env,
+      "android/media/MediaCodecInfo$VideoCapabilities");
+  if (!media_codec_info.video_caps.klass) {
+    GST_ERROR ("android/media/MediaCodecInfo$VideoCapabilities not found"
+        " (requires API 21)");
+  } else {
+    J_INIT_METHOD_ID (media_codec_info.video_caps, is_size_supported,
+        "isSizeSupported", "(II)Z");
+    J_INIT_METHOD_ID (media_codec_info.video_caps, get_supported_heights,
+        "getSupportedHeights", "()Landroid/util/Range;");
+    J_INIT_METHOD_ID (media_codec_info.video_caps, get_supported_widths_for,
+        "getSupportedWidthsFor", "(I)Landroid/util/Range;");
+  }
 
   /* MEDIA DRM */
   media_drm.klass = j_find_class (env, "android/media/MediaDrm");
