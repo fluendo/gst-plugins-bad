@@ -35,6 +35,10 @@ static struct
   jmethodID get_codec_infos;
 } media_codec_list;
 
+
+#define MEDIA_CODEC_LIST_REGULAR_CODECS   0
+#define MEDIA_CODEC_LIST_ALL_CODECS       1
+
 gboolean
 gst_jni_media_codec_list_init (void)
 {
@@ -87,7 +91,7 @@ gst_jni_media_codec_list_new (void)
 
   codec_list_obj = g_slice_new0 (GstJniMediaCodecList);
   codec_list_obj->object = gst_jni_new_object (env, media_codec_list.klass,
-      media_codec_list.constructor, 1);
+      media_codec_list.constructor, MEDIA_CODEC_LIST_ALL_CODECS);
   if (codec_list_obj->object == NULL) {
     goto error;
   }

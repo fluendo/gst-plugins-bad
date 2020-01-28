@@ -102,3 +102,167 @@ done:
   }
   return codec_name;
 }
+
+GList *
+gst_jni_amc_get_tunneled_playback_decoders (GstCaps * caps)
+{
+  GList *list_ret = NULL;
+  GstJniMediaCodecList *codec_list = NULL;
+
+  jobjectArray jcodec_infos;
+  jint codec_count, i;
+
+  jobject codec_info = NULL;
+  jclass codec_info_class = NULL;
+  jmethodID get_capabilities_for_type_id;
+  jmethodID get_name_id;
+  jmethodID is_encoder_id;
+
+  jobject capabilities = NULL;
+  jclass capabilities_class = NULL;
+  jmethodID is_feature_supported;
+
+  jstring feature_jstring = NULL;
+  jstring type_jstring = NULL;
+
+  gchar *type = gst_jni_amc_video_caps_to_mime (caps);
+  JNIEnv *env = gst_jni_get_env ();
+  const char *feature = "adaptive-playback";
+
+  codec_info_class = (*env)->FindClass (env, "android/media/MediaCodecInfo");
+  if (!codec_info_class) {
+    GST_ERROR ("Can't find android/media/MediaCodecInfo class");
+    goto next_codec;
+  }
+
+  capabilities_class =
+      (*env)->FindClass (env, "android/media/MediaCodecInfo$CodecCapabilities");
+  if (!capabilities_class) {
+    GST_ERROR
+        ("Can't find android/media/MediaCodecInfo$CodecCapabilities class");
+    goto next_codec;
+  }
+  get_capabilities_for_type_id =
+      (*env)->GetMethodID (env, codec_info_class, "getCapabilitiesForType",
+      "(Ljava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;");
+
+  get_name_id =
+      (*env)->GetMethodID (env, codec_info_class, "getName",
+      "()Ljava/lang/String;");
+
+  is_encoder_id =
+      (*env)->GetMethodID (env, codec_info_class, "isEncoder", "()Z");
+
+  is_feature_supported =
+      (*env)->GetMethodID (env, capabilities_class, "isFeatureSupported",
+      "(Ljava/lang/String;)Z");
+
+  GST_ERROR
+      ("methods: get_capabilities_for_type_id %d\tget_name_id %d\tis_encoder_id %d\tis_feature_supported %d",
+      get_capabilities_for_type_id, get_name_id, is_encoder_id,
+      is_feature_supported);
+
+  if (!is_feature_supported || !get_capabilities_for_type_id || !get_name_id
+      || !is_encoder_id) {
+    (*env)->ExceptionClear (env);
+    GST_ERROR ("Failed to get codec info method IDs");
+    goto done;
+  }
+
+  type_jstring = (*env)->NewStringUTF (env, type);
+  feature_jstring = (*env)->NewStringUTF (env, feature);
+
+  codec_list = gst_jni_media_codec_list_new ();
+  if (codec_list == NULL) {
+    GST_ERROR ("Could not get codec list");
+    goto done;
+  }
+
+  jcodec_infos = gst_jni_media_codec_list_get_codec_infos (codec_list);
+  codec_count = (*env)->GetArrayLength (env, jcodec_infos);
+
+  for (i = 0; i < codec_count; i++) {
+    jobject codec_info = NULL;
+    gboolean supported = FALSE;
+    jstring name_jstring = NULL;
+    const gchar *name = NULL;
+
+    codec_info = (*env)->GetObjectArrayElement (env, jcodec_infos, i);
+    if ((*env)->ExceptionCheck (env) || !codec_info) {
+      (*env)->ExceptionClear (env);
+      GST_ERROR ("Failed to get codec info %d", i);
+      goto next_codec;
+    }
+
+    name_jstring = (*env)->CallObjectMethod (env, codec_info, get_name_id);
+    if ((*env)->ExceptionCheck (env)) {
+      (*env)->ExceptionClear (env);
+      GST_ERROR ("Failed to get codec name");
+      goto next_codec;
+    }
+    name = (*env)->GetStringUTFChars (env, name_jstring, NULL);
+    if ((*env)->ExceptionCheck (env)) {
+      (*env)->ExceptionClear (env);
+      GST_ERROR ("Failed to convert codec name to UTF8");
+      goto next_codec;
+    }
+
+
+    if ((*env)->CallBooleanMethod (env, codec_info, is_encoder_id)) {
+      GST_ERROR ("Not a decoder %s", name);
+      goto next_codec;
+    }
+
+    if ((*env)->ExceptionCheck (env)) {
+      (*env)->ExceptionClear (env);
+      GST_ERROR ("Failed to detect if codec is an encoder %s", name);
+      goto next_codec;
+    }
+
+    capabilities =
+        (*env)->CallObjectMethod (env, codec_info,
+        get_capabilities_for_type_id, type_jstring);
+
+    if ((*env)->ExceptionCheck (env)) {
+      (*env)->ExceptionClear (env);
+      GST_ERROR ("Failed to get capabilities %s for %s", type, name);
+      goto next_codec;
+    }
+
+    if (!capabilities) {
+      GST_ERROR ("Can't find capabilities for %s", name);
+      goto next_codec;
+    }
+
+    GST_ERROR ("Checking %s for codec %s", feature, name);
+    supported = (*env)->CallBooleanMethod (env, capabilities,
+        is_feature_supported, feature_jstring);
+
+    if ((*env)->ExceptionCheck (env)) {
+      (*env)->ExceptionClear (env);
+      GST_ERROR ("Failed to get feature supported");
+      goto next_codec;
+    }
+
+    if (!supported)
+      goto next_codec;
+
+    GST_ERROR ("Adding codec to the %s list %s", feature, name);
+    list_ret = g_list_append (list_ret, g_strdup (name));
+
+  next_codec:
+    J_DELETE_LOCAL_REF (capabilities);
+    (*env)->ReleaseStringUTFChars (env, name_jstring, name);
+    J_DELETE_LOCAL_REF (name_jstring);
+  }
+
+done:
+  J_DELETE_LOCAL_REF (codec_info_class);
+  J_DELETE_LOCAL_REF (capabilities_class);
+  J_DELETE_LOCAL_REF (type_jstring);
+  J_DELETE_LOCAL_REF (feature_jstring);
+  if (codec_list != NULL) {
+    gst_jni_media_codec_list_free (codec_list);
+  }
+  return list_ret;
+}
