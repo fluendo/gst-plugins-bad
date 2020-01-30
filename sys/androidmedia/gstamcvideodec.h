@@ -61,8 +61,6 @@ struct _GstAmcVideoDec
   GstVideoCodecState *input_state;
   gboolean input_state_changed;
 
-  gboolean tunneled_playback_enabled;
-
   /* Output format of the codec */
   GstVideoFormat format;
   gint color_format;
