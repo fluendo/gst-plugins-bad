@@ -103,8 +103,34 @@ done:
   return codec_name;
 }
 
+
+gchar *
+gst_jni_amc_decoder_to_gst_plugin_name (gchar * codec_name)
+{
+#define PREFIX_LEN 10
+  gchar *element_name;
+  gint i, k;
+  gint codec_name_len;
+  const gchar *prefix = "amcviddec-";
+
+  // This is copied from gstamc.c to get the element name from the codec name
+  codec_name_len = strlen (codec_name);
+  element_name = g_new0 (gchar, PREFIX_LEN + strlen (codec_name) + 1);
+  memcpy (element_name, prefix, PREFIX_LEN);
+
+  for (i = 0, k = 0; i < codec_name_len; i++) {
+    if (g_ascii_isalnum (codec_name[i])) {
+      element_name[PREFIX_LEN + k++] = g_ascii_tolower (codec_name[i]);
+    }
+    /* Skip all non-alnum chars */
+  }
+#undef PREFIX_LEN
+
+  return element_name;
+}
+
 GList *
-gst_jni_amc_get_tunneled_playback_decoders (GstCaps * caps)
+gst_jni_amc_get_decoders_with_feature (GstCaps * caps, const gchar * feature)
 {
   GList *list_ret = NULL;
   GstJniMediaCodecList *codec_list = NULL;
@@ -127,7 +153,6 @@ gst_jni_amc_get_tunneled_playback_decoders (GstCaps * caps)
 
   gchar *type = gst_jni_amc_video_caps_to_mime (caps);
   JNIEnv *env = gst_jni_get_env ();
-  const char *feature = "adaptive-playback";
 
   codec_info_class = (*env)->FindClass (env, "android/media/MediaCodecInfo");
   if (!codec_info_class) {
@@ -248,7 +273,8 @@ gst_jni_amc_get_tunneled_playback_decoders (GstCaps * caps)
       goto next_codec;
 
     GST_ERROR ("Adding codec to the %s list %s", feature, name);
-    list_ret = g_list_append (list_ret, g_strdup (name));
+    list_ret =
+        g_list_append (list_ret, gst_jni_amc_decoder_to_gst_plugin_name (name));
 
   next_codec:
     J_DELETE_LOCAL_REF (capabilities);
