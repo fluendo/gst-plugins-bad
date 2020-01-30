@@ -514,7 +514,11 @@ gst_amc_video_dec_get_property (GObject * object, guint prop_id, GValue * value,
       g_value_set_pointer (value, (gpointer) thiz->crypto_ctx.mcrypto);
       break;
     case PROP_AUDIO_SESSION_ID:
+      /* If not zero enables tunneled if supported */
       g_value_set_int (value, thiz->audio_session_id);
+      /* FIXME: This is not an error, but we want to force this log
+       * and for now we can only achieve it in android using GST_ERROR */
+      GST_ERROR_OBJECT (object, "audio_session_id=%d", thiz->audio_session_id);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1510,6 +1514,11 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   needs_disable = self->started &&
       (is_format_change || (is_size_change && !adaptive));
   needs_config = !self->started || needs_disable;
+
+  /* FIXME: This is not an error, but we want to force this log
+   * and for now we can only achieve it in android using GST_ERROR */
+  GST_ERROR_OBJECT (self, "needs_disable=%d needs_config=%d", needs_disable,
+      needs_config);
 
   if (needs_disable) {
     /* Completely reinit decoder */
