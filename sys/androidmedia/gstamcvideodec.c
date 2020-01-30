@@ -452,12 +452,13 @@ create_src_caps (const GstAmcCodecInfo * codec_info, gboolean direct_rendering)
 }
 
 static GstFlowReturn
-gst_amc_video_dec_push_dummy (GstAmcVideoDec * self)
+gst_amc_video_dec_push_dummy (GstAmcVideoDec * self, gboolean set_caps)
 {
   GstBuffer *buf = gst_buffer_new ();
   GstCaps *caps = gst_caps_new_simple ("video/x-amc", NULL);
 
-  gst_pad_set_caps (GST_VIDEO_DECODER (self)->srcpad, caps);
+  if (set_caps)
+    gst_pad_set_caps (GST_VIDEO_DECODER (self)->srcpad, caps);
   gst_buffer_set_caps (buf, caps);
   gst_caps_unref (caps);
   caps = NULL;
@@ -1548,7 +1549,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
       /* Exposes pads with decodebin with a dummy buffer to link with the sink
        * and get the surface */
       GST_INFO_OBJECT (self, "Sending a dummy buffer");
-      gst_amc_video_dec_push_dummy (self);
+      gst_amc_video_dec_push_dummy (self, TRUE);
 
       if (self->surface == NULL) {
         GstQuery *query = gst_amc_query_new_surface ();
@@ -1688,7 +1689,7 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
   }
 
   if (self->codec->tunneled_playback_enabled) {
-    self->downstream_flow_ret = gst_amc_video_dec_push_dummy (self);
+    self->downstream_flow_ret = gst_amc_video_dec_push_dummy (self, FALSE);
     gst_video_decoder_release_frame (GST_VIDEO_DECODER (self),
         gst_video_codec_frame_ref (frame));
   }
