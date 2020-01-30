@@ -734,17 +734,17 @@ gboolean
 gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
     GstAmcFormat * format)
 {
-  gboolean adaptive_supported;
+  gboolean supported;
+  gboolean enabled = FALSE;
+  /* default max size (4K UHD) if unlikely we cannot retrieve it */
+  jint max_height = 2160;
+  jint max_width = 3840;
 
-  adaptive_supported = gst_amc_codec_is_feature_supported (codec, format,
+  supported = gst_amc_codec_is_feature_supported (codec, format,
       "adaptive-playback");
 
-  if (adaptive_supported) {
+  if (supported) {
     JNIEnv *env = gst_jni_get_env ();
-    /* if unlikely we cannot retrieve the maximum frame size supported,
-     * the following 4K UHD values will be set */
-    jint max_height = 2160;
-    jint max_width = 3840;
 
     if (!media_codec_info.video_caps.klass) {
       GST_ERROR ("Video caps not supported, requires API 21");
@@ -840,35 +840,44 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
       J_DELETE_LOCAL_REF (codec_info);
     }
 
-    /* FIXME: This is not an error, but we want to force this log
-     * and for now we can only achieve it in android using GST_ERROR */
-    GST_ERROR ("Adaptive enabled: max_width=%d, max_height=%d",
-        max_width, max_height);
     gst_amc_format_set_int (format, "max-height", max_height);
     gst_amc_format_set_int (format, "max-width", max_width);
     gst_amc_format_set_int (format, "adaptive-playback", 1);
+    enabled = TRUE;
   }
-  codec->adaptive_enabled = adaptive_supported;
-  return codec->adaptive_enabled;
+  codec->adaptive_enabled = enabled;
+  /* FIXME: This is not an error, but we want to force this log
+   * and for now we can only achieve it in android using GST_ERROR */
+  GST_ERROR ("Adaptive: supported=%d enabled=%d max_width=%d, max_height=%d",
+      supported, enabled, max_width, max_height);
+  return enabled;
 }
 
 gboolean
 gst_amc_codec_enable_tunneled_video_playback (GstAmcCodec * codec,
     GstAmcFormat * format, gint audio_session_id)
 {
-  if (!gst_amc_codec_is_feature_supported (codec, format,
-          GST_AMC_MEDIA_FORMAT_TUNNELED_PLAYBACK)) {
-    return FALSE;
+  gboolean supported;
+  gboolean enabled = FALSE;
+
+  supported = gst_amc_codec_is_feature_supported (codec, format,
+      GST_AMC_MEDIA_FORMAT_TUNNELED_PLAYBACK);
+
+  if (supported && audio_session_id) {
+    gst_amc_format_set_feature_enabled (format,
+        GST_AMC_MEDIA_FORMAT_TUNNELED_PLAYBACK, TRUE);
+    gst_amc_format_set_int (format, "tunneled-playback", 1);
+    gst_amc_format_set_int (format, "audio-hw-sync", audio_session_id);
+    gst_amc_format_set_int (format, "audio-session-id", audio_session_id);
+    enabled = TRUE;
   }
 
-  gst_amc_format_set_feature_enabled (format,
-      GST_AMC_MEDIA_FORMAT_TUNNELED_PLAYBACK, TRUE);
-  /* FIXME: is this really needed or it's set in the previous call ? */
-  gst_amc_format_set_int (format, "tunneled-playback", 1);
-  gst_amc_format_set_int (format, "audio-hw-sync", audio_session_id);
-  gst_amc_format_set_int (format, "audio-session-id", audio_session_id);
-
-  return TRUE;
+  codec->tunneled_playback_enabled = enabled;
+  /* FIXME: This is not an error, but we want to force this log
+   * and for now we can only achieve it in android using GST_ERROR */
+  GST_ERROR ("tunneled: supported=%d enabled=%d audio_id=%d", supported,
+      enabled, audio_session_id);
+  return enabled;
 }
 
 gboolean
@@ -890,7 +899,6 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
         audio_session_id);
     gst_amc_codec_enable_tunneled_video_playback (codec, format,
         audio_session_id);
-    codec->tunneled_playback_enabled = TRUE;
   }
 
   /* FIXME: This is not an error, but we want to force this log
