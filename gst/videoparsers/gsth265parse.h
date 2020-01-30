@@ -24,6 +24,7 @@
 #include <gst/gst.h>
 #include <gst/base/gstbaseparse.h>
 #include <gst/codecparsers/gsth265parser.h>
+#include <fluc/drm/flucdrm.h>
 
 G_BEGIN_DECLS
 
@@ -95,6 +96,8 @@ struct _GstH265Parse
 
   GstClockTime pending_key_unit_ts;
   GstEvent *force_key_unit_event;
+
+  FlucDrmParserHelper *drmph;
 };
 
 struct _GstH265ParseClass

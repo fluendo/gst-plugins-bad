@@ -28,6 +28,7 @@
 #include <gst/gst.h>
 #include <gst/base/gstbaseparse.h>
 #include <gst/codecparsers/gsth264parser.h>
+#include <fluc/drm/flucdrm.h>
 
 G_BEGIN_DECLS
 
@@ -118,9 +119,7 @@ struct _GstH264Parse
   GstClockTime pending_key_unit_ts;
   GstEvent *force_key_unit_event;
 
-  /* encryption data */
-  GstStructure *cenc;
-  gsize orig_buffer_size;
+  FlucDrmParserHelper *drmph;
 };
 
 struct _GstH264ParseClass
