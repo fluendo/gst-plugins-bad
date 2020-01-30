@@ -69,42 +69,6 @@ gst_jni_amc_video_caps_to_mime (GstCaps * caps)
 }
 
 gchar *
-gst_jni_amc_get_tunneled_playback_decoder_name (GstCaps * caps, gint width,
-    gint height)
-{
-  GstAmcFormat *format = NULL;
-  GstJniMediaCodecList *codec_list = NULL;
-  gchar *codec_name = NULL;
-
-  format = gst_amc_format_new_video (gst_jni_amc_video_caps_to_mime (caps),
-      width, height);
-  if (format == NULL) {
-    GST_ERROR ("Could not create format");
-    goto done;
-  }
-  gst_amc_format_set_feature_enabled (format,
-      GST_AMC_MEDIA_FORMAT_TUNNELED_PLAYBACK, TRUE);
-
-  codec_list = gst_jni_media_codec_list_new ();
-  if (codec_list == NULL) {
-    GST_ERROR ("Could not get codec list");
-    goto done;
-  }
-  codec_name =
-      gst_jni_media_codec_list_find_decoder_for_format (codec_list, format);
-
-done:
-  if (format != NULL) {
-    gst_amc_format_free (format);
-  }
-  if (codec_list != NULL) {
-    gst_jni_media_codec_list_free (codec_list);
-  }
-  return codec_name;
-}
-
-
-gchar *
 gst_jni_amc_decoder_to_gst_plugin_name (gchar * codec_name)
 {
 #define PREFIX_LEN 10
