@@ -25,14 +25,14 @@ noinst_HEADERS = \
 
 libgstandroidmedia_la_CFLAGS = \
 	-Wall -Werror -Wno-deprecated-declarations \
+	-I$(srcdir) \
+	-I$(top_srcdir)/gst-libs \
 	$(GST_PLUGINS_BASE_CFLAGS) \
 	$(GST_BASE_CFLAGS) \
 	$(GST_CFLAGS) \
 	$(ORC_CFLAGS) \
 	$(FLUC_CFLAGS) \
-	$(CURL_CFLAGS) \
-	-I$(srcdir) \
-	-I$(top_srcdir)/gst-libs
+	$(CURL_CFLAGS)
 
 libgstandroidmedia_la_LIBADD = \
 	$(GST_PLUGINS_BASE_LIBS) \
