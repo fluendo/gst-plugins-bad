@@ -455,13 +455,17 @@ static GstFlowReturn
 gst_amc_video_dec_push_dummy (GstAmcVideoDec * self, gboolean set_caps)
 {
   GstBuffer *buf = gst_buffer_new ();
-  GstCaps *caps = gst_caps_new_simple ("video/x-amc", NULL);
+  GstCaps *caps;
+
+  if (G_UNLIKELY (!self->x_amc_empty_caps)) {
+    self->x_amc_empty_caps = gst_caps_new_simple ("video/x-amc", NULL);
+  }
+
+  caps = self->x_amc_empty_caps;
 
   if (set_caps)
     gst_pad_set_caps (GST_VIDEO_DECODER (self)->srcpad, caps);
   gst_buffer_set_caps (buf, caps);
-  gst_caps_unref (caps);
-  caps = NULL;
   GST_BUFFER_DATA (buf) = NULL;
   return gst_pad_push (GST_VIDEO_DECODER (self)->srcpad, buf);
 }
@@ -684,6 +688,11 @@ static void
 gst_amc_video_dec_finalize (GObject * object)
 {
   GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (object);
+
+  if (self->x_amc_empty_caps) {
+    gst_caps_unref (self->x_amc_empty_caps);
+    self->x_amc_empty_caps = NULL;
+  }
 
   g_mutex_free (self->drain_lock);
   g_cond_free (self->drain_cond);

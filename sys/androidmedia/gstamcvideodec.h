@@ -99,6 +99,8 @@ struct _GstAmcVideoDec
   gboolean is_encrypted;
   gboolean srcpad_loop_started;
   gint cached_input_buffer;
+
+  GstCaps *x_amc_empty_caps;
 };
 
 struct _GstAmcVideoDecClass
