@@ -164,6 +164,7 @@ DEF_GET_TYPE_FIELD (glong, long, Long, G_MINLONG)
 
 #define J_INIT_METHOD_ID_GEN(calltype, class, method, name, desc)       \
   G_STMT_START {                                                        \
+    AMC_CHK (class.klass);                                              \
     class.method = (*env)->calltype (env, class.klass, name, desc);     \
     AMC_CHK (class.method);                                             \
   } G_STMT_END

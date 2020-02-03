@@ -1292,46 +1292,21 @@ error:
 static gboolean
 get_java_classes (void)
 {
-  gboolean ret = TRUE;
+  gboolean ret = FALSE;
   JNIEnv *env;
-  jclass tmp;
 
   GST_DEBUG ("Retrieving Java classes");
 
   env = gst_jni_get_env ();
 
-  tmp = (*env)->FindClass (env, "java/lang/String");
-  if (!tmp) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get string class");
-    goto done;
-  }
-  java_string.klass = (*env)->NewGlobalRef (env, tmp);
-  if (!java_string.klass) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get string class global reference");
-    goto done;
-  }
-  (*env)->DeleteLocalRef (env, tmp);
-  tmp = NULL;
-
-  java_string.constructor =
-      (*env)->GetMethodID (env, java_string.klass, "<init>", "([C)V");
-  if (!java_string.constructor) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get string methods");
-    goto done;
-  }
+  java_string.klass = gst_jni_get_class (env, "java/lang/String");
+  J_INIT_METHOD_ID (java_string, constructor, "<init>", "([C)V");
 
   java_int.klass = gst_jni_get_class (env, "java/lang/Integer");
-  java_int.int_value = gst_jni_get_method (env, java_int.klass,
-      "intValue", "()I");
+  J_INIT_METHOD_ID (java_int, int_value, "intValue", "()I");
 
   android_range.klass = gst_jni_get_class (env, "android/util/Range");
-  GST_ERROR ("range.klass=%p", android_range.klass);
+
   if (!android_range.klass) {
     GST_ERROR ("android/util/Range not found (requires API 21)");
   } else {
@@ -1339,108 +1314,62 @@ get_java_classes (void)
         "getUpper", "()Ljava/lang/Comparable;");
   }
 
-  tmp = (*env)->FindClass (env, "android/media/MediaCodec");
-  if (!tmp) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get codec class");
-    goto done;
-  }
-  media_codec.klass = (*env)->NewGlobalRef (env, tmp);
-  if (!media_codec.klass) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get codec class global reference");
-    goto done;
-  }
-  (*env)->DeleteLocalRef (env, tmp);
-  tmp = NULL;
+  media_codec.klass = gst_jni_get_class (env, "android/media/MediaCodec");
 
   media_codec.CRYPTO_MODE_AES_CTR = 1;  // this constant is taken from Android docs webpage
-  media_codec.queue_secure_input_buffer =
-      (*env)->GetMethodID (env, media_codec.klass, "queueSecureInputBuffer",
-      "(IILandroid/media/MediaCodec$CryptoInfo;JI)V");
 
-  media_codec.create_by_codec_name =
-      (*env)->GetStaticMethodID (env, media_codec.klass, "createByCodecName",
-      "(Ljava/lang/String;)Landroid/media/MediaCodec;");
-  media_codec.configure =
-      (*env)->GetMethodID (env, media_codec.klass, "configure",
+  J_INIT_METHOD_ID (media_codec, queue_secure_input_buffer,
+      "queueSecureInputBuffer", "(IILandroid/media/MediaCodec$CryptoInfo;JI)V");
+
+  J_INIT_STATIC_METHOD_ID (media_codec, create_by_codec_name,
+      "createByCodecName", "(Ljava/lang/String;)Landroid/media/MediaCodec;");
+
+  J_INIT_METHOD_ID (media_codec, configure, "configure",
       "(Landroid/media/MediaFormat;Landroid/view/Surface;Landroid/media/MediaCrypto;I)V");
-  media_codec.dequeue_input_buffer =
-      (*env)->GetMethodID (env, media_codec.klass, "dequeueInputBuffer",
+
+  J_INIT_METHOD_ID (media_codec, dequeue_input_buffer, "dequeueInputBuffer",
       "(J)I");
-  media_codec.dequeue_output_buffer =
-      (*env)->GetMethodID (env, media_codec.klass, "dequeueOutputBuffer",
+
+  J_INIT_METHOD_ID (media_codec, dequeue_output_buffer, "dequeueOutputBuffer",
       "(Landroid/media/MediaCodec$BufferInfo;J)I");
-  media_codec.flush =
-      (*env)->GetMethodID (env, media_codec.klass, "flush", "()V");
-  media_codec.get_input_buffers =
-      (*env)->GetMethodID (env, media_codec.klass, "getInputBuffers",
+
+  J_INIT_METHOD_ID (media_codec, flush, "flush", "()V");
+
+  J_INIT_METHOD_ID (media_codec, get_input_buffers, "getInputBuffers",
       "()[Ljava/nio/ByteBuffer;");
-  media_codec.get_output_buffers =
-      (*env)->GetMethodID (env, media_codec.klass, "getOutputBuffers",
+
+
+  J_INIT_METHOD_ID (media_codec, get_output_buffers, "getOutputBuffers",
       "()[Ljava/nio/ByteBuffer;");
-  media_codec.get_output_format =
-      (*env)->GetMethodID (env, media_codec.klass, "getOutputFormat",
+
+  J_INIT_METHOD_ID (media_codec, get_output_format, "getOutputFormat",
       "()Landroid/media/MediaFormat;");
-  media_codec.queue_input_buffer =
-      (*env)->GetMethodID (env, media_codec.klass, "queueInputBuffer",
+
+  J_INIT_METHOD_ID (media_codec, queue_input_buffer, "queueInputBuffer",
       "(IIIJI)V");
-  media_codec.release =
-      (*env)->GetMethodID (env, media_codec.klass, "release", "()V");
-  media_codec.release_output_buffer =
-      (*env)->GetMethodID (env, media_codec.klass, "releaseOutputBuffer",
+
+  J_INIT_METHOD_ID (media_codec, release, "release", "()V");
+
+  J_INIT_METHOD_ID (media_codec, release_output_buffer, "releaseOutputBuffer",
       "(IZ)V");
-  media_codec.release_output_buffer_ts =
-      (*env)->GetMethodID (env, media_codec.klass, "releaseOutputBuffer",
-      "(IJ)V");
-  media_codec.set_output_surface =
-      (*env)->GetMethodID (env, media_codec.klass, "setOutputSurface",
+
+  J_INIT_METHOD_ID (media_codec, release_output_buffer_ts,
+      "releaseOutputBuffer", "(IJ)V");
+
+  J_INIT_METHOD_ID (media_codec, set_output_surface, "setOutputSurface",
       "(Landroid/view/Surface;)V");
-  media_codec.start =
-      (*env)->GetMethodID (env, media_codec.klass, "start", "()V");
-  media_codec.stop =
-      (*env)->GetMethodID (env, media_codec.klass, "stop", "()V");
-  media_codec.get_codec_info =
-      (*env)->GetMethodID (env, media_codec.klass, "getCodecInfo",
+
+  J_INIT_METHOD_ID (media_codec, start, "start", "()V");
+
+  J_INIT_METHOD_ID (media_codec, stop, "stop", "()V");
+
+  J_INIT_METHOD_ID (media_codec, get_codec_info, "getCodecInfo",
       "()Landroid/media/MediaCodecInfo;");
 
-  AMC_CHK (media_codec.queue_secure_input_buffer &&
-      media_codec.configure &&
-      media_codec.create_by_codec_name &&
-      media_codec.dequeue_input_buffer &&
-      media_codec.dequeue_output_buffer &&
-      media_codec.flush &&
-      media_codec.get_input_buffers &&
-      media_codec.get_output_buffers &&
-      media_codec.get_output_format &&
-      media_codec.queue_input_buffer &&
-      media_codec.release &&
-      media_codec.release_output_buffer &&
-      media_codec.release_output_buffer_ts &&
-      media_codec.set_output_surface && media_codec.start && media_codec.stop
-      && media_codec.get_codec_info);
+  media_codec_buffer_info.klass =
+      gst_jni_get_class (env, "android/media/MediaCodec$BufferInfo");
+  J_INIT_METHOD_ID (media_codec_buffer_info, constructor, "<init>", "()V");
 
-  tmp = (*env)->FindClass (env, "android/media/MediaCodec$BufferInfo");
-  if (!tmp) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get codec buffer info class");
-    goto done;
-  }
-  media_codec_buffer_info.klass = (*env)->NewGlobalRef (env, tmp);
-  if (!media_codec_buffer_info.klass) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get codec buffer info class global reference");
-    goto done;
-  }
-  (*env)->DeleteLocalRef (env, tmp);
-  tmp = NULL;
-
-  media_codec_buffer_info.constructor =
-      (*env)->GetMethodID (env, media_codec_buffer_info.klass, "<init>", "()V");
   media_codec_buffer_info.flags =
       (*env)->GetFieldID (env, media_codec_buffer_info.klass, "flags", "I");
   media_codec_buffer_info.offset =
@@ -1450,21 +1379,15 @@ get_java_classes (void)
       "presentationTimeUs", "J");
   media_codec_buffer_info.size =
       (*env)->GetFieldID (env, media_codec_buffer_info.klass, "size", "I");
-  if (!media_codec_buffer_info.constructor || !media_codec_buffer_info.flags
-      || !media_codec_buffer_info.offset
-      || !media_codec_buffer_info.presentation_time_us
-      || !media_codec_buffer_info.size) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get buffer info methods and fields");
-    goto done;
-  }
+
+  AMC_CHK (media_codec_buffer_info.flags &&
+      media_codec_buffer_info.offset &&
+      media_codec_buffer_info.presentation_time_us &&
+      media_codec_buffer_info.size);
 
   /* MediaCodecInfo */
   media_codec_info.klass =
       gst_jni_get_class (env, "android/media/MediaCodecInfo");
-  if (!media_codec_info.klass)
-    goto error;
 
   J_INIT_METHOD_ID (media_codec_info, get_capabilities_for_type,
       "getCapabilitiesForType",
@@ -1472,8 +1395,6 @@ get_java_classes (void)
 
   codec_capabilities.klass =
       gst_jni_get_class (env, "android/media/MediaCodecInfo$CodecCapabilities");
-  if (!codec_capabilities.klass)
-    goto error;
 
   J_INIT_METHOD_ID (codec_capabilities, is_feature_supported,
       "isFeatureSupported", "(Ljava/lang/String;)Z");
@@ -1497,8 +1418,7 @@ get_java_classes (void)
 
   /* MEDIA DRM */
   media_drm.klass = gst_jni_get_class (env, "android/media/MediaDrm");
-  if (!media_drm.klass)
-    goto error;
+
   J_INIT_METHOD_ID (media_drm, constructor, "<init>", "(Ljava/util/UUID;)V");
   J_INIT_METHOD_ID (media_drm, open_session, "openSession", "()[B");
   J_INIT_METHOD_ID (media_drm, get_key_request, "getKeyRequest", "(" "[B"       // byte[] scope
@@ -1516,8 +1436,7 @@ get_java_classes (void)
   /* ==================================== MediaDrm.KeyRequest */
   media_drm_key_request.klass =
       gst_jni_get_class (env, "android/media/MediaDrm$KeyRequest");
-  if (!media_drm_key_request.klass)
-    goto error;
+
   J_INIT_METHOD_ID (media_drm_key_request, get_default_url, "getDefaultUrl",
       "()Ljava/lang/String;");
   J_INIT_METHOD_ID (media_drm_key_request, get_data, "getData", "()[B");
@@ -1526,22 +1445,19 @@ get_java_classes (void)
 
   media_codec_crypto_info.klass =
       gst_jni_get_class (env, "android/media/MediaCodec$CryptoInfo");
-  if (!media_codec_crypto_info.klass)
-    goto error;
+
   J_INIT_METHOD_ID (media_codec_crypto_info, constructor, "<init>", "()V");
   J_INIT_METHOD_ID (media_codec_crypto_info, set, "set", "(I[I[I[B[BI)V");
 
   /* ==================================== CryptoException   */
   crypto_exception.klass =
       gst_jni_get_class (env, "android/media/MediaCodec$CryptoException");
-  if (!crypto_exception.klass)
-    goto error;
+
   J_INIT_METHOD_ID (crypto_exception, get_error_code, "getErrorCode", "()I");
 
   /* ==================================== Media Crypto     */
   media_crypto.klass = gst_jni_get_class (env, "android/media/MediaCrypto");
-  if (!media_crypto.klass)
-    goto error;
+
   J_INIT_STATIC_METHOD_ID (media_crypto, is_crypto_scheme_supported,
       "isCryptoSchemeSupported", "(Ljava/util/UUID;)Z");
 
@@ -1551,18 +1467,14 @@ get_java_classes (void)
       "(Ljava/util/UUID;[B)V");
   /* ====================================== UUID          */
   uuid.klass = gst_jni_get_class (env, "java/util/UUID");
-  if (!uuid.klass)
-    goto error;
+
   J_INIT_STATIC_METHOD_ID (uuid, from_string, "fromString",
       "(Ljava/lang/String;)Ljava/util/UUID;");
   /* ======================================               */
 
-done:
-  J_DELETE_LOCAL_REF (tmp);
-  return ret;
+  ret = TRUE;
 error:
-  ret = FALSE;
-  goto done;
+  return ret;
 }
 
 #ifdef GST_PLUGIN_BUILD_STATIC

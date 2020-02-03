@@ -48,7 +48,7 @@ static struct
 gboolean
 gst_amc_media_format_init (void)
 {
-  gboolean ret = TRUE;
+  gboolean ret = FALSE;
   JNIEnv *env;
 
   if (_initialized) {
@@ -57,74 +57,49 @@ gst_amc_media_format_init (void)
 
   env = gst_jni_get_env ();
 
-  jobject tmp = (*env)->FindClass (env, "android/media/MediaFormat");
-  if (!tmp) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get format class");
-    goto done;
-  }
-  media_format.klass = (*env)->NewGlobalRef (env, tmp);
-  if (!media_format.klass) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get format class global reference");
-    goto done;
-  }
+  media_format.klass = gst_jni_get_class (env, "android/media/MediaFormat");
 
-  media_format.create_audio_format =
-      (*env)->GetStaticMethodID (env, media_format.klass, "createAudioFormat",
-      "(Ljava/lang/String;II)Landroid/media/MediaFormat;");
-  media_format.create_video_format =
-      (*env)->GetStaticMethodID (env, media_format.klass, "createVideoFormat",
-      "(Ljava/lang/String;II)Landroid/media/MediaFormat;");
-  media_format.to_string =
-      (*env)->GetMethodID (env, media_format.klass, "toString",
+  J_INIT_STATIC_METHOD_ID (media_format, create_audio_format,
+      "createAudioFormat", "(Ljava/lang/String;II)Landroid/media/MediaFormat;");
+
+  J_INIT_STATIC_METHOD_ID (media_format, create_video_format,
+      "createVideoFormat", "(Ljava/lang/String;II)Landroid/media/MediaFormat;");
+
+  J_INIT_METHOD_ID (media_format, to_string, "toString",
       "()Ljava/lang/String;");
-  media_format.contains_key =
-      (*env)->GetMethodID (env, media_format.klass, "containsKey",
+
+  J_INIT_METHOD_ID (media_format, contains_key, "containsKey",
       "(Ljava/lang/String;)Z");
-  media_format.get_float =
-      (*env)->GetMethodID (env, media_format.klass, "getFloat",
+
+  J_INIT_METHOD_ID (media_format, get_float, "getFloat",
       "(Ljava/lang/String;)F");
-  media_format.set_float =
-      (*env)->GetMethodID (env, media_format.klass, "setFloat",
+
+  J_INIT_METHOD_ID (media_format, set_float, "setFloat",
       "(Ljava/lang/String;F)V");
-  media_format.get_integer =
-      (*env)->GetMethodID (env, media_format.klass, "getInteger",
+
+  J_INIT_METHOD_ID (media_format, get_integer, "getInteger",
       "(Ljava/lang/String;)I");
-  media_format.set_integer =
-      (*env)->GetMethodID (env, media_format.klass, "setInteger",
+
+  J_INIT_METHOD_ID (media_format, set_integer, "setInteger",
       "(Ljava/lang/String;I)V");
-  media_format.get_string =
-      (*env)->GetMethodID (env, media_format.klass, "getString",
+
+  J_INIT_METHOD_ID (media_format, get_string, "getString",
       "(Ljava/lang/String;)Ljava/lang/String;");
-  media_format.set_string =
-      (*env)->GetMethodID (env, media_format.klass, "setString",
+
+  J_INIT_METHOD_ID (media_format, set_string, "setString",
       "(Ljava/lang/String;Ljava/lang/String;)V");
-  media_format.get_byte_buffer =
-      (*env)->GetMethodID (env, media_format.klass, "getByteBuffer",
+
+  J_INIT_METHOD_ID (media_format, get_byte_buffer, "getByteBuffer",
       "(Ljava/lang/String;)Ljava/nio/ByteBuffer;");
-  media_format.set_byte_buffer =
-      (*env)->GetMethodID (env, media_format.klass, "setByteBuffer",
+
+  J_INIT_METHOD_ID (media_format, set_byte_buffer, "setByteBuffer",
       "(Ljava/lang/String;Ljava/nio/ByteBuffer;)V");
-  media_format.set_feature_enabled =
-      (*env)->GetMethodID (env, media_format.klass, "setFeatureEnabled",
+
+  J_INIT_METHOD_ID (media_format, set_feature_enabled, "setFeatureEnabled",
       "(Ljava/lang/String;Z)V");
 
-  if (!media_format.create_audio_format || !media_format.create_video_format
-      || !media_format.contains_key || !media_format.get_float
-      || !media_format.set_float || !media_format.get_integer
-      || !media_format.set_integer || !media_format.get_string
-      || !media_format.set_string || !media_format.get_byte_buffer
-      || !media_format.set_byte_buffer || !media_format.set_feature_enabled) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get format methods");
-    goto done;
-  }
-
-done:
+  ret = TRUE;
+error:
   _initialized = ret;
   return ret;
 }
