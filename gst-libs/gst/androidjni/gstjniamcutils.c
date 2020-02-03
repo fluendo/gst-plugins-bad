@@ -42,13 +42,15 @@ gst_jni_amc_video_caps_to_mime (const GstCaps * caps)
   if (strcmp (name, "video/mpeg") == 0) {
     gint mpegversion;
 
-    if (!gst_structure_get_int (s, "mpegversion", &mpegversion))
+    if (!gst_structure_get_int (s, "mpegversion", &mpegversion)) {
       return NULL;
+    }
 
-    if (mpegversion == 4)
+    if (mpegversion == 4) {
       return "video/mp4v-es";
-    else if (mpegversion == 1 || mpegversion == 2)
+    } else if (mpegversion == 1 || mpegversion == 2) {
       return "video/mpeg2";
+    }
   } else if (strcmp (name, "video/x-h263") == 0) {
     return "video/3gpp";
   } else if (strcmp (name, "video/x-h264") == 0) {
@@ -155,6 +157,8 @@ gst_jni_amc_get_decoders_with_feature (const GstCaps * caps,
   const gchar *type = gst_jni_amc_video_caps_to_mime (caps);
   JNIEnv *env = gst_jni_get_env ();
 
+  /* FIXME: all this classes and methods are already initialized and cached in
+   * sys/androidmedia/gstamc.c */
   codec_info_class = (*env)->FindClass (env, "android/media/MediaCodecInfo");
   if (!codec_info_class) {
     GST_ERROR ("Can't find android/media/MediaCodecInfo class");
@@ -183,8 +187,8 @@ gst_jni_amc_get_decoders_with_feature (const GstCaps * caps,
       (*env)->GetMethodID (env, capabilities_class, "isFeatureSupported",
       "(Ljava/lang/String;)Z");
 
-  GST_ERROR
-      ("methods: get_capabilities_for_type_id %d\tget_name_id %d\tis_encoder_id %d\tis_feature_supported %d",
+  GST_DEBUG ("methods: get_capabilities_for_type_id %d\t"
+      "get_name_id %d\tis_encoder_id %d\tis_feature_supported %d",
       get_capabilities_for_type_id, get_name_id, is_encoder_id,
       is_feature_supported);
 

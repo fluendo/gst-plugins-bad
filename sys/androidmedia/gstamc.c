@@ -1823,7 +1823,7 @@ scan_codecs (GstPlugin * plugin)
     }
 
     codec_info_class = (*env)->GetObjectClass (env, codec_info);
-    if (!codec_list) {
+    if (!codec_info_class) {
       (*env)->ExceptionClear (env);
       GST_ERROR ("Failed to get codec info class");
       valid_codec = FALSE;
