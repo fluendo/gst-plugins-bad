@@ -28,7 +28,7 @@
 #include "gstjniamcutils.h"
 
 const gchar *
-gst_jni_amc_video_caps_to_mime (GstCaps * caps)
+gst_jni_amc_video_caps_to_mime (const GstCaps * caps)
 {
   GstStructure *s;
   const gchar *name;
@@ -69,8 +69,8 @@ gst_jni_amc_video_caps_to_mime (GstCaps * caps)
 }
 
 gchar *
-gst_jni_amc_get_tunneled_playback_decoder_name (GstCaps * caps, gint width,
-    gint height)
+gst_jni_amc_get_tunneled_playback_decoder_name (const GstCaps * caps,
+    gint width, gint height)
 {
   GstAmcFormat *format = NULL;
   GstJniMediaCodecList *codec_list = NULL;
@@ -130,7 +130,8 @@ gst_jni_amc_decoder_to_gst_plugin_name (gchar * codec_name)
 }
 
 GList *
-gst_jni_amc_get_decoders_with_feature (GstCaps * caps, const gchar * feature)
+gst_jni_amc_get_decoders_with_feature (const GstCaps * caps,
+    const gchar * feature)
 {
   GList *list_ret = NULL;
   GstJniMediaCodecList *codec_list = NULL;
@@ -151,7 +152,7 @@ gst_jni_amc_get_decoders_with_feature (GstCaps * caps, const gchar * feature)
   jstring feature_jstring = NULL;
   jstring type_jstring = NULL;
 
-  gchar *type = gst_jni_amc_video_caps_to_mime (caps);
+  const gchar *type = gst_jni_amc_video_caps_to_mime (caps);
   JNIEnv *env = gst_jni_get_env ();
 
   codec_info_class = (*env)->FindClass (env, "android/media/MediaCodecInfo");

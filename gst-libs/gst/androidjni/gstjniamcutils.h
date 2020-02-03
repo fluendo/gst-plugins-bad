@@ -29,13 +29,15 @@
 #define ANDROID_DECODER_FEATURE_TUNNELED_PLAYBACK "tunneled-playback"
 #define ANDROID_DECODER_FEATURE_SECURE_PLAYBACK "secure-playback"
 
-G_BEGIN_DECLS const gchar *gst_jni_amc_video_caps_to_mime (GstCaps * caps);
+G_BEGIN_DECLS
 
-gchar * gst_jni_amc_get_tunneled_playback_decoder_name (GstCaps * caps, gint width,
+const gchar *gst_jni_amc_video_caps_to_mime (const GstCaps * caps);
+
+gchar * gst_jni_amc_get_tunneled_playback_decoder_name (const GstCaps * caps, gint width,
     gint height);
 
 GList *
-gst_jni_amc_get_decoders_with_feature (GstCaps * caps, const gchar *feature);
+gst_jni_amc_get_decoders_with_feature (const GstCaps * caps, const gchar *feature);
 
 G_END_DECLS
 #endif /* __GST_JNI_AUDIO_TRACK_H__ */
