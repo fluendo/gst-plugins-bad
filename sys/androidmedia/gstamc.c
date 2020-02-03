@@ -28,23 +28,17 @@
 #include "gstamcvideodec.h"
 #include "gstamcaudiodec.h"
 #include "gstamcvideosink.h"
+#include "gstaudiotracksink.h"
 
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/audio/audio.h>
 #include <gst/androidjni/gstjniutils.h>
+#include <gst/androidjni/gstjnimediacodeclist.h>
 #include <string.h>
 #include <jni.h>
 
 #include <curl/curl.h>
-
-/* Macros have next rules:
-   J_CALL_<TYPE> (), J_CALL_STATIC_<TYPE> () - first parameter is a variable
-   to write to, if it's not J_CALL_VOID () or J_CALL_STATIC_VOID ().
-   If exception occured, it jumps to "error" label, and the variable
-   is kept untouched.
- */
-#include <gstamcmacro.h>
 
 GST_DEBUG_CATEGORY (gst_amc_debug);
 #define GST_CAT_DEFAULT gst_amc_debug
@@ -60,9 +54,6 @@ static gboolean ignore_unknown_color_formats = FALSE;
 
 static gboolean accepted_color_formats (GstAmcCodecType * type,
     gboolean is_encoder);
-static gboolean
-gst_amc_format_get_jstring (GstAmcFormat * format, const gchar * key,
-    jstring * value);
 
 /* Global cached references */
 static struct
@@ -70,6 +61,19 @@ static struct
   jclass klass;
   jmethodID constructor;
 } java_string;
+
+static struct
+{
+  jclass klass;
+  jmethodID int_value;
+} java_int;
+
+static struct
+{
+  jclass klass;
+  jmethodID get_upper;
+} android_range;
+
 static struct
 {
   jclass klass;
@@ -92,21 +96,33 @@ static struct
   jmethodID queue_secure_input_buffer;
   jmethodID get_codec_info;
 } media_codec;
+
 static struct
 {
   jclass klass;
   jmethodID get_capabilities_for_type;
+  struct
+  {
+    jclass klass;
+    jmethodID is_size_supported;
+    jmethodID get_supported_heights;
+    jmethodID get_supported_widths_for;
+  } video_caps;
 } media_codec_info;
+
 static struct
 {
   jclass klass;
   jmethodID is_feature_supported;
+  jmethodID get_video_caps;
 } codec_capabilities;
+
 static struct
 {
   jclass klass;
   jmethodID get_error_code;
 } crypto_exception;
+
 static struct
 {
   jclass klass;
@@ -116,29 +132,14 @@ static struct
   jfieldID presentation_time_us;
   jfieldID size;
 } media_codec_buffer_info;
-static struct
-{
-  jclass klass;
-  jmethodID create_audio_format;
-  jmethodID create_video_format;
-  jmethodID to_string;
-  jmethodID contains_key;
-  jmethodID get_float;
-  jmethodID set_float;
-  jmethodID get_integer;
-  jmethodID set_integer;
-  jmethodID get_string;
-  jmethodID set_string;
-  jmethodID get_byte_buffer;
-  jmethodID set_byte_buffer;
-  jmethodID set_feature_enabled;
-} media_format;
+
 static struct
 {
   jclass klass;
   jmethodID constructor;
   jmethodID set;
 } media_codec_crypto_info;
+
 static struct
 {
   jclass klass;
@@ -148,12 +149,14 @@ static struct
   jmethodID provide_key_response;
   jmethodID close_session;
 } media_drm;
+
 static struct
 {
   jclass klass;
   jmethodID get_default_url;
   jmethodID get_data;
 } media_drm_key_request;
+
 static struct
 {
   jclass klass;
@@ -161,6 +164,7 @@ static struct
   jmethodID is_crypto_scheme_supported;
   jmethodID set_media_drm_session;
 } media_crypto;
+
 static struct
 {
   jclass klass;
@@ -430,7 +434,7 @@ hack_pssh_initdata (guchar * payload, gsize payload_size,
     GST_ERROR ("### Size of data field inside pssh: %d", data_field_size);
   }
 
-  /* Now we have to hack pssh a little because of Android libmediadrm's pitfall: 
+  /* Now we have to hack pssh a little because of Android libmediadrm's pitfall:
      It requires initData (pssh) to have "data" size == 0, and if "data" size != 0,
      android will just refuse to parse in
      av/drm/mediadrm/plugins/clearkey/InitDataParcer.cpp:112
@@ -597,7 +601,6 @@ error:
   return crypto_ctx->mdrm && crypto_ctx->mcrypto && crypto_ctx->mdrm_session_id;
 }
 
-
 GstAmcCodec *
 gst_amc_codec_new (const gchar * name)
 {
@@ -693,17 +696,14 @@ gst_amc_codec_get_release_method_id (GstAmcCodec * codec)
   return media_codec.release_output_buffer;
 }
 
-
 gboolean
-gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
-    GstAmcFormat * format)
+gst_amc_codec_is_feature_supported (GstAmcCodec * codec,
+    GstAmcFormat * format, const gchar * feature)
 {
-  gboolean adaptivePlaybackSupported = FALSE;
+  gboolean is_feature_supported = FALSE;
   jstring jtmpstr = NULL;
   jobject codec_info = NULL;
   jobject capabilities = NULL;
-  gint width = 0;
-  gint height = 0;
 
   JNIEnv *env = gst_jni_get_env ();
 
@@ -715,35 +715,174 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
       media_codec_info.get_capabilities_for_type, jtmpstr);
   J_DELETE_LOCAL_REF (jtmpstr);
 
-  jtmpstr = (*env)->NewStringUTF (env, "adaptive-playback");
+  jtmpstr = (*env)->NewStringUTF (env, feature);
 
-  J_CALL_BOOL (adaptivePlaybackSupported /* = */ , capabilities,
+  J_CALL_BOOL (is_feature_supported /* = */ , capabilities,
       codec_capabilities.is_feature_supported, jtmpstr);
-
-  if (adaptivePlaybackSupported &&
-      gst_amc_format_get_int (format, "width", &width) &&
-      gst_amc_format_get_int (format, "height", &height) && width && height) {
-
-    J_CALL_VOID (format->object, media_format.set_feature_enabled, jtmpstr, 1);
-
-    GST_DEBUG ("Setting max-width = %d max-height = %d", width, height);
-    gst_amc_format_set_int (format, "max-width", width);
-    gst_amc_format_set_int (format, "max-height", height);
-    gst_amc_format_set_int (format, "adaptive-playback", 1);
-  }
 
 error:
   J_DELETE_LOCAL_REF (jtmpstr);
   J_DELETE_LOCAL_REF (capabilities);
   J_DELETE_LOCAL_REF (codec_info);
-  GST_DEBUG ("Feature adaptive-playback %ssupported",
-      (!adaptivePlaybackSupported) ? "not " : "");
-  return adaptivePlaybackSupported;
+
+  GST_DEBUG ("Feature %s %ssupported", feature,
+      (!is_feature_supported) ? "not " : "");
+  return is_feature_supported;
+}
+
+gboolean
+gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
+    GstAmcFormat * format)
+{
+  gboolean supported;
+  gboolean enabled = FALSE;
+  /* default max size (4K UHD) if unlikely we cannot retrieve it */
+  jint max_height = 2160;
+  jint max_width = 3840;
+
+  supported = gst_amc_codec_is_feature_supported (codec, format,
+      "adaptive-playback");
+
+  if (supported) {
+    JNIEnv *env = gst_jni_get_env ();
+
+    if (!media_codec_info.video_caps.klass) {
+      GST_ERROR ("Video caps not supported, requires API 21");
+    } else {
+      jobject codec_info = NULL;
+      jobject capabilities = NULL;
+      jobject video_caps = NULL;
+      jstring jtmpstr = NULL;
+      jboolean supported;
+      jobject heights = NULL;
+      jobject widths = NULL;
+      jobject upper = NULL;
+
+      J_CALL_OBJ (codec_info /* = */ , codec->object,
+          media_codec.get_codec_info);
+
+      AMC_CHK (gst_amc_format_get_jstring (format, "mime", &jtmpstr));
+      J_CALL_OBJ (capabilities /* = */ , codec_info,
+          media_codec_info.get_capabilities_for_type, jtmpstr);
+
+      J_CALL_OBJ (video_caps /* = */ , capabilities,
+          codec_capabilities.get_video_caps);
+
+      /* NOTE: We tried getSupportedHeights and getSupportedWidthsFor
+       *  but we obtained non standard resolutions like 1072x8688.
+       *  So we implemented the other way below to obtain the maximum standard
+       *  size supported, trying 8K, then 4K DCI, then 4K UHD and using FHD
+       *  otherwise.
+       *  For now we keep this unneeded code because it was tricky to have it
+       *  working (Range is a template class) and we want the values reported
+       *  logged for every board. It may be safely deleted if we finally find
+       *  it unnecessary. */
+      {
+        J_CALL_OBJ (heights /* = */ , video_caps,
+            media_codec_info.video_caps.get_supported_heights);
+        J_CALL_OBJ (upper /* = */ , heights,
+            android_range.get_upper);
+        J_CALL_INT (max_height /* = */ , upper, java_int.int_value);
+        J_DELETE_LOCAL_REF (upper);
+        upper = NULL;
+
+        J_CALL_OBJ (widths /* = */ , video_caps,
+            media_codec_info.video_caps.get_supported_widths_for, max_height);
+        J_CALL_OBJ (upper /* = */ , widths,
+            android_range.get_upper);
+        J_CALL_INT (max_width /* = */ , upper, java_int.int_value);
+        /* FIXME: This is not an error, but we want to force this log
+         * and for now we can only achieve it in android using GST_ERROR */
+        GST_ERROR ("supported size reported by old method (ignored): %dx%d",
+            max_width, max_height);
+      }
+
+      /* This is the new approach to obtain the max standard size. */
+      for (;;) {
+        max_height = 4320;
+        max_width = 7680;
+        J_CALL_BOOL (supported /* = */ , video_caps,
+            media_codec_info.video_caps.is_size_supported, max_width,
+            max_height);
+        if (supported)
+          break;
+
+        max_height = 2160;
+        max_width = 4096;
+        J_CALL_BOOL (supported /* = */ , video_caps,
+            media_codec_info.video_caps.is_size_supported, max_width,
+            max_height);
+        if (supported)
+          break;
+
+        max_width = 3840;
+        J_CALL_BOOL (supported /* = */ , video_caps,
+            media_codec_info.video_caps.is_size_supported, max_width,
+            max_height);
+        if (supported)
+          break;
+
+        max_height = 1080;
+        max_width = 1920;
+        break;
+
+      error:
+        GST_ERROR ("Could not retrieve maximum frame size supported,"
+            " using defaults");
+        break;
+      }
+      J_DELETE_LOCAL_REF (upper);
+      J_DELETE_LOCAL_REF (widths);
+      J_DELETE_LOCAL_REF (heights);
+      J_DELETE_LOCAL_REF (jtmpstr);
+      J_DELETE_LOCAL_REF (video_caps);
+      J_DELETE_LOCAL_REF (capabilities);
+      J_DELETE_LOCAL_REF (codec_info);
+    }
+
+    gst_amc_format_set_int (format, "max-height", max_height);
+    gst_amc_format_set_int (format, "max-width", max_width);
+    gst_amc_format_set_int (format, "adaptive-playback", 1);
+    enabled = TRUE;
+  }
+  codec->adaptive_enabled = enabled;
+  /* FIXME: This is not an error, but we want to force this log
+   * and for now we can only achieve it in android using GST_ERROR */
+  GST_ERROR ("Adaptive: supported=%d enabled=%d max_width=%d, max_height=%d",
+      supported, enabled, max_width, max_height);
+  return enabled;
+}
+
+gboolean
+gst_amc_codec_enable_tunneled_video_playback (GstAmcCodec * codec,
+    GstAmcFormat * format, gint audio_session_id)
+{
+  gboolean supported;
+  gboolean enabled = FALSE;
+
+  supported = gst_amc_codec_is_feature_supported (codec, format,
+      GST_AMC_MEDIA_FORMAT_TUNNELED_PLAYBACK);
+
+  if (supported && audio_session_id) {
+    gst_amc_format_set_feature_enabled (format,
+        GST_AMC_MEDIA_FORMAT_TUNNELED_PLAYBACK, TRUE);
+    gst_amc_format_set_int (format, "tunneled-playback", 1);
+    gst_amc_format_set_int (format, "audio-hw-sync", audio_session_id);
+    gst_amc_format_set_int (format, "audio-session-id", audio_session_id);
+    enabled = TRUE;
+  }
+
+  codec->tunneled_playback_enabled = enabled;
+  /* FIXME: This is not an error, but we want to force this log
+   * and for now we can only achieve it in android using GST_ERROR */
+  GST_ERROR ("tunneled: supported=%d enabled=%d audio_id=%d", supported,
+      enabled, audio_session_id);
+  return enabled;
 }
 
 gboolean
 gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
-    guint8 * surface, jobject mcrypto_obj, gint flags)
+    guint8 * surface, jobject mcrypto_obj, gint flags, gint audio_session_id)
 {
   gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
@@ -755,6 +894,18 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
   }
 
   gst_amc_codec_enable_adaptive_playback (codec, format);
+  if (audio_session_id) {
+    GST_DEBUG ("Enabling tunneled playback with session id %d",
+        audio_session_id);
+    gst_amc_codec_enable_tunneled_video_playback (codec, format,
+        audio_session_id);
+  }
+
+  /* FIXME: This is not an error, but we want to force this log
+   * and for now we can only achieve it in android using GST_ERROR */
+  GST_ERROR ("Configure: tunneled=%d, adaptive=%d",
+      codec->tunneled_playback_enabled, codec->adaptive_enabled);
+
   J_CALL_VOID (codec->object, media_codec.configure,
       format->object, surface, mcrypto_obj, flags);
   ret = TRUE;
@@ -1138,469 +1289,87 @@ error:
   return ret;
 }
 
-GstAmcFormat *
-gst_amc_format_new_audio (const gchar * mime, gint sample_rate, gint channels)
-{
-  GstAmcFormat *format = NULL;
-  jstring mime_str = NULL;
-  jobject object = NULL;
-  JNIEnv *env = gst_jni_get_env ();
-  AMC_CHK (mime);
-
-  mime_str = (*env)->NewStringUTF (env, mime);
-  if (mime_str == NULL)
-    goto error;
-
-  format = g_slice_new0 (GstAmcFormat);
-  J_CALL_STATIC_OBJ (object /* = */ , media_format, create_audio_format,
-      mime_str, sample_rate, channels);
-  AMC_CHK (object);
-
-  format->object = (*env)->NewGlobalRef (env, object);
-  AMC_CHK (format->object);
-
-done:
-  J_DELETE_LOCAL_REF (object);
-  J_DELETE_LOCAL_REF (mime_str);
-  return format;
-
-error:
-  GST_ERROR ("Failed to create format '%s'", mime ? mime : "NULL");
-  if (format)
-    g_slice_free (GstAmcFormat, format);
-  format = NULL;
-  goto done;
-}
-
-GstAmcFormat *
-gst_amc_format_new_video (const gchar * mime, gint width, gint height)
-{
-  GstAmcFormat *format = NULL;
-  jstring mime_str = NULL;
-  jobject object = NULL;
-  JNIEnv *env = gst_jni_get_env ();
-  AMC_CHK (mime && width && height);
-
-  mime_str = (*env)->NewStringUTF (env, mime);
-  if (mime_str == NULL)
-    goto error;
-
-  format = g_slice_new0 (GstAmcFormat);
-
-  J_CALL_STATIC_OBJ (object /* = */ , media_format, create_video_format,
-      mime_str, width, height);
-
-  AMC_CHK (object);
-  format->object = (*env)->NewGlobalRef (env, object);
-  AMC_CHK (format->object);
-
-done:
-  J_DELETE_LOCAL_REF (object);
-  J_DELETE_LOCAL_REF (mime_str);
-  return format;
-
-error:
-  GST_ERROR ("Failed to create format '%s',"
-      " width = %d, height = %d", mime ? mime : "NULL", width, height);
-  if (format)
-    g_slice_free (GstAmcFormat, format);
-  format = NULL;
-  goto done;
-}
-
-void
-gst_amc_format_free (GstAmcFormat * format)
-{
-  JNIEnv *env = gst_jni_get_env ();
-  g_return_if_fail (format != NULL);
-
-  J_DELETE_GLOBAL_REF (format->object);
-  g_slice_free (GstAmcFormat, format);
-}
-
-
-gchar *
-gst_amc_format_to_string (GstAmcFormat * format)
-{
-  jstring v_str = NULL;
-  gchar *ret = NULL;
-  JNIEnv *env = gst_jni_get_env ();
-  AMC_CHK (format);
-
-  J_CALL_OBJ (v_str /* = */ , format->object, media_format.to_string);
-  ret = gst_amc_get_string_utf8 (env, v_str);
-error:
-  J_DELETE_LOCAL_REF (v_str);
-  return ret;
-}
-
-gboolean
-gst_amc_format_contains_key (GstAmcFormat * format, const gchar * key)
-{
-  gboolean ret = FALSE;
-  jstring key_str = NULL;
-  JNIEnv *env = gst_jni_get_env ();
-  AMC_CHK (format && key);
-
-  key_str = (*env)->NewStringUTF (env, key);
-  AMC_CHK (key_str);
-
-  J_CALL_BOOL (ret /* = */ , format->object, media_format.contains_key,
-      key_str);
-error:
-  J_DELETE_LOCAL_REF (key_str);
-  return ret;
-}
-
-gboolean
-gst_amc_format_get_float (GstAmcFormat * format, const gchar * key,
-    gfloat * value)
-{
-  gboolean ret = FALSE;
-  jstring key_str = NULL;
-  JNIEnv *env = gst_jni_get_env ();
-  AMC_CHK (format && key && value);
-
-  key_str = (*env)->NewStringUTF (env, key);
-  AMC_CHK (key_str);
-
-  J_CALL_FLOAT (*value /* = */ , format->object, media_format.get_float,
-      key_str);
-
-  ret = TRUE;
-error:
-  J_DELETE_LOCAL_REF (key_str);
-  return ret;
-}
-
-void
-gst_amc_format_set_float (GstAmcFormat * format, const gchar * key,
-    gfloat value)
-{
-  jstring key_str = NULL;
-  JNIEnv *env = gst_jni_get_env ();
-  AMC_CHK (format && key);
-
-  key_str = (*env)->NewStringUTF (env, key);
-  AMC_CHK (key_str);
-
-  J_CALL_VOID (format->object, media_format.set_float, key_str, value);
-error:
-  J_DELETE_LOCAL_REF (key_str);
-}
-
-gboolean
-gst_amc_format_get_int (const GstAmcFormat * format, const gchar * key,
-    gint * value)
-{
-  gboolean ret = FALSE;
-  jstring key_str = NULL;
-  JNIEnv *env = gst_jni_get_env ();
-  AMC_CHK (format && key && value);
-
-  key_str = (*env)->NewStringUTF (env, key);
-  AMC_CHK (key_str);
-
-  J_CALL_INT (*value /* = */ , format->object, media_format.get_integer,
-      key_str);
-
-  ret = TRUE;
-error:
-  J_DELETE_LOCAL_REF (key_str);
-  return ret;
-}
-
-void
-gst_amc_format_set_int (GstAmcFormat * format, const gchar * key, gint value)
-{
-  jstring key_str = NULL;
-  JNIEnv *env = gst_jni_get_env ();
-  AMC_CHK (format && key);
-
-  key_str = (*env)->NewStringUTF (env, key);
-  AMC_CHK (key_str);
-
-  J_CALL_VOID (format->object, media_format.set_integer, key_str, value);
-error:
-  J_DELETE_LOCAL_REF (key_str);
-}
-
-static gboolean
-gst_amc_format_get_jstring (GstAmcFormat * format, const gchar * key,
-    jstring * value)
-{
-  gboolean ret = FALSE;
-  jstring key_str = NULL;
-  JNIEnv *env = gst_jni_get_env ();
-
-  AMC_CHK (format && key && value);
-  *value = NULL;
-
-  key_str = (*env)->NewStringUTF (env, key);
-  AMC_CHK (key_str);
-
-  J_CALL_OBJ (*value /* = */ , format->object, media_format.get_string,
-      key_str);
-
-  ret = TRUE;
-error:
-  J_DELETE_LOCAL_REF (key_str);
-  return ret;
-}
-
-gboolean
-gst_amc_format_get_string (GstAmcFormat * format, const gchar * key,
-    gchar ** value)
-{
-  gboolean ret = FALSE;
-  jstring tmp_str = NULL;
-  JNIEnv *env = gst_jni_get_env ();
-
-  if (!gst_amc_format_get_jstring (format, key, &tmp_str))
-    goto error;
-
-  *value = gst_amc_get_string_utf8 (env, tmp_str);
-  AMC_CHK (*value);
-  ret = TRUE;
-error:
-  J_DELETE_LOCAL_REF (tmp_str);
-  return ret;
-}
-
-void
-gst_amc_format_set_string (GstAmcFormat * format, const gchar * key,
-    const gchar * value)
-{
-  jstring key_str = NULL;
-  jstring v_str = NULL;
-  JNIEnv *env = gst_jni_get_env ();
-
-  AMC_CHK (format && key && value);
-
-  key_str = (*env)->NewStringUTF (env, key);
-  AMC_CHK (key_str);
-
-  v_str = (*env)->NewStringUTF (env, value);
-  AMC_CHK (v_str);
-
-  J_CALL_VOID (format->object, media_format.set_string, key_str, v_str);
-error:
-  J_DELETE_LOCAL_REF (key_str);
-  J_DELETE_LOCAL_REF (v_str);
-}
-
-gboolean
-gst_amc_format_get_buffer (GstAmcFormat * format, const gchar * key,
-    GstBuffer ** value)
-{
-  gboolean ret = FALSE;
-  jstring key_str = NULL;
-  jobject v = NULL;
-  guint8 *data;
-  gsize size;
-  JNIEnv *env = gst_jni_get_env ();
-  AMC_CHK (format && key && value);
-
-  *value = NULL;
-
-  key_str = (*env)->NewStringUTF (env, key);
-  AMC_CHK (key_str);
-
-  J_CALL_OBJ (v /* = */ , format->object, media_format.get_byte_buffer,
-      key_str);
-
-  data = (*env)->GetDirectBufferAddress (env, v);
-  AMC_CHK (data);
-
-  size = (*env)->GetDirectBufferCapacity (env, v);
-  *value = gst_buffer_new_and_alloc (size);
-  memcpy (GST_BUFFER_DATA (*value), data, size);
-
-  ret = TRUE;
-error:
-  J_DELETE_LOCAL_REF (key_str);
-  J_DELETE_LOCAL_REF (v);
-  return ret;
-}
-
-void
-gst_amc_format_set_buffer (GstAmcFormat * format, const gchar * key,
-    GstBuffer * value)
-{
-  jstring key_str = NULL;
-  jobject v = NULL;
-  JNIEnv *env = gst_jni_get_env ();
-  AMC_CHK (format && key && value);
-
-  key_str = (*env)->NewStringUTF (env, key);
-  AMC_CHK (key_str);
-
-  /* FIXME: The buffer must remain valid until the codec is stopped */
-  v = (*env)->NewDirectByteBuffer (env, GST_BUFFER_DATA (value),
-      GST_BUFFER_SIZE (value));
-  AMC_CHK (v);
-
-  J_CALL_VOID (format->object, media_format.set_byte_buffer, key_str, v);
-error:
-  J_DELETE_LOCAL_REF (key_str);
-  J_DELETE_LOCAL_REF (v);
-}
-
-
-static jclass
-j_find_class (JNIEnv * env, const gchar * desc)
-{
-  jclass ret = NULL;
-  jclass tmp = (*env)->FindClass (env, desc);
-  AMC_CHK (tmp);
-
-  ret = (*env)->NewGlobalRef (env, tmp);
-  AMC_CHK (ret);
-error:
-  J_DELETE_LOCAL_REF (tmp);
-  return ret;
-}
-
-
 static gboolean
 get_java_classes (void)
 {
-  gboolean ret = TRUE;
+  gboolean ret = FALSE;
   JNIEnv *env;
-  jclass tmp;
 
   GST_DEBUG ("Retrieving Java classes");
 
   env = gst_jni_get_env ();
 
-  tmp = (*env)->FindClass (env, "java/lang/String");
-  if (!tmp) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get string class");
-    goto done;
-  }
-  java_string.klass = (*env)->NewGlobalRef (env, tmp);
-  if (!java_string.klass) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get string class global reference");
-    goto done;
-  }
-  (*env)->DeleteLocalRef (env, tmp);
-  tmp = NULL;
+  java_string.klass = gst_jni_get_class (env, "java/lang/String");
+  J_INIT_METHOD_ID (java_string, constructor, "<init>", "([C)V");
 
-  java_string.constructor =
-      (*env)->GetMethodID (env, java_string.klass, "<init>", "([C)V");
-  if (!java_string.constructor) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get string methods");
-    goto done;
+  java_int.klass = gst_jni_get_class (env, "java/lang/Integer");
+  J_INIT_METHOD_ID (java_int, int_value, "intValue", "()I");
+
+  android_range.klass = gst_jni_get_class (env, "android/util/Range");
+
+  if (!android_range.klass) {
+    GST_ERROR ("android/util/Range not found (requires API 21)");
+  } else {
+    android_range.get_upper = gst_jni_get_method (env, android_range.klass,
+        "getUpper", "()Ljava/lang/Comparable;");
   }
 
-  tmp = (*env)->FindClass (env, "android/media/MediaCodec");
-  if (!tmp) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get codec class");
-    goto done;
-  }
-  media_codec.klass = (*env)->NewGlobalRef (env, tmp);
-  if (!media_codec.klass) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get codec class global reference");
-    goto done;
-  }
-  (*env)->DeleteLocalRef (env, tmp);
-  tmp = NULL;
+  media_codec.klass = gst_jni_get_class (env, "android/media/MediaCodec");
 
   media_codec.CRYPTO_MODE_AES_CTR = 1;  // this constant is taken from Android docs webpage
-  media_codec.queue_secure_input_buffer =
-      (*env)->GetMethodID (env, media_codec.klass, "queueSecureInputBuffer",
-      "(IILandroid/media/MediaCodec$CryptoInfo;JI)V");
 
-  media_codec.create_by_codec_name =
-      (*env)->GetStaticMethodID (env, media_codec.klass, "createByCodecName",
-      "(Ljava/lang/String;)Landroid/media/MediaCodec;");
-  media_codec.configure =
-      (*env)->GetMethodID (env, media_codec.klass, "configure",
+  J_INIT_METHOD_ID (media_codec, queue_secure_input_buffer,
+      "queueSecureInputBuffer", "(IILandroid/media/MediaCodec$CryptoInfo;JI)V");
+
+  J_INIT_STATIC_METHOD_ID (media_codec, create_by_codec_name,
+      "createByCodecName", "(Ljava/lang/String;)Landroid/media/MediaCodec;");
+
+  J_INIT_METHOD_ID (media_codec, configure, "configure",
       "(Landroid/media/MediaFormat;Landroid/view/Surface;Landroid/media/MediaCrypto;I)V");
-  media_codec.dequeue_input_buffer =
-      (*env)->GetMethodID (env, media_codec.klass, "dequeueInputBuffer",
+
+  J_INIT_METHOD_ID (media_codec, dequeue_input_buffer, "dequeueInputBuffer",
       "(J)I");
-  media_codec.dequeue_output_buffer =
-      (*env)->GetMethodID (env, media_codec.klass, "dequeueOutputBuffer",
+
+  J_INIT_METHOD_ID (media_codec, dequeue_output_buffer, "dequeueOutputBuffer",
       "(Landroid/media/MediaCodec$BufferInfo;J)I");
-  media_codec.flush =
-      (*env)->GetMethodID (env, media_codec.klass, "flush", "()V");
-  media_codec.get_input_buffers =
-      (*env)->GetMethodID (env, media_codec.klass, "getInputBuffers",
+
+  J_INIT_METHOD_ID (media_codec, flush, "flush", "()V");
+
+  J_INIT_METHOD_ID (media_codec, get_input_buffers, "getInputBuffers",
       "()[Ljava/nio/ByteBuffer;");
-  media_codec.get_output_buffers =
-      (*env)->GetMethodID (env, media_codec.klass, "getOutputBuffers",
+
+
+  J_INIT_METHOD_ID (media_codec, get_output_buffers, "getOutputBuffers",
       "()[Ljava/nio/ByteBuffer;");
-  media_codec.get_output_format =
-      (*env)->GetMethodID (env, media_codec.klass, "getOutputFormat",
+
+  J_INIT_METHOD_ID (media_codec, get_output_format, "getOutputFormat",
       "()Landroid/media/MediaFormat;");
-  media_codec.queue_input_buffer =
-      (*env)->GetMethodID (env, media_codec.klass, "queueInputBuffer",
+
+  J_INIT_METHOD_ID (media_codec, queue_input_buffer, "queueInputBuffer",
       "(IIIJI)V");
-  media_codec.release =
-      (*env)->GetMethodID (env, media_codec.klass, "release", "()V");
-  media_codec.release_output_buffer =
-      (*env)->GetMethodID (env, media_codec.klass, "releaseOutputBuffer",
+
+  J_INIT_METHOD_ID (media_codec, release, "release", "()V");
+
+  J_INIT_METHOD_ID (media_codec, release_output_buffer, "releaseOutputBuffer",
       "(IZ)V");
-  media_codec.release_output_buffer_ts =
-      (*env)->GetMethodID (env, media_codec.klass, "releaseOutputBuffer",
-      "(IJ)V");
-  media_codec.set_output_surface =
-      (*env)->GetMethodID (env, media_codec.klass, "setOutputSurface",
+
+  J_INIT_METHOD_ID (media_codec, release_output_buffer_ts,
+      "releaseOutputBuffer", "(IJ)V");
+
+  J_INIT_METHOD_ID (media_codec, set_output_surface, "setOutputSurface",
       "(Landroid/view/Surface;)V");
-  media_codec.start =
-      (*env)->GetMethodID (env, media_codec.klass, "start", "()V");
-  media_codec.stop =
-      (*env)->GetMethodID (env, media_codec.klass, "stop", "()V");
-  media_codec.get_codec_info =
-      (*env)->GetMethodID (env, media_codec.klass, "getCodecInfo",
+
+  J_INIT_METHOD_ID (media_codec, start, "start", "()V");
+
+  J_INIT_METHOD_ID (media_codec, stop, "stop", "()V");
+
+  J_INIT_METHOD_ID (media_codec, get_codec_info, "getCodecInfo",
       "()Landroid/media/MediaCodecInfo;");
 
-  AMC_CHK (media_codec.queue_secure_input_buffer &&
-      media_codec.configure &&
-      media_codec.create_by_codec_name &&
-      media_codec.dequeue_input_buffer &&
-      media_codec.dequeue_output_buffer &&
-      media_codec.flush &&
-      media_codec.get_input_buffers &&
-      media_codec.get_output_buffers &&
-      media_codec.get_output_format &&
-      media_codec.queue_input_buffer &&
-      media_codec.release &&
-      media_codec.release_output_buffer &&
-      media_codec.release_output_buffer_ts &&
-      media_codec.set_output_surface && media_codec.start && media_codec.stop
-      && media_codec.get_codec_info);
+  media_codec_buffer_info.klass =
+      gst_jni_get_class (env, "android/media/MediaCodec$BufferInfo");
+  J_INIT_METHOD_ID (media_codec_buffer_info, constructor, "<init>", "()V");
 
-  tmp = (*env)->FindClass (env, "android/media/MediaCodec$BufferInfo");
-  if (!tmp) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get codec buffer info class");
-    goto done;
-  }
-  media_codec_buffer_info.klass = (*env)->NewGlobalRef (env, tmp);
-  if (!media_codec_buffer_info.klass) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get codec buffer info class global reference");
-    goto done;
-  }
-  (*env)->DeleteLocalRef (env, tmp);
-  tmp = NULL;
-
-  media_codec_buffer_info.constructor =
-      (*env)->GetMethodID (env, media_codec_buffer_info.klass, "<init>", "()V");
   media_codec_buffer_info.flags =
       (*env)->GetFieldID (env, media_codec_buffer_info.klass, "flags", "I");
   media_codec_buffer_info.offset =
@@ -1610,104 +1379,46 @@ get_java_classes (void)
       "presentationTimeUs", "J");
   media_codec_buffer_info.size =
       (*env)->GetFieldID (env, media_codec_buffer_info.klass, "size", "I");
-  if (!media_codec_buffer_info.constructor || !media_codec_buffer_info.flags
-      || !media_codec_buffer_info.offset
-      || !media_codec_buffer_info.presentation_time_us
-      || !media_codec_buffer_info.size) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get buffer info methods and fields");
-    goto done;
-  }
 
-  tmp = (*env)->FindClass (env, "android/media/MediaFormat");
-  if (!tmp) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get format class");
-    goto done;
-  }
-  media_format.klass = (*env)->NewGlobalRef (env, tmp);
-  if (!media_format.klass) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get format class global reference");
-    goto done;
-  }
-
-  media_format.create_audio_format =
-      (*env)->GetStaticMethodID (env, media_format.klass, "createAudioFormat",
-      "(Ljava/lang/String;II)Landroid/media/MediaFormat;");
-  media_format.create_video_format =
-      (*env)->GetStaticMethodID (env, media_format.klass, "createVideoFormat",
-      "(Ljava/lang/String;II)Landroid/media/MediaFormat;");
-  media_format.to_string =
-      (*env)->GetMethodID (env, media_format.klass, "toString",
-      "()Ljava/lang/String;");
-  media_format.contains_key =
-      (*env)->GetMethodID (env, media_format.klass, "containsKey",
-      "(Ljava/lang/String;)Z");
-  media_format.get_float =
-      (*env)->GetMethodID (env, media_format.klass, "getFloat",
-      "(Ljava/lang/String;)F");
-  media_format.set_float =
-      (*env)->GetMethodID (env, media_format.klass, "setFloat",
-      "(Ljava/lang/String;F)V");
-  media_format.get_integer =
-      (*env)->GetMethodID (env, media_format.klass, "getInteger",
-      "(Ljava/lang/String;)I");
-  media_format.set_integer =
-      (*env)->GetMethodID (env, media_format.klass, "setInteger",
-      "(Ljava/lang/String;I)V");
-  media_format.get_string =
-      (*env)->GetMethodID (env, media_format.klass, "getString",
-      "(Ljava/lang/String;)Ljava/lang/String;");
-  media_format.set_string =
-      (*env)->GetMethodID (env, media_format.klass, "setString",
-      "(Ljava/lang/String;Ljava/lang/String;)V");
-  media_format.get_byte_buffer =
-      (*env)->GetMethodID (env, media_format.klass, "getByteBuffer",
-      "(Ljava/lang/String;)Ljava/nio/ByteBuffer;");
-  media_format.set_byte_buffer =
-      (*env)->GetMethodID (env, media_format.klass, "setByteBuffer",
-      "(Ljava/lang/String;Ljava/nio/ByteBuffer;)V");
-  media_format.set_feature_enabled =
-      (*env)->GetMethodID (env, media_format.klass, "setFeatureEnabled",
-      "(Ljava/lang/String;Z)V");
-
-  if (!media_format.create_audio_format || !media_format.create_video_format
-      || !media_format.contains_key || !media_format.get_float
-      || !media_format.set_float || !media_format.get_integer
-      || !media_format.set_integer || !media_format.get_string
-      || !media_format.set_string || !media_format.get_byte_buffer
-      || !media_format.set_byte_buffer || !media_format.set_feature_enabled) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get format methods");
-    goto done;
-  }
+  AMC_CHK (media_codec_buffer_info.flags &&
+      media_codec_buffer_info.offset &&
+      media_codec_buffer_info.presentation_time_us &&
+      media_codec_buffer_info.size);
 
   /* MediaCodecInfo */
-  media_codec_info.klass = j_find_class (env, "android/media/MediaCodecInfo");
-  if (!media_codec_info.klass)
-    goto error;
+  media_codec_info.klass =
+      gst_jni_get_class (env, "android/media/MediaCodecInfo");
 
   J_INIT_METHOD_ID (media_codec_info, get_capabilities_for_type,
       "getCapabilitiesForType",
       "(Ljava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;");
 
   codec_capabilities.klass =
-      j_find_class (env, "android/media/MediaCodecInfo$CodecCapabilities");
-  if (!codec_capabilities.klass)
-    goto error;
+      gst_jni_get_class (env, "android/media/MediaCodecInfo$CodecCapabilities");
 
   J_INIT_METHOD_ID (codec_capabilities, is_feature_supported,
       "isFeatureSupported", "(Ljava/lang/String;)Z");
+  J_INIT_METHOD_ID (codec_capabilities, get_video_caps,
+      "getVideoCapabilities",
+      "()Landroid/media/MediaCodecInfo$VideoCapabilities;");
+
+  media_codec_info.video_caps.klass = gst_jni_get_class (env,
+      "android/media/MediaCodecInfo$VideoCapabilities");
+  if (!media_codec_info.video_caps.klass) {
+    GST_ERROR ("android/media/MediaCodecInfo$VideoCapabilities not found"
+        " (requires API 21)");
+  } else {
+    J_INIT_METHOD_ID (media_codec_info.video_caps, is_size_supported,
+        "isSizeSupported", "(II)Z");
+    J_INIT_METHOD_ID (media_codec_info.video_caps, get_supported_heights,
+        "getSupportedHeights", "()Landroid/util/Range;");
+    J_INIT_METHOD_ID (media_codec_info.video_caps, get_supported_widths_for,
+        "getSupportedWidthsFor", "(I)Landroid/util/Range;");
+  }
 
   /* MEDIA DRM */
-  media_drm.klass = j_find_class (env, "android/media/MediaDrm");
-  if (!media_drm.klass)
-    goto error;
+  media_drm.klass = gst_jni_get_class (env, "android/media/MediaDrm");
+
   J_INIT_METHOD_ID (media_drm, constructor, "<init>", "(Ljava/util/UUID;)V");
   J_INIT_METHOD_ID (media_drm, open_session, "openSession", "()[B");
   J_INIT_METHOD_ID (media_drm, get_key_request, "getKeyRequest", "(" "[B"       // byte[] scope
@@ -1724,9 +1435,8 @@ get_java_classes (void)
 
   /* ==================================== MediaDrm.KeyRequest */
   media_drm_key_request.klass =
-      j_find_class (env, "android/media/MediaDrm$KeyRequest");
-  if (!media_drm_key_request.klass)
-    goto error;
+      gst_jni_get_class (env, "android/media/MediaDrm$KeyRequest");
+
   J_INIT_METHOD_ID (media_drm_key_request, get_default_url, "getDefaultUrl",
       "()Ljava/lang/String;");
   J_INIT_METHOD_ID (media_drm_key_request, get_data, "getData", "()[B");
@@ -1734,23 +1444,20 @@ get_java_classes (void)
   /* ==================================== CryptoInfo       */
 
   media_codec_crypto_info.klass =
-      j_find_class (env, "android/media/MediaCodec$CryptoInfo");
-  if (!media_codec_crypto_info.klass)
-    goto error;
+      gst_jni_get_class (env, "android/media/MediaCodec$CryptoInfo");
+
   J_INIT_METHOD_ID (media_codec_crypto_info, constructor, "<init>", "()V");
   J_INIT_METHOD_ID (media_codec_crypto_info, set, "set", "(I[I[I[B[BI)V");
 
   /* ==================================== CryptoException   */
   crypto_exception.klass =
-      j_find_class (env, "android/media/MediaCodec$CryptoException");
-  if (!crypto_exception.klass)
-    goto error;
+      gst_jni_get_class (env, "android/media/MediaCodec$CryptoException");
+
   J_INIT_METHOD_ID (crypto_exception, get_error_code, "getErrorCode", "()I");
 
   /* ==================================== Media Crypto     */
-  media_crypto.klass = j_find_class (env, "android/media/MediaCrypto");
-  if (!media_crypto.klass)
-    goto error;
+  media_crypto.klass = gst_jni_get_class (env, "android/media/MediaCrypto");
+
   J_INIT_STATIC_METHOD_ID (media_crypto, is_crypto_scheme_supported,
       "isCryptoSchemeSupported", "(Ljava/util/UUID;)Z");
 
@@ -1759,19 +1466,15 @@ get_java_classes (void)
   J_INIT_METHOD_ID (media_crypto, constructor, "<init>",
       "(Ljava/util/UUID;[B)V");
   /* ====================================== UUID          */
-  uuid.klass = j_find_class (env, "java/util/UUID");
-  if (!uuid.klass)
-    goto error;
+  uuid.klass = gst_jni_get_class (env, "java/util/UUID");
+
   J_INIT_STATIC_METHOD_ID (uuid, from_string, "fromString",
       "(Ljava/lang/String;)Ljava/util/UUID;");
   /* ======================================               */
 
-done:
-  J_DELETE_LOCAL_REF (tmp);
-  return ret;
+  ret = TRUE;
 error:
-  ret = FALSE;
-  goto done;
+  return ret;
 }
 
 #ifdef GST_PLUGIN_BUILD_STATIC
@@ -1998,9 +1701,9 @@ scan_codecs (GstPlugin * plugin)
 {
   gboolean ret = FALSE;
   JNIEnv *env;
-  jclass codec_list_class = NULL;
-  jmethodID get_codec_count_id, get_codec_info_at_id;
+  GstJniMediaCodecList *codec_list = NULL;
   jint codec_count, i;
+  jobjectArray jcodec_infos;
   const GstStructure *cache_data;
 
   GST_DEBUG ("Scanning codecs");
@@ -2076,10 +1779,6 @@ scan_codecs (GstPlugin * plugin)
           l = gst_value_array_get_value (plv, 1);
           gst_codec_type->profile_levels[k].profile = g_value_get_int (p);
           gst_codec_type->profile_levels[k].level = g_value_get_int (l);
-
-          //GST_ERROR ("&&& Found levels for %s: prof = %d, lev = %d",
-          //    mime, gst_codec_type->profile_levels[k].profile,
-          //    gst_codec_type->profile_levels[k].level);
         }
       }
 
@@ -2091,20 +1790,11 @@ scan_codecs (GstPlugin * plugin)
 
   env = gst_jni_get_env ();
 
-  codec_list_class = (*env)->FindClass (env, "android/media/MediaCodecList");
-  AMC_CHK (codec_list_class);
+  codec_list = gst_jni_media_codec_list_new ();
+  jcodec_infos = gst_jni_media_codec_list_get_codec_infos (codec_list);
+  gst_jni_media_codec_list_free (codec_list);
 
-  get_codec_count_id =
-      (*env)->GetStaticMethodID (env, codec_list_class, "getCodecCount", "()I");
-  get_codec_info_at_id =
-      (*env)->GetStaticMethodID (env, codec_list_class, "getCodecInfoAt",
-      "(I)Landroid/media/MediaCodecInfo;");
-  AMC_CHK (get_codec_count_id && get_codec_info_at_id);
-
-  // J_CALL_STATIC_INT
-  codec_count =
-      (*env)->CallStaticIntMethod (env, codec_list_class, get_codec_count_id);
-  J_EXCEPTION_CHECK ("codec_list_class->get_codec_count_id");
+  codec_count = (*env)->GetArrayLength (env, jcodec_infos);
 
   GST_LOG ("Found %d available codecs", codec_count);
 
@@ -2124,9 +1814,7 @@ scan_codecs (GstPlugin * plugin)
 
     gst_codec_info = g_new0 (GstAmcCodecInfo, 1);
 
-    codec_info =
-        (*env)->CallStaticObjectMethod (env, codec_list_class,
-        get_codec_info_at_id, i);
+    codec_info = (*env)->GetObjectArrayElement (env, jcodec_infos, i);
     if ((*env)->ExceptionCheck (env) || !codec_info) {
       (*env)->ExceptionClear (env);
       GST_ERROR ("Failed to get codec info %d", i);
@@ -2135,7 +1823,7 @@ scan_codecs (GstPlugin * plugin)
     }
 
     codec_info_class = (*env)->GetObjectClass (env, codec_info);
-    if (!codec_list_class) {
+    if (!codec_info_class) {
       (*env)->ExceptionClear (env);
       GST_ERROR ("Failed to get codec info class");
       valid_codec = FALSE;
@@ -2546,6 +2234,7 @@ scan_codecs (GstPlugin * plugin)
   }
 
   ret = codec_infos != NULL;
+  //fixme: gst_jni_object_unref (env, codec_infos);
 
   /* If successful we store a cache of the codec information in
    * the registry. Otherwise we would always load all codecs during
@@ -2634,10 +2323,7 @@ scan_codecs (GstPlugin * plugin)
     save_codecs (plugin, new_cache_data);
   }
 
-  ret = TRUE;
-error:
-  J_DELETE_LOCAL_REF (codec_list_class);
-  return ret;
+  return TRUE;
 }
 
 static const struct
@@ -3257,6 +2943,19 @@ register_codecs (GstPlugin * plugin)
       else
         rank = GST_RANK_PRIMARY;
 
+      /* FIXME: this should be done looking at the codec feature and it
+       * needs to create one element for each supported mime in the codec
+       * as each mime could support or not some features
+       * In the practice venders splits the codec in regular, tunneled and secure */
+      /* Give the tunneled decoder a rank lower than the non-tunneled */
+      if (g_str_has_suffix (codec_info->name, "tunneled")) {
+        rank = rank - 1;
+      }
+      /* Give the secure decoder a rank lower than the non-secure */
+      if (g_str_has_suffix (codec_info->name, "secure")) {
+        rank = rank - 2;
+      }
+
       ret |= gst_element_register (plugin, element_name, rank, subtype);
       g_free (element_name);
 
@@ -3301,8 +3000,15 @@ plugin_init (GstPlugin * plugin)
   if (!register_codecs (plugin))
     return FALSE;
 
-  return gst_element_register (plugin, "amcvideosink", GST_RANK_PRIMARY,
-      GST_TYPE_AMC_VIDEO_SINK);
+  if (!gst_element_register (plugin, "amcvideosink", GST_RANK_PRIMARY,
+          GST_TYPE_AMC_VIDEO_SINK)) {
+    return FALSE;
+  };
+
+  if (!gst_element_register (plugin, "audiotracksink", GST_RANK_SECONDARY,
+          GST_TYPE_AUDIOTRACK_SINK)) {
+    return FALSE;
+  };
 
   return TRUE;
 }

@@ -31,6 +31,7 @@
 
 #include <gst/gst.h>
 #include <gst/androidjni/gstjniamcdirectbuffer.h>
+#include <gst/androidjni/gstjniamcutils.h>
 #include <string.h>
 
 #ifdef HAVE_ORC
@@ -73,7 +74,8 @@ static gboolean gst_amc_video_dec_src_event (GstVideoDecoder * decoder,
 enum
 {
   PROP_0,
-  PROP_DRM_AGENT_HANDLE
+  PROP_DRM_AGENT_HANDLE,
+  PROP_AUDIO_SESSION_ID,
 };
 
 /* class initialization */
@@ -414,47 +416,6 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
   return ret;
 }
 
-static const gchar *
-caps_to_mime (GstCaps * caps)
-{
-  GstStructure *s;
-  const gchar *name;
-
-  s = gst_caps_get_structure (caps, 0);
-  if (!s)
-    return NULL;
-
-  name = gst_structure_get_name (s);
-
-  if (strcmp (name, "video/mpeg") == 0) {
-    gint mpegversion;
-
-    if (!gst_structure_get_int (s, "mpegversion", &mpegversion))
-      return NULL;
-
-    if (mpegversion == 4)
-      return "video/mp4v-es";
-    else if (mpegversion == 1 || mpegversion == 2)
-      return "video/mpeg2";
-  } else if (strcmp (name, "video/x-h263") == 0) {
-    return "video/3gpp";
-  } else if (strcmp (name, "video/x-h264") == 0) {
-    return "video/avc";
-  } else if (strcmp (name, "video/x-h265") == 0) {
-    return "video/hevc";
-  } else if (strcmp (name, "video/x-vp8") == 0) {
-    return "video/x-vnd.on2.vp8";
-  } else if (strcmp (name, "video/x-divx") == 0) {
-    return "video/mp4v-es";
-  } else if (strcmp (name, "video/x-xvid") == 0) {
-    return "video/mp4v-es";
-  } else if (strcmp (name, "video/x-3ivx") == 0) {
-    return "video/mp4v-es";
-  }
-
-  return NULL;
-}
-
 static GstCaps *
 create_src_caps (const GstAmcCodecInfo * codec_info, gboolean direct_rendering)
 {
@@ -488,6 +449,25 @@ create_src_caps (const GstAmcCodecInfo * codec_info, gboolean direct_rendering)
   }
 
   return ret;
+}
+
+static GstFlowReturn
+gst_amc_video_dec_push_dummy (GstAmcVideoDec * self, gboolean set_caps)
+{
+  GstBuffer *buf = gst_buffer_new ();
+  GstCaps *caps;
+
+  if (G_UNLIKELY (!self->x_amc_empty_caps)) {
+    self->x_amc_empty_caps = gst_caps_new_simple ("video/x-amc", NULL);
+  }
+
+  caps = self->x_amc_empty_caps;
+
+  if (set_caps)
+    gst_pad_set_caps (GST_VIDEO_DECODER (self)->srcpad, caps);
+  gst_buffer_set_caps (buf, caps);
+  GST_BUFFER_DATA (buf) = NULL;
+  return gst_pad_push (GST_VIDEO_DECODER (self)->srcpad, buf);
 }
 
 static void
@@ -538,6 +518,13 @@ gst_amc_video_dec_get_property (GObject * object, guint prop_id, GValue * value,
     case PROP_DRM_AGENT_HANDLE:
       g_value_set_pointer (value, (gpointer) thiz->crypto_ctx.mcrypto);
       break;
+    case PROP_AUDIO_SESSION_ID:
+      /* If not zero enables tunneled if supported */
+      g_value_set_int (value, thiz->audio_session_id);
+      /* FIXME: This is not an error, but we want to force this log
+       * and for now we can only achieve it in android using GST_ERROR */
+      GST_ERROR_OBJECT (object, "audio_session_id=%d", thiz->audio_session_id);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -559,6 +546,9 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
           gst_amc_global_ref_jobj (thiz->crypto_ctx.mcrypto);
       GST_ERROR_OBJECT (object, "{{{ after global ref mcrypto is [%p]",
           thiz->crypto_ctx.mcrypto);
+      break;
+    case PROP_AUDIO_SESSION_ID:
+      thiz->audio_session_id = g_value_get_int (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -635,6 +625,11 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
           "The DRM Agent handle to use for decrypting",
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  g_object_class_install_property (gobject_class, PROP_AUDIO_SESSION_ID,
+      g_param_spec_int ("audio-session-id", "Audio Session ID",
+          "Audio Session ID for tunneled video playback",
+          0, G_MAXINT, 0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
 }
 
 static void
@@ -693,6 +688,11 @@ static void
 gst_amc_video_dec_finalize (GObject * object)
 {
   GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (object);
+
+  if (self->x_amc_empty_caps) {
+    gst_caps_unref (self->x_amc_empty_caps);
+    self->x_amc_empty_caps = NULL;
+  }
 
   g_mutex_free (self->drain_lock);
   g_cond_free (self->drain_cond);
@@ -1501,7 +1501,10 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   GstAmcFormat *format;
   const gchar *mime;
   gboolean is_format_change = FALSE;
+  gboolean is_size_change = FALSE;
   gboolean needs_disable = FALSE;
+  gboolean needs_config = FALSE;
+  gboolean adaptive;
   gchar *format_string;
   jobject jsurface = NULL;
 
@@ -1513,29 +1516,23 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
   /* Check if the caps change is a real format change or if only irrelevant
    * parts of the caps have changed or nothing at all.
    */
-  is_format_change |= self->width != state->info.width;
-  is_format_change |= self->height != state->info.height;
+  is_size_change |= self->width != state->info.width;
+  is_size_change |= self->height != state->info.height;
   is_format_change |= (self->codec_data != state->codec_data);
 
-  needs_disable = self->started;
+  adaptive = self->codec->adaptive_enabled;
+  needs_disable = self->started &&
+      (is_format_change || (is_size_change && !adaptive));
+  needs_config = !self->started || needs_disable;
 
-  /* If the component is not started and a real format change happens
-   * we have to restart the component. If no real format change
-   * happened we can just exit here.
-   */
-  if (needs_disable && !is_format_change) {
-    /* Framerate or something minor changed */
-    self->input_state_changed = TRUE;
-    if (self->input_state)
-      gst_video_codec_state_unref (self->input_state);
-    self->input_state = gst_video_codec_state_ref (state);
-    GST_DEBUG_OBJECT (self,
-        "Already running and caps did not change the format");
-    return TRUE;
-  }
+  /* FIXME: This is not an error, but we want to force this log
+   * and for now we can only achieve it in android using GST_ERROR */
+  GST_ERROR_OBJECT (self, "needs_disable=%d needs_config=%d", needs_disable,
+      needs_config);
 
-  if (needs_disable && is_format_change) {
+  if (needs_disable) {
     /* Completely reinit decoder */
+    GST_INFO_OBJECT (self, "reinitializing decoder");
     GST_VIDEO_DECODER_STREAM_UNLOCK (self);
     gst_amc_video_dec_stop (GST_VIDEO_DECODER (self));
     GST_VIDEO_DECODER_STREAM_LOCK (self);
@@ -1544,108 +1541,101 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
       GST_ERROR_OBJECT (self, "Failed to open codec again");
       return FALSE;
     }
-
     if (!gst_amc_video_dec_start (GST_VIDEO_DECODER (self))) {
       GST_ERROR_OBJECT (self, "Failed to start codec again");
     }
   }
-  /* srcpad task is not running at this point */
+
   if (self->input_state)
     gst_video_codec_state_unref (self->input_state);
   self->input_state = NULL;
 
-  gst_buffer_replace (&self->codec_data, state->codec_data);
-
-  mime = caps_to_mime (state->caps);
-  if (!mime) {
-    GST_ERROR_OBJECT (self, "Failed to convert caps to mime");
-    return FALSE;
-  }
-
-  format =
-      gst_amc_format_new_video (mime, state->info.width, state->info.height);
-  if (!format) {
-    GST_ERROR_OBJECT (self, "Failed to create video format");
-    return FALSE;
-  }
-
-  /* FIXME: This buffer needs to be valid until the codec is stopped again */
-  if (self->codec_data)
-    gst_amc_format_set_buffer (format, "csd-0", self->codec_data);
+  if (needs_config) {
+    gst_buffer_replace (&self->codec_data, state->codec_data);
 
 #if USE_AMCVIDEOSINK
-  if (klass->direct_rendering && self->surface == NULL) {
-    /* Exposes pads with decodebin with a dummy buffer to link with the sink
-     * and get the surface */
-    GstBuffer *buf = gst_buffer_new ();
-    GstCaps *caps = gst_caps_new_simple ("video/x-amc", NULL);
+    if (klass->direct_rendering && self->surface == NULL) {
+      /* Exposes pads with decodebin with a dummy buffer to link with the sink
+       * and get the surface */
+      GST_INFO_OBJECT (self, "Sending a dummy buffer");
+      gst_amc_video_dec_push_dummy (self, TRUE);
 
-    gst_pad_set_caps (decoder->srcpad, caps);
-    gst_buffer_set_caps (buf, caps);
-    gst_caps_unref (caps);
-    caps = NULL;
-    GST_BUFFER_DATA (buf) = NULL;
-    gst_pad_push (decoder->srcpad, buf);
+      if (self->surface == NULL) {
+        GstQuery *query = gst_amc_query_new_surface ();
 
-    if (self->surface == NULL) {
-      GstQuery *query = gst_amc_query_new_surface ();
-
-      if (gst_pad_peer_query (decoder->srcpad, query)) {
-        jsurface = self->surface = gst_amc_query_parse_surface (query);
-        if (G_UNLIKELY (!self->surface)) {
-          GST_WARNING_OBJECT (self, "Quering a surface from the sink failed");
+        if (gst_pad_peer_query (decoder->srcpad, query)) {
+          jsurface = self->surface = gst_amc_query_parse_surface (query);
+          if (G_UNLIKELY (!self->surface)) {
+            GST_WARNING_OBJECT (self, "Quering a surface from the sink failed");
+          }
         }
+        gst_query_unref (query);
       }
-      gst_query_unref (query);
     }
-  }
 #else /* Use eglglessink */
-  if (klass->direct_rendering && self->surface == NULL) {
-    self->surface = gst_jni_surface_new (gst_jni_surface_texture_new ());
-    jsurface = self->surface->jobject;
-  }
+    if (klass->direct_rendering && self->surface == NULL) {
+      self->surface = gst_jni_surface_new (gst_jni_surface_texture_new ());
+      jsurface = self->surface->jobject;
+    }
 #endif
 
-  format_string = gst_amc_format_to_string (format);
-  GST_DEBUG_OBJECT (self, "Configuring codec with format: %s surface: %p",
-      format_string, jsurface);
-  g_free (format_string);
+    mime = gst_jni_amc_video_caps_to_mime (state->caps);
+    if (!mime) {
+      GST_ERROR_OBJECT (self, "Failed to convert caps to mime");
+      return FALSE;
+    }
 
-  /* We decide that stream is encrypted if we eather received and parsed
-     drm event, eather received crypto ctx from user. It may be not completely correct.
-     Other way - is to base on caps of sinkpad (if they're x-cenc) */
-  if (self->crypto_ctx.mcrypto)
-    self->is_encrypted = TRUE;
+    format = gst_amc_format_new_video (mime, state->info.width,
+        state->info.height);
+    if (!format) {
+      GST_ERROR_OBJECT (self, "Failed to create video format");
+      return FALSE;
+    }
 
-  if (!gst_amc_codec_configure (self->codec, format, jsurface,
-          self->crypto_ctx.mcrypto, 0)) {
+    /* FIXME: This buffer needs to be valid until the codec is stopped again */
+    if (self->codec_data)
+      gst_amc_format_set_buffer (format, "csd-0", self->codec_data);
+
+    /* We decide that stream is encrypted if we eather received and parsed
+       drm event, eather received crypto ctx from user. It may be not completely correct.
+       Other way - is to base on caps of sinkpad (if they're x-cenc) */
+    if (self->crypto_ctx.mcrypto)
+      self->is_encrypted = TRUE;
+
+    format_string = gst_amc_format_to_string (format);
+    GST_DEBUG_OBJECT (self, "Configuring codec with format: %s surface: %p "
+        "audio session id:%d", format_string, jsurface, self->audio_session_id);
+    g_free (format_string);
+
+    if (!gst_amc_codec_configure (self->codec, format, jsurface,
+            self->crypto_ctx.mcrypto, 0, self->audio_session_id)) {
+      GST_ERROR_OBJECT (self, "Failed to configure codec");
+      gst_amc_format_free (format);
+      return FALSE;
+    }
+
     gst_amc_format_free (format);
-    GST_ERROR_OBJECT (self, "Failed to configure codec");
-    return FALSE;
+
+    if (!gst_amc_codec_start (self->codec)) {
+      GST_ERROR_OBJECT (self, "Failed to start codec");
+      return FALSE;
+    }
+
+    gst_amc_codec_free_buffers (self->input_buffers, self->n_input_buffers);
+    self->input_buffers =
+        gst_amc_codec_get_input_buffers (self->codec, &self->n_input_buffers);
+    if (!self->input_buffers) {
+      GST_ERROR_OBJECT (self, "Failed to get input buffers");
+      return FALSE;
+    }
   }
 
-  gst_amc_format_free (format);
-
-  if (!gst_amc_codec_start (self->codec)) {
-    GST_ERROR_OBJECT (self, "Failed to start codec");
-    return FALSE;
-  }
-
-  gst_amc_codec_free_buffers (self->input_buffers, self->n_input_buffers);
-  self->input_buffers =
-      gst_amc_codec_get_input_buffers (self->codec, &self->n_input_buffers);
-  if (!self->input_buffers) {
-    GST_ERROR_OBJECT (self, "Failed to get input buffers");
-    return FALSE;
-  }
-
-  self->started = TRUE;
   self->input_state = gst_video_codec_state_ref (state);
   self->input_state_changed = TRUE;
+  self->started = TRUE;
 
   return TRUE;
 }
-
 
 static gboolean
 gst_amc_video_dec_reset (GstVideoDecoder * decoder, gboolean hard)
@@ -1707,6 +1697,12 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     return GST_FLOW_UNEXPECTED;
   }
 
+  if (self->codec->tunneled_playback_enabled) {
+    self->downstream_flow_ret = gst_amc_video_dec_push_dummy (self, FALSE);
+    gst_video_decoder_release_frame (GST_VIDEO_DECODER (self),
+        gst_video_codec_frame_ref (frame));
+  }
+
   timestamp = frame->pts;
   duration = frame->duration;
 
@@ -1721,6 +1717,15 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
       idx = gst_amc_codec_dequeue_input_buffer (self->codec, 100000);
       GST_VIDEO_DECODER_STREAM_LOCK (self);
     }
+
+    /* If pushing loop has to be stopped (which is case of PAUSED-> READY) -
+     * then we don't enqueue anything and just drop the buffer.
+     * Otherwise we can deadlock in infinite loop. */
+    if (self->stop_loop) {
+      error_msg = NULL;
+      goto error;
+    }
+
     /* First let's analyse the state of srcpad's loop
        and codec's state (it may be flushing) */
     if (self->downstream_flow_ret != GST_FLOW_OK) {
@@ -1795,7 +1800,8 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
 
     /* We've send some jni buffer to decoder, now let's start the thread, that
        fetches decoded frames and pushes them to srcpad: */
-    if (G_UNLIKELY (!self->srcpad_loop_started)) {
+    if (G_UNLIKELY (!self->srcpad_loop_started)
+        && !self->codec->tunneled_playback_enabled) {
       /* We do it once after each flush */
       gst_pad_start_task (GST_VIDEO_DECODER_SRC_PAD (self),
           (GstTaskFunction) gst_amc_video_dec_loop, decoder);
@@ -1805,6 +1811,7 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
 
   /* Sucess */
   error_msg = NULL;
+
 error:
   if (G_UNLIKELY (!queued_input_buffer) && idx >= 0) {
     /* cache input buffer for next time. It will be dropped on flush/reconfigure */
@@ -1825,7 +1832,6 @@ gst_amc_video_dec_finish (GstVideoDecoder * decoder)
   /* There's a naming confusion in a base class: "finish" function is called on eos */
   return gst_amc_video_dec_eos (decoder);
 }
-
 
 static GstFlowReturn
 gst_amc_video_dec_eos (GstVideoDecoder * decoder)

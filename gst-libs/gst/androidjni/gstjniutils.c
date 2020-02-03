@@ -34,49 +34,52 @@ static gboolean __started_java_vm = FALSE;
 static gboolean __initialized = FALSE;
 static pthread_key_t __current_jni_env;
 
-#define CALL_TYPE_METHOD(_type, _name,  _jname, _retval)                                                 \
-_type gst_jni_call_##_name##_method (JNIEnv *env, jobject obj, jmethodID methodID, ...)                  \
-  {                                                                                                      \
-    _type ret;                                                                                           \
-    va_list args;                                                                                        \
-    va_start(args, methodID);                                                                            \
-    ret = (*env)->Call##_jname##MethodV(env, obj, methodID, args);                                       \
-    if ((*env)->ExceptionCheck (env)) {                                                                  \
-      GST_ERROR ("Failed to call Java method");                                                          \
-      (*env)->ExceptionClear (env);                                                                      \
-      ret = _retval;                                                                                     \
-    }                                                                                                    \
-    va_end(args);                                                                                        \
-    return (_type) ret;                                                                                  \
-  }
+#define CALL_TYPE_METHOD(_type, _name,  _jname, _retval)                \
+  _type gst_jni_call_##_name##_method (JNIEnv *env, jobject obj, jmethodID methodID, ...) \
+  {                                                                     \
+    _type ret;                                                          \
+    va_list args;                                                       \
+    va_start(args, methodID);                                           \
+    ret = (*env)->Call##_jname##MethodV(env, obj, methodID, args);      \
+    if ((*env)->ExceptionCheck (env)) {                                 \
+      GST_ERROR ("Failed to call Java method");                         \
+      (*env)->ExceptionClear (env);                                     \
+      ret = _retval;                                                    \
+    }                                                                   \
+    va_end(args);                                                       \
+    return (_type) ret;                                                 \
+  }                                                                     \
+  typedef int semicolon_eater_##name
 
-CALL_TYPE_METHOD (gboolean, boolean, Boolean, FALSE)
-    CALL_TYPE_METHOD (gint8, byte, Byte, G_MININT8)
-    CALL_TYPE_METHOD (gshort, short, Short, G_MINSHORT)
-CALL_TYPE_METHOD (gint, int, Int, G_MININT)
-CALL_TYPE_METHOD (gchar, char, Char, 0)
-CALL_TYPE_METHOD (glong, long, Long, G_MINLONG)
-CALL_TYPE_METHOD (gfloat, float, Float, G_MINFLOAT)
-CALL_TYPE_METHOD (gdouble, double, Double, G_MINDOUBLE)
-CALL_TYPE_METHOD (jobject, object, Object, NULL)
-#define GET_TYPE_FIELD(_type, _name, _jname, _retval)                           \
-_type gst_jni_get_##_name##_field (JNIEnv *env, jobject obj, jfieldID fieldID)  \
-  {                                                                             \
-    _type res;                                                                  \
-                                                                                \
-    res = (*env)->Get##_jname##Field(env, obj, fieldID);                        \
-    if ((*env)->ExceptionCheck (env)) {                                         \
-      GST_ERROR ("Failed to get Java field ");                                  \
-      (*env)->ExceptionClear (env);                                             \
-      res = _retval;                                                            \
-    }                                                                           \
-    return res;                                                                 \
-  }
-GET_TYPE_FIELD (gint, int, Int, G_MININT)
-GET_TYPE_FIELD (glong, long, Long, G_MINLONG)
+CALL_TYPE_METHOD (gboolean, boolean, Boolean, FALSE);
+CALL_TYPE_METHOD (gint8, byte, Byte, G_MININT8);
+CALL_TYPE_METHOD (gshort, short, Short, G_MINSHORT);
+CALL_TYPE_METHOD (gint, int, Int, G_MININT);
+CALL_TYPE_METHOD (gchar, char, Char, 0);
+CALL_TYPE_METHOD (glong, long, Long, G_MINLONG);
+CALL_TYPE_METHOD (gfloat, float, Float, G_MINFLOAT);
+CALL_TYPE_METHOD (gdouble, double, Double, G_MINDOUBLE);
+CALL_TYPE_METHOD (jobject, object, Object, NULL);
 
+#define GET_TYPE_FIELD(_type, _name, _jname, _retval)                   \
+  _type gst_jni_get_##_name##_field (JNIEnv *env, jobject obj, jfieldID fieldID) \
+  {                                                                     \
+    _type res;                                                          \
+                                                                        \
+    res = (*env)->Get##_jname##Field(env, obj, fieldID);                \
+    if ((*env)->ExceptionCheck (env)) {                                 \
+      GST_ERROR ("Failed to get Java field ");                          \
+      (*env)->ExceptionClear (env);                                     \
+      res = _retval;                                                    \
+    }                                                                   \
+    return res;                                                         \
+  }                                                                     \
+  typedef int semicolon_eater2_##name
 
-  jclass
+GET_TYPE_FIELD (gint, int, Int, G_MININT);
+GET_TYPE_FIELD (glong, long, Long, G_MINLONG);
+
+jclass
 gst_jni_get_class (JNIEnv * env, const gchar * name)
 {
   jclass tmp, ret = NULL;
@@ -85,7 +88,7 @@ gst_jni_get_class (JNIEnv * env, const gchar * name)
 
   tmp = (*env)->FindClass (env, name);
   if (!tmp) {
-    ret = FALSE;
+    ret = NULL;
     (*env)->ExceptionClear (env);
     GST_ERROR ("Failed to get %s class", name);
     goto done;
@@ -386,6 +389,13 @@ gst_jni_initialize (JavaVM * java_vm)
       __java_vm = java_vm;
     }
   }
+  if (!gst_amc_media_format_init ()) {
+    return FALSE;
+  }
+  if (!gst_jni_media_codec_list_init ()) {
+    return FALSE;
+  }
+
   return __initialized;
 }
 

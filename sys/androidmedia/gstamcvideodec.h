@@ -50,6 +50,9 @@ struct _GstAmcVideoDec
 {
   GstVideoDecoder parent;
 
+  /* Properties */
+  gint audio_session_id;
+
   /* < private > */
   GstAmcCodec *codec;
   GstAmcBuffer *input_buffers, *output_buffers;
@@ -96,6 +99,8 @@ struct _GstAmcVideoDec
   gboolean is_encrypted;
   gboolean srcpad_loop_started;
   gint cached_input_buffer;
+
+  GstCaps *x_amc_empty_caps;
 };
 
 struct _GstAmcVideoDecClass

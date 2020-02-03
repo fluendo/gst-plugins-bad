@@ -5,7 +5,11 @@ CLEANFILES = $(BUILT_SOURCES)
 
 libgstandroidjni_@GST_MAJORMINOR@_la_SOURCES = \
 	gstjniutils.c \
+	gstjniamcutils.c \
 	gstjniamcdirectbuffer.c \
+	gstjniaudiotrack.c \
+	gstjnimediacodeclist.c \
+	gstjnimediaformat.c \
 	gstjnisurface.c \
 	gstjnisurfacetexture.c
 
@@ -14,7 +18,11 @@ libgstandroidjni_@GST_MAJORMINOR@includedir = \
 
 libgstandroidjni_@GST_MAJORMINOR@include_HEADERS = \
 	gstjniutils.h \
+	gstjniamcutils.h \
 	gstjniamcdirectbuffer.h \
+	gstjniaudiotrack.h \
+	gstjnimediacodeclist.h \
+	gstjnimediaformat.h \
 	gstjnisurface.h \
 	gstjnisurfacetexture.h
 

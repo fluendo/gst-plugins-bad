@@ -24,6 +24,7 @@
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/audio/multichannel.h>
+#include <gst/androidjni/gstjnimediaformat.h>
 #include <jni.h>
 #include <fluc/drm/flucdrm.h>
 
@@ -32,7 +33,6 @@ typedef struct _GstAmcCodecInfo GstAmcCodecInfo;
 typedef struct _GstAmcCodecType GstAmcCodecType;
 typedef struct _GstAmcCodec GstAmcCodec;
 typedef struct _GstAmcBufferInfo GstAmcBufferInfo;
-typedef struct _GstAmcFormat GstAmcFormat;
 typedef struct _GstAmcCrypto GstAmcCrypto;
 typedef struct _GstAmcBuffer GstAmcBuffer;
 typedef struct _GstAmcDRBuffer GstAmcDRBuffer;
@@ -67,12 +67,6 @@ struct _GstAmcBuffer
   gsize size;
 };
 
-struct _GstAmcFormat
-{
-  /* < private > */
-  jobject object;               /* global reference */
-};
-
 struct _GstAmcCrypto
 {
   /* < private > */
@@ -85,6 +79,8 @@ struct _GstAmcCodec
 {
   guint flush_id;
   GMutex buffers_lock;
+  gboolean tunneled_playback_enabled;
+  gboolean adaptive_enabled;
   /* < private > */
   jobject object;               /* global reference */
   gint ref_count;
@@ -116,7 +112,7 @@ void gst_amc_crypto_ctx_free (GstAmcCrypto * crypto_ctx);
 jmethodID gst_amc_codec_get_release_method_id (GstAmcCodec * codec);
 jmethodID gst_amc_codec_get_release_ts_method_id (GstAmcCodec * codec);
 gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
-    guint8 * surface, jobject mcrypto_obj, gint flags);
+    guint8 * surface, jobject mcrypto_obj, gint flags, gint audio_session_id);
 GstAmcFormat *gst_amc_codec_get_output_format (GstAmcCodec * codec);
 
 gboolean gst_amc_codec_start (GstAmcCodec * codec);
@@ -144,32 +140,7 @@ gboolean gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index,
     GstClockTime ts);
 gboolean gst_amc_codec_set_output_surface (GstAmcCodec * codec, guint8 * surface);
 
-GstAmcFormat *gst_amc_format_new_audio (const gchar * mime, gint sample_rate,
-    gint channels);
-GstAmcFormat *gst_amc_format_new_video (const gchar * mime, gint width,
-    gint height);
-void gst_amc_format_free (GstAmcFormat * format);
 
-gchar *gst_amc_format_to_string (GstAmcFormat * format);
-
-gboolean gst_amc_format_contains_key (GstAmcFormat * format, const gchar * key);
-
-gboolean gst_amc_format_get_float (GstAmcFormat * format, const gchar * key,
-    gfloat * value);
-void gst_amc_format_set_float (GstAmcFormat * format, const gchar * key,
-    gfloat value);
-gboolean gst_amc_format_get_int (const GstAmcFormat * format, const gchar * key,
-    gint * value);
-void gst_amc_format_set_int (GstAmcFormat * format, const gchar * key,
-    gint value);
-gboolean gst_amc_format_get_string (GstAmcFormat * format, const gchar * key,
-    gchar ** value);
-void gst_amc_format_set_string (GstAmcFormat * format, const gchar * key,
-    const gchar * value);
-gboolean gst_amc_format_get_buffer (GstAmcFormat * format, const gchar * key,
-    GstBuffer ** value);
-void gst_amc_format_set_buffer (GstAmcFormat * format, const gchar * key,
-    GstBuffer * value);
 
 GstVideoFormat gst_amc_color_format_to_video_format (gint color_format);
 
@@ -225,7 +196,10 @@ gboolean gst_amc_query_set_surface (GstQuery *query, gpointer surface);
 GstEvent * gst_amc_event_new_surface (gpointer surface);
 gpointer gst_amc_event_parse_surface (GstEvent *event);
 gboolean gst_amc_event_is_surface (GstEvent *event);
+
+gboolean gst_amc_codec_is_feature_supported (GstAmcCodec * codec, GstAmcFormat * format, const gchar * feature);
 gboolean gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec, GstAmcFormat * format);
+gboolean gst_amc_codec_enable_tunneled_video_playback (GstAmcCodec * codec, GstAmcFormat * format, gint audio_session_id);
 
 G_END_DECLS
 #endif /* __GST_AMC_H__ */
