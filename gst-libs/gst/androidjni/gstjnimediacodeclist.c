@@ -46,21 +46,9 @@ gst_jni_media_codec_list_init (void)
   }
 
   env = gst_jni_get_env ();
-
-  jobject tmp = (*env)->FindClass (env, "android/media/MediaCodecList");
-  if (!tmp) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get format class");
-    goto done;
-  }
-  media_codec_list.klass = (*env)->NewGlobalRef (env, tmp);
-  if (!media_codec_list.klass) {
-    ret = FALSE;
-    (*env)->ExceptionClear (env);
-    GST_ERROR ("Failed to get format class global reference");
-    goto done;
-  }
+  media_codec_list.klass =
+      gst_jni_get_class (env, "android/media/MediaCodecList");
+  AMC_CHK (media_codec_list.klass);
 
   J_INIT_METHOD_ID (media_codec_list, constructor, "<init>", "(I)V");
   J_INIT_METHOD_ID (media_codec_list, find_decoder_for_format,

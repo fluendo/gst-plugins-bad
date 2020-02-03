@@ -1289,24 +1289,6 @@ error:
   return ret;
 }
 
-
-
-
-static jclass
-j_find_class (JNIEnv * env, const gchar * desc)
-{
-  jclass ret = NULL;
-  jclass tmp = (*env)->FindClass (env, desc);
-  AMC_CHK (tmp);
-
-  ret = (*env)->NewGlobalRef (env, tmp);
-  AMC_CHK (ret);
-error:
-  J_DELETE_LOCAL_REF (tmp);
-  return ret;
-}
-
-
 static gboolean
 get_java_classes (void)
 {
@@ -1344,11 +1326,11 @@ get_java_classes (void)
     goto done;
   }
 
-  java_int.klass = j_find_class (env, "java/lang/Integer");
+  java_int.klass = gst_jni_get_class (env, "java/lang/Integer");
   java_int.int_value = gst_jni_get_method (env, java_int.klass,
       "intValue", "()I");
 
-  android_range.klass = j_find_class (env, "android/util/Range");
+  android_range.klass = gst_jni_get_class (env, "android/util/Range");
   GST_ERROR ("range.klass=%p", android_range.klass);
   if (!android_range.klass) {
     GST_ERROR ("android/util/Range not found (requires API 21)");
@@ -1479,7 +1461,8 @@ get_java_classes (void)
   }
 
   /* MediaCodecInfo */
-  media_codec_info.klass = j_find_class (env, "android/media/MediaCodecInfo");
+  media_codec_info.klass =
+      gst_jni_get_class (env, "android/media/MediaCodecInfo");
   if (!media_codec_info.klass)
     goto error;
 
@@ -1488,7 +1471,7 @@ get_java_classes (void)
       "(Ljava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;");
 
   codec_capabilities.klass =
-      j_find_class (env, "android/media/MediaCodecInfo$CodecCapabilities");
+      gst_jni_get_class (env, "android/media/MediaCodecInfo$CodecCapabilities");
   if (!codec_capabilities.klass)
     goto error;
 
@@ -1498,7 +1481,7 @@ get_java_classes (void)
       "getVideoCapabilities",
       "()Landroid/media/MediaCodecInfo$VideoCapabilities;");
 
-  media_codec_info.video_caps.klass = j_find_class (env,
+  media_codec_info.video_caps.klass = gst_jni_get_class (env,
       "android/media/MediaCodecInfo$VideoCapabilities");
   if (!media_codec_info.video_caps.klass) {
     GST_ERROR ("android/media/MediaCodecInfo$VideoCapabilities not found"
@@ -1513,7 +1496,7 @@ get_java_classes (void)
   }
 
   /* MEDIA DRM */
-  media_drm.klass = j_find_class (env, "android/media/MediaDrm");
+  media_drm.klass = gst_jni_get_class (env, "android/media/MediaDrm");
   if (!media_drm.klass)
     goto error;
   J_INIT_METHOD_ID (media_drm, constructor, "<init>", "(Ljava/util/UUID;)V");
@@ -1532,7 +1515,7 @@ get_java_classes (void)
 
   /* ==================================== MediaDrm.KeyRequest */
   media_drm_key_request.klass =
-      j_find_class (env, "android/media/MediaDrm$KeyRequest");
+      gst_jni_get_class (env, "android/media/MediaDrm$KeyRequest");
   if (!media_drm_key_request.klass)
     goto error;
   J_INIT_METHOD_ID (media_drm_key_request, get_default_url, "getDefaultUrl",
@@ -1542,7 +1525,7 @@ get_java_classes (void)
   /* ==================================== CryptoInfo       */
 
   media_codec_crypto_info.klass =
-      j_find_class (env, "android/media/MediaCodec$CryptoInfo");
+      gst_jni_get_class (env, "android/media/MediaCodec$CryptoInfo");
   if (!media_codec_crypto_info.klass)
     goto error;
   J_INIT_METHOD_ID (media_codec_crypto_info, constructor, "<init>", "()V");
@@ -1550,13 +1533,13 @@ get_java_classes (void)
 
   /* ==================================== CryptoException   */
   crypto_exception.klass =
-      j_find_class (env, "android/media/MediaCodec$CryptoException");
+      gst_jni_get_class (env, "android/media/MediaCodec$CryptoException");
   if (!crypto_exception.klass)
     goto error;
   J_INIT_METHOD_ID (crypto_exception, get_error_code, "getErrorCode", "()I");
 
   /* ==================================== Media Crypto     */
-  media_crypto.klass = j_find_class (env, "android/media/MediaCrypto");
+  media_crypto.klass = gst_jni_get_class (env, "android/media/MediaCrypto");
   if (!media_crypto.klass)
     goto error;
   J_INIT_STATIC_METHOD_ID (media_crypto, is_crypto_scheme_supported,
@@ -1567,7 +1550,7 @@ get_java_classes (void)
   J_INIT_METHOD_ID (media_crypto, constructor, "<init>",
       "(Ljava/util/UUID;[B)V");
   /* ====================================== UUID          */
-  uuid.klass = j_find_class (env, "java/util/UUID");
+  uuid.klass = gst_jni_get_class (env, "java/util/UUID");
   if (!uuid.klass)
     goto error;
   J_INIT_STATIC_METHOD_ID (uuid, from_string, "fromString",
