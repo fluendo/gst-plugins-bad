@@ -340,7 +340,8 @@ gst_amc_audio_dec_get_property (GObject * object, guint prop_id, GValue * value,
   GstAmcAudioDec *thiz = GST_AMC_AUDIO_DEC (object);
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
-      g_value_set_pointer (value, (gpointer) thiz->crypto_ctx.mcrypto);
+      g_value_set_pointer (value,
+          (gpointer) gst_amc_drm_mcrypto_get (thiz->drm_ctx));
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -356,13 +357,7 @@ gst_amc_audio_dec_set_property (GObject * object, guint prop_id,
   GstAmcAudioDec *thiz = GST_AMC_AUDIO_DEC (object);
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
-      thiz->crypto_ctx.mcrypto = g_value_get_pointer (value);
-      GST_ERROR_OBJECT (object, "{{{ setting mcrypto [%p]",
-          thiz->crypto_ctx.mcrypto);
-      thiz->crypto_ctx.mcrypto =
-          gst_amc_global_ref_jobj (thiz->crypto_ctx.mcrypto);
-      GST_ERROR_OBJECT (object, "{{{ after global ref mcrypto is [%p]",
-          thiz->crypto_ctx.mcrypto);
+      gst_amc_drm_mcrypto_set (thiz->drm_ctx, g_value_get_pointer (value));
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -382,10 +377,12 @@ gst_amc_audio_dec_event (GstAudioDecoder * dec, GstEvent * event)
        * We can receive as many events but before the flow, otherwise
        * it is an error
        */
-      if (fluc_drm_is_event (event)) {
+      if (gst_amc_drm_is_drm_event (event)) {
         GstAmcAudioDec *self = GST_AMC_AUDIO_DEC (dec);
-        gst_amc_handle_drm_event ((GstElement *) self, event,
-            &self->crypto_ctx);
+
+        if (!self->drm_ctx)
+          self->drm_ctx = gst_amc_drm_ctx_new (GST_ELEMENT (self));
+        gst_amc_drm_handle_drm_event (self->drm_ctx, event);
         handled = TRUE;
       }
       break;
@@ -489,7 +486,9 @@ gst_amc_audio_dec_finalize (GObject * object)
 {
   GstAmcAudioDec *self = GST_AMC_AUDIO_DEC (object);
 
-  gst_amc_crypto_ctx_free (&self->crypto_ctx);
+  gst_amc_drm_ctx_free (self->drm_ctx);
+  self->drm_ctx = NULL;
+
   g_mutex_free (self->drain_lock);
   g_cond_free (self->drain_cond);
 
@@ -1055,14 +1054,7 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
 
   self->n_buffers = 0;
 
-  /* We decide that stream is encrypted if we eather received and parsed
-     drm event, eather received crypto ctx from user. It may be not completely correct.
-     Other way - is to base on caps of sinkpad (if they're x-cenc) */
-  if (self->crypto_ctx.mcrypto)
-    self->is_encrypted = TRUE;
-
-  if (!gst_amc_codec_configure (self->codec, format, NULL,
-          self->crypto_ctx.mcrypto, 0, 0)) {
+  if (!gst_amc_codec_configure (self->codec, format, NULL, self->drm_ctx, 0, 0)) {
     gst_amc_format_free (format);
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;
@@ -1214,7 +1206,7 @@ gst_amc_audio_dec_handle_frame (GstAudioDecoder * decoder, GstBuffer * inbuf)
 
     if (self->downstream_flow_ret != GST_FLOW_OK) {
       memset (&buffer_info, 0, sizeof (buffer_info));
-      if (self->is_encrypted)
+      if (self->drm_ctx)
         gst_amc_codec_queue_secure_input_buffer (self->codec, idx,
             &buffer_info, inbuf);
       else
@@ -1231,6 +1223,14 @@ gst_amc_audio_dec_handle_frame (GstAudioDecoder * decoder, GstBuffer * inbuf)
     memset (&buffer_info, 0, sizeof (buffer_info));
     buffer_info.offset = 0;
     buffer_info.size = MIN (GST_BUFFER_SIZE (inbuf) - offset, buf->size);
+
+    if (self->drm_ctx && GST_BUFFER_SIZE (inbuf) > buf->size) {
+      GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL),
+          ("Can't use part of drm buffer (not implemented)"));
+      if (inbuf)
+        gst_buffer_unref (inbuf);
+      return GST_FLOW_ERROR;
+    }
 
     orc_memcpy (buf->data, GST_BUFFER_DATA (inbuf) + offset, buffer_info.size);
 
@@ -1260,7 +1260,7 @@ gst_amc_audio_dec_handle_frame (GstAudioDecoder * decoder, GstBuffer * inbuf)
         idx, buffer_info.size, buffer_info.presentation_time_us,
         buffer_info.flags);
 
-    if (self->is_encrypted) {
+    if (self->drm_ctx) {
       if (!gst_amc_codec_queue_secure_input_buffer (self->codec, idx,
               &buffer_info, inbuf))
         goto queue_error;

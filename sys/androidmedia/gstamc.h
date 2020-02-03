@@ -26,14 +26,14 @@
 #include <gst/audio/multichannel.h>
 #include <gst/androidjni/gstjnimediaformat.h>
 #include <jni.h>
-#include <fluc/drm/flucdrm.h>
+#include "gstamcdrm.h"
 
 G_BEGIN_DECLS
+
 typedef struct _GstAmcCodecInfo GstAmcCodecInfo;
 typedef struct _GstAmcCodecType GstAmcCodecType;
 typedef struct _GstAmcCodec GstAmcCodec;
 typedef struct _GstAmcBufferInfo GstAmcBufferInfo;
-typedef struct _GstAmcCrypto GstAmcCrypto;
 typedef struct _GstAmcBuffer GstAmcBuffer;
 typedef struct _GstAmcDRBuffer GstAmcDRBuffer;
 
@@ -65,14 +65,6 @@ struct _GstAmcBuffer
   jobject object;               /* global reference */
   guint8 *data;
   gsize size;
-};
-
-struct _GstAmcCrypto
-{
-  /* < private > */
-  jobject mcrypto;
-  jobject mdrm;
-  jbyteArray mdrm_session_id;
 };
 
 struct _GstAmcCodec
@@ -107,12 +99,10 @@ GstAmcCodec *gst_amc_codec_new (const gchar * name);
 GstAmcCodec *gst_amc_codec_ref (GstAmcCodec * codec);
 void gst_amc_codec_unref (GstAmcCodec * codec);
 
-void gst_amc_crypto_ctx_free (GstAmcCrypto * crypto_ctx);
-
 jmethodID gst_amc_codec_get_release_method_id (GstAmcCodec * codec);
 jmethodID gst_amc_codec_get_release_ts_method_id (GstAmcCodec * codec);
 gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
-    guint8 * surface, jobject mcrypto_obj, gint flags, gint audio_session_id);
+    guint8 * surface, GstAmcCrypto * drm_ctx, gint flags, gint audio_session_id);
 GstAmcFormat *gst_amc_codec_get_output_format (GstAmcCodec * codec);
 
 gboolean gst_amc_codec_start (GstAmcCodec * codec);
@@ -140,7 +130,8 @@ gboolean gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index,
     GstClockTime ts);
 gboolean gst_amc_codec_set_output_surface (GstAmcCodec * codec, guint8 * surface);
 
-
+gchar *
+gst_amc_get_string_utf8 (JNIEnv * env, jstring v_str);
 
 GstVideoFormat gst_amc_color_format_to_video_format (gint color_format);
 
@@ -170,21 +161,8 @@ GstEvent *gst_amc_event_new_surface (gpointer surface);
 gpointer gst_amc_event_parse_surface (GstEvent * event);
 gboolean gst_amc_event_is_surface (GstEvent * event);
 
-gboolean is_protection_system_id_supported (const gchar * uuid_utf8);
-
 jobject juuid_from_utf8 (JNIEnv * env, const gchar * uuid_utf8);
 jbyteArray jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size);
-gboolean jmedia_crypto_from_drm_event (GstEvent * event,
-    GstAmcCrypto * crypto_ctx);
-
-gboolean hack_pssh_initdata (guchar * payload, gsize payload_size,
-    gsize * new_payload_size);
-
-gboolean sysid_is_clearkey (const gchar * sysid);
-void gst_amc_handle_drm_event (GstElement * self, GstEvent * event,
-    GstAmcCrypto * crypto_ctx);
-
-jobject gst_amc_global_ref_jobj (jobject obj);
 
 GstAmcDRBuffer * gst_amc_dr_buffer_new (GstAmcCodec *codec, guint idx);
 void gst_amc_dr_buffer_free (GstAmcDRBuffer *buf);

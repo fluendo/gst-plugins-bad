@@ -82,8 +82,7 @@ struct _GstAmcAudioDec
   /* Output buffers counter */
   gint n_buffers;
 
-  GstAmcCrypto crypto_ctx;
-  gboolean is_encrypted;
+  GstAmcCrypto *drm_ctx;
 };
 
 struct _GstAmcAudioDecClass
