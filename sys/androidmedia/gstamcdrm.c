@@ -500,6 +500,8 @@ gst_amc_drm_jmedia_crypto_from_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   jstring jmime = NULL;
   guchar *complete_pssh_payload = NULL;
   gsize complete_pssh_payload_size;
+  gboolean event_is_from_mp4;
+
   GstElement *el = ctx->gstelement;
   JNIEnv *env = gst_jni_get_env ();
 
@@ -515,12 +517,9 @@ gst_amc_drm_jmedia_crypto_from_drm_event (GstAmcCrypto * ctx, GstEvent * event)
       gst_amc_drm_is_protection_system_id_supported (system_id) ? "" : "not",
       origin, complete_pssh_payload_size);
 
-  /* If source is quicktime, "data" buffer is wrapped in qt atom.
-     To be compatible with qtdemux 1.0 from community, we have to skip
-     this atom thing here, and not in qtdemux.
-   */
-  if (g_str_has_prefix (origin, "isobmff/")
-      && gst_amc_drm_sysid_is_clearkey (system_id)
+  event_is_from_mp4 = g_str_has_prefix (origin, "isobmff/");
+
+  if (event_is_from_mp4 && gst_amc_drm_sysid_is_clearkey (system_id)
       && !gst_amc_drm_hack_pssh_initdata (el, complete_pssh_payload,
           complete_pssh_payload_size, &complete_pssh_payload_size))
     goto error;
@@ -540,8 +539,9 @@ gst_amc_drm_jmedia_crypto_from_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   J_CALL_OBJ (jsession_id /* = */ , media_drm_obj, media_drm.open_session);
   AMC_CHK (jsession_id);
 
-  // For all other systemids it's "video/mp4" or "audio/mp4"
-  jmime = (*env)->NewStringUTF (env, "cenc");
+  /* Depending on the source of DRM event we can receive a complete pssh atom
+   * as data (mp4 case), or just an object (mpd case). */
+  jmime = (*env)->NewStringUTF (env, event_is_from_mp4 ? "cenc" : "webm");
   AMC_CHK (jmime);
 
   J_CALL_OBJ (request /* = */ , media_drm_obj, media_drm.get_key_request,
