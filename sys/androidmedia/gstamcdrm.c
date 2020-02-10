@@ -102,6 +102,7 @@ static struct
   jmethodID get_key_request;
   jmethodID provide_key_response;
   jmethodID close_session;
+  jmethodID get_security_level;
 } media_drm;
 
 static struct
@@ -138,6 +139,7 @@ gst_amc_drm_jni_init (JNIEnv * env)
 
   J_INIT_METHOD_ID (media_drm, constructor, "<init>", "(Ljava/util/UUID;)V");
   J_INIT_METHOD_ID (media_drm, open_session, "openSession", "()[B");
+  J_INIT_METHOD_ID (media_drm, get_security_level, "getSecurityLevel", "([B)I");
   J_INIT_METHOD_ID (media_drm, get_key_request, "getKeyRequest", "(" "[B"       // byte[] scope
       "[B"                      // byte[] init
       "Ljava/lang/String;"      // String mimeType
@@ -538,6 +540,28 @@ gst_amc_drm_jmedia_crypto_from_drm_event (GstAmcCrypto * ctx, GstEvent * event)
 
   J_CALL_OBJ (jsession_id /* = */ , media_drm_obj, media_drm.open_session);
   AMC_CHK (jsession_id);
+
+  /* Log native security level of the device, obtained by MediaDrm session */
+  {
+    guint sec_level;
+    /* Enums from MediaDrm's documentation, from 0 to 5 */
+    const gchar *android_sec_levels[] = {
+      "SECURITY_LEVEL_UNKNOWN",
+      "SECURITY_LEVEL_SW_SECURE_CRYPTO",
+      "SECURITY_LEVEL_SW_SECURE_DECODE",
+      "SECURITY_LEVEL_HW_SECURE_CRYPTO",
+      "SECURITY_LEVEL_HW_SECURE_DECODE",
+      "SECURITY_LEVEL_HW_SECURE_ALL"
+    };
+
+    J_CALL_INT (sec_level /* = */ , media_drm_obj, media_drm.get_security_level,
+        jsession_id);
+
+    GST_DEBUG_OBJECT (el, "MediaDrm session opened with security level %s (%d)",
+        android_sec_levels
+        [sec_level < G_N_ELEMENTS (android_sec_levels) ?
+            sec_level : 0], sec_level);
+  }
 
   /* Depending on the source of DRM event we can receive a complete pssh atom
    * as data (mp4 case), or just an object (mpd case). */
