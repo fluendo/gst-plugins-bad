@@ -230,6 +230,7 @@ gst_h265_parse_start (GstBaseParse * parse)
   gst_h265_parse_reset (h265parse);
 
   h265parse->nalparser = gst_h265_parser_new ();
+  h265parse->drmph = fluc_drm_parser_helper_new ();
 
   gst_base_parse_set_min_frame_size (parse, 7);
 
@@ -254,6 +255,8 @@ gst_h265_parse_stop (GstBaseParse * parse)
 
   gst_h265_parser_free (h265parse->nalparser);
 
+  fluc_drm_parser_helper_free (h265parse->drmph);
+  h265parse->drmph = NULL;
   return TRUE;
 }
 
@@ -735,6 +738,33 @@ gst_h265_parse_collect_nal (GstH265Parse * h265parse, const guint8 * data,
   return complete;
 }
 
+static void
+gst_h265_parse_proccess_drm_input (GstH265Parse * h265parse,
+    GstBuffer * drmbuffer, GstBuffer ** buf, guint offset)
+{
+  /* Regular case: content is not encrypted */
+  if (!fluc_drm_is_buffer (drmbuffer))
+    return;
+
+  if (!fluc_drm_parser_helper_proccess_input_buffer
+      (h265parse->drmph, drmbuffer, buf, offset))
+    GST_ELEMENT_ERROR (h265parse, STREAM, FAILED, (NULL),
+        ("DRM proccessing failure"));
+}
+
+static void
+gst_h265_parse_proccess_drm_output (GstH265Parse * h265parse, GstBuffer ** buf,
+    guint clean_offset_to_prepend)
+{
+  /* Regular case: content is not encrypted (there was no encrypted input) */
+  if (!fluc_drm_parser_helper_have_cached_drm_input (h265parse->drmph))
+    return;
+
+  if (!fluc_drm_parser_helper_wrap_output_buffer (h265parse->drmph, buf,
+          clean_offset_to_prepend))
+    GST_ELEMENT_ERROR (h265parse, STREAM, FAILED, (NULL),
+        ("DRM proccessing failure"));
+}
 
 static GstFlowReturn
 gst_h265_parse_chain (GstPad * pad, GstBuffer * buffer)
@@ -774,6 +804,9 @@ gst_h265_parse_chain (GstPad * pad, GstBuffer * buffer)
         /* transfer flags (e.g. DISCONT) for first fragment */
         if (nalu.offset <= nl)
           gst_buffer_copy_metadata (sub, buffer, GST_BUFFER_COPY_FLAGS);
+
+        gst_h265_parse_proccess_drm_input (h265parse,
+            buffer, &sub, nalu.offset - h265parse->nal_length_size);
 
         ret = h265parse->parse_chain (pad, sub);
       } else {
@@ -815,6 +848,9 @@ gst_h265_parse_chain (GstPad * pad, GstBuffer * buffer)
       }
     }
   }
+
+  gst_h265_parse_proccess_drm_input (h265parse, buffer, &buffer, 0);
+
   return h265parse->parse_chain (pad, buffer);
 }
 
@@ -1648,6 +1684,8 @@ gst_h265_parse_push_codec_buffer (GstH265Parse * h265parse,
 
   gst_buffer_set_caps (nal, GST_PAD_CAPS (GST_BASE_PARSE_SRC_PAD (h265parse)));
 
+  gst_h265_parse_proccess_drm_output (h265parse, &nal, 0);
+
   return gst_pad_push (GST_BASE_PARSE_SRC_PAD (h265parse), nal);
 }
 
@@ -1840,6 +1878,7 @@ gst_h265_parse_pre_push_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
           const gboolean bs = h265parse->format == GST_H265_PARSE_FORMAT_BYTE;
           const gint nls = 4 - h265parse->nal_length_size;
           gboolean ok;
+          guint clean_offset = 0;
 
           gst_byte_writer_init_with_size (&bw, GST_BUFFER_SIZE (buffer), FALSE);
           ok = gst_byte_writer_put_data (&bw, GST_BUFFER_DATA (buffer),
@@ -1862,6 +1901,9 @@ gst_h265_parse_pre_push_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
               ok &= gst_byte_writer_put_data (&bw,
                   GST_BUFFER_DATA (codec_nal), GST_BUFFER_SIZE (codec_nal));
               h265parse->last_report = new_ts;
+
+              clean_offset +=
+                  h265parse->nal_length_size + GST_BUFFER_SIZE (codec_nal);
             }
           }
           for (i = 0; i < GST_H265_MAX_SPS_COUNT; i++) {
@@ -1880,6 +1922,9 @@ gst_h265_parse_pre_push_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
               ok &= gst_byte_writer_put_data (&bw,
                   GST_BUFFER_DATA (codec_nal), GST_BUFFER_SIZE (codec_nal));
               h265parse->last_report = new_ts;
+
+              clean_offset +=
+                  h265parse->nal_length_size + GST_BUFFER_SIZE (codec_nal);
             }
           }
           for (i = 0; i < GST_H265_MAX_PPS_COUNT; i++) {
@@ -1898,12 +1943,17 @@ gst_h265_parse_pre_push_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
               ok &= gst_byte_writer_put_data (&bw,
                   GST_BUFFER_DATA (codec_nal), GST_BUFFER_SIZE (codec_nal));
               h265parse->last_report = new_ts;
+
+              clean_offset +=
+                  h265parse->nal_length_size + GST_BUFFER_SIZE (codec_nal);
             }
           }
 
           ok &= gst_byte_writer_put_data (&bw,
               GST_BUFFER_DATA (buffer) + h265parse->idr_pos,
               GST_BUFFER_SIZE (buffer) - h265parse->idr_pos);
+
+          clean_offset += nls;
 
           /* collect result and push */
           new_buf = gst_byte_writer_reset_and_get_buffer (&bw);
@@ -1912,6 +1962,10 @@ gst_h265_parse_pre_push_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
           /* should already be keyframe/IDR, but it may not have been,
            * so mark it as such to avoid being discarded by picky decoder */
           GST_BUFFER_FLAG_UNSET (new_buf, GST_BUFFER_FLAG_DELTA_UNIT);
+
+          gst_h265_parse_proccess_drm_output (h265parse, &new_buf,
+              clean_offset);
+
           gst_buffer_replace (&frame->buffer, new_buf);
           gst_buffer_unref (new_buf);
           /* some result checking seems to make some compilers happy */
@@ -1926,6 +1980,8 @@ gst_h265_parse_pre_push_frame (GstBaseParse * parse, GstBaseParseFrame * frame)
       h265parse->have_sps = FALSE;
       h265parse->have_pps = FALSE;
     }
+  } else {
+    gst_h265_parse_proccess_drm_output (h265parse, &frame->buffer, 0);
   }
 
   gst_h265_parse_reset_frame (h265parse);
