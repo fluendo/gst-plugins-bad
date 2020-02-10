@@ -516,7 +516,8 @@ gst_amc_video_dec_get_property (GObject * object, guint prop_id, GValue * value,
   GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
-      g_value_set_pointer (value, (gpointer) thiz->crypto_ctx.mcrypto);
+      g_value_set_pointer (value,
+          (gpointer) gst_amc_drm_mcrypto_get (thiz->drm_ctx));
       break;
     case PROP_AUDIO_SESSION_ID:
       /* If not zero enables tunneled if supported */
@@ -539,13 +540,7 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
   GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
   switch (prop_id) {
     case PROP_DRM_AGENT_HANDLE:
-      thiz->crypto_ctx.mcrypto = g_value_get_pointer (value);
-      GST_ERROR_OBJECT (object, "{{{ setting mcrypto [%p]",
-          thiz->crypto_ctx.mcrypto);
-      thiz->crypto_ctx.mcrypto =
-          gst_amc_global_ref_jobj (thiz->crypto_ctx.mcrypto);
-      GST_ERROR_OBJECT (object, "{{{ after global ref mcrypto is [%p]",
-          thiz->crypto_ctx.mcrypto);
+      gst_amc_drm_mcrypto_set (thiz->drm_ctx, g_value_get_pointer (value));
       break;
     case PROP_AUDIO_SESSION_ID:
       thiz->audio_session_id = g_value_get_int (value);
@@ -575,9 +570,10 @@ gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
        * We can receive as many events but before the flow, otherwise
        * it is an error
        */
-      if (fluc_drm_is_event (event)) {
-        gst_amc_handle_drm_event ((GstElement *) self, event,
-            &self->crypto_ctx);
+      if (gst_amc_drm_is_drm_event (event)) {
+        if (!self->drm_ctx)
+          self->drm_ctx = gst_amc_drm_ctx_new (GST_ELEMENT (self));
+        gst_amc_drm_handle_drm_event (self->drm_ctx, event);
         handled = TRUE;
       }
       break;
@@ -687,16 +683,16 @@ static void
 gst_amc_video_dec_finalize (GObject * object)
 {
   GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (object);
-
   if (self->x_amc_empty_caps) {
     gst_caps_unref (self->x_amc_empty_caps);
     self->x_amc_empty_caps = NULL;
   }
 
-  gst_amc_crypto_ctx_free (&self->crypto_ctx);
+  gst_amc_drm_ctx_free (self->drm_ctx);
+  self->drm_ctx = NULL;
+
   g_mutex_free (self->drain_lock);
   g_cond_free (self->drain_cond);
-
   G_OBJECT_CLASS (parent_class)->finalize (object);
 }
 
@@ -1595,27 +1591,18 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     /* FIXME: This buffer needs to be valid until the codec is stopped again */
     if (self->codec_data)
       gst_amc_format_set_buffer (format, "csd-0", self->codec_data);
-
-    /* We decide that stream is encrypted if we eather received and parsed
-       drm event, eather received crypto ctx from user. It may be not completely correct.
-       Other way - is to base on caps of sinkpad (if they're x-cenc) */
-    if (self->crypto_ctx.mcrypto)
-      self->is_encrypted = TRUE;
-
     format_string = gst_amc_format_to_string (format);
     GST_DEBUG_OBJECT (self, "Configuring codec with format: %s surface: %p "
         "audio session id:%d", format_string, jsurface, self->audio_session_id);
     g_free (format_string);
-
     if (!gst_amc_codec_configure (self->codec, format, jsurface,
-            self->crypto_ctx.mcrypto, 0, self->audio_session_id)) {
+            self->drm_ctx, 0, self->audio_session_id)) {
       GST_ERROR_OBJECT (self, "Failed to configure codec");
       gst_amc_format_free (format);
       return FALSE;
     }
 
     gst_amc_format_free (format);
-
     if (!gst_amc_codec_start (self->codec)) {
       GST_ERROR_OBJECT (self, "Failed to start codec");
       return FALSE;
@@ -1749,21 +1736,21 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
       }
 
     CHK (idx < self->n_input_buffers);
-
     /* Now handle the frame */
-
     /* Copy the buffer content in chunks of size as requested
      * by the port */
     buf = &self->input_buffers[idx];
-
     memset (&buffer_info, 0, sizeof (buffer_info));
     buffer_info.offset = 0;
     buffer_info.size =
         MIN (GST_BUFFER_SIZE (frame->input_buffer) - offset, buf->size);
+    if (self->drm_ctx) {
+      /* Feeding decoder with drm buffer by parts is not implemented yet. */
+      CHK (GST_BUFFER_SIZE (frame->input_buffer) <= buf->size);
+    }
 
     orc_memcpy (buf->data, GST_BUFFER_DATA (frame->input_buffer) + offset,
         buffer_info.size);
-
     /* Interpolate timestamps if we're passing the buffer
      * in multiple chunks */
     if (offset != 0 && duration != GST_CLOCK_TIME_NONE) {
@@ -1791,7 +1778,7 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
         " flags 0x%08x", idx, buffer_info.size,
         buffer_info.presentation_time_us, buffer_info.flags);
 
-    queued_input_buffer = self->is_encrypted ?
+    queued_input_buffer = self->drm_ctx ?
         gst_amc_codec_queue_secure_input_buffer (self->codec, idx,
         &buffer_info, frame->input_buffer)
         : gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info);
