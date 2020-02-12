@@ -789,8 +789,10 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   } else {
     GST_DEBUG_OBJECT (el,
         "User didn't provide us MediaCrypto, trying In-band mode");
-    if (!gst_amc_drm_jmedia_crypto_from_drm_event (ctx, event))
-      GST_ERROR_OBJECT (el, "In-band mode's drm event parsing failed");
+    if (!gst_amc_drm_jmedia_crypto_from_drm_event (ctx, event)) {
+      GST_ELEMENT_ERROR (el, LIBRARY, FAILED, (NULL),
+          ("In-band mode's drm event parsing failed"));
+    }
   }
 }
 
