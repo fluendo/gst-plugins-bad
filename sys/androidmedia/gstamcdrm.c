@@ -139,7 +139,10 @@ gst_amc_drm_jni_init (JNIEnv * env)
 
   J_INIT_METHOD_ID (media_drm, constructor, "<init>", "(Ljava/util/UUID;)V");
   J_INIT_METHOD_ID (media_drm, open_session, "openSession", "()[B");
+#if 0
+  /* Fails on some boards */
   J_INIT_METHOD_ID (media_drm, get_security_level, "getSecurityLevel", "([B)I");
+#endif
   J_INIT_METHOD_ID (media_drm, get_key_request, "getKeyRequest", "(" "[B"       // byte[] scope
       "[B"                      // byte[] init
       "Ljava/lang/String;"      // String mimeType
@@ -541,6 +544,8 @@ gst_amc_drm_jmedia_crypto_from_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   J_CALL_OBJ (jsession_id /* = */ , media_drm_obj, media_drm.open_session);
   AMC_CHK (jsession_id);
 
+  /* Throws exception on some boards with message "Failed to get security level" */
+#if 0
   /* Log native security level of the device, obtained by MediaDrm session */
   {
     guint sec_level;
@@ -562,6 +567,7 @@ gst_amc_drm_jmedia_crypto_from_drm_event (GstAmcCrypto * ctx, GstEvent * event)
         [sec_level < G_N_ELEMENTS (android_sec_levels) ?
             sec_level : 0], sec_level);
   }
+#endif
 
   /* Depending on the source of DRM event we can receive a complete pssh atom
    * as data (mp4 case), or just an object (mpd case). */
