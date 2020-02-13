@@ -62,6 +62,7 @@ typedef struct _GstAmcCrypto
   GstElement *gstelement;
 } GstAmcCrypto;
 
+/* Taken from https://dashif.org/identifiers/content_protection/ */
 static struct
 {
   const char *uuid;
@@ -71,8 +72,9 @@ static struct
   {
     // clearkey should be the first, it's used in sysid_is_clearkey
   "1077efec-c0b2-4d02-ace3-3c1e52e2fb4b", "CLEARKEY"}, {
-  "9a04f079-9840-4286-ab92-e65be0885f95", "PLAYREADY_BE"}, {
-  "79f0049a-4098-8642-ab92-e65be0885f95", "PLAYREADY"}
+  "9a04f079-9840-4286-ab92-e65be0885f95", "PLAYREADY"}, {
+  "5E629AF5-38DA-4063-8977-97FFBD9902D4", "MARLIN"}, {
+  "edef8ba9-79d6-4ace-a3c8-27dcd51d21ed", "WIDEVINE"}
 };
 
 static gboolean cached_supported_system_ids = FALSE;
