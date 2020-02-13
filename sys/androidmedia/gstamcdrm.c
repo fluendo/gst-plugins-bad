@@ -77,9 +77,6 @@ static struct
 
 static gboolean cached_supported_system_ids = FALSE;
 
-/* this constant is taken from Android docs for MediaCodec */
-static const int CRYPTO_MODE_AES_CTR = 1;
-
 /* JNI classes */
 static struct
 {
@@ -633,6 +630,7 @@ gst_amc_drm_ctx_free (GstAmcCrypto * ctx)
 static jobject
 gst_amc_get_crypto_info (const GstStructure * s, gsize bufsize)
 {
+  guint alg_id;
   guint n_subsamples = 0;
   jint j_n_subsamples = 0;
   gboolean ok = FALSE;
@@ -708,6 +706,11 @@ gst_amc_get_crypto_info (const GstStructure * s, gsize bufsize)
     AMC_CHK (j_kid && j_iv);
   }
 
+  /* We support only AES_CTR or AES_CBC.
+   * In Android's constants they're the same as in tenc: CTR = 1, CBC = 2 */
+  AMC_CHK (gst_structure_get_uint (s, "algorithm_id", &alg_id));
+  AMC_CHK (alg_id == 1 || alg_id == 2);
+
   // new MediaCodec.CryptoInfo
   crypto_info = (*env)->NewObject (env, media_codec_crypto_info.klass,
       media_codec_crypto_info.constructor);
@@ -718,7 +721,7 @@ gst_amc_get_crypto_info (const GstStructure * s, gsize bufsize)
       j_n_bytes_of_encrypted_data,      // int[] newNumBytesOfEncryptedData
       j_kid,                    // byte[] newKey
       j_iv,                     // byte[] newIV
-      CRYPTO_MODE_AES_CTR       // int newMode
+      alg_id                    // int newMode
       );
 
   crypto_info_ret = crypto_info;
