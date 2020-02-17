@@ -528,6 +528,21 @@ gst_amc_drm_jmedia_crypto_from_drm_event (GstAmcCrypto * ctx, GstEvent * event)
           complete_pssh_payload_size, &complete_pssh_payload_size))
     goto error;
 
+  if (!event_is_from_mp4 && __gst_debug_min >= GST_LEVEL_DEBUG) {
+    guint8 *kid = flucdrm_playready_OBJ_get_first_KID (complete_pssh_payload,
+        complete_pssh_payload_size);
+
+    GST_DEBUG_OBJECT (el, "kid from POBJ = [%02x.%02x.%02x.%02x."
+        "%02x.%02x.%02x.%02x."
+        "%02x.%02x.%02x.%02x."
+        "%02x.%02x.%02x.%02x]",
+        kid[0], kid[1], kid[2], kid[3],
+        kid[4], kid[5], kid[6], kid[7],
+        kid[8], kid[9], kid[10], kid[11], kid[12], kid[13], kid[14], kid[15]
+        );
+    g_free (kid);
+  }
+
   jinit_data =
       jbyte_arr_from_data (env, complete_pssh_payload,
       complete_pssh_payload_size);
