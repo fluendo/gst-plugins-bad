@@ -321,68 +321,23 @@ static gboolean
 gst_amc_drm_hack_pssh_initdata (GstElement * el, guchar * payload,
     gsize payload_size, gsize * new_payload_size)
 {
-  guchar *payload_begin = payload;
-  if (payload_size < 32) {
-    GST_ERROR_OBJECT (el, "Invalid pssh data");
+  guint data_offset, data_size;
+  if (!fluc_drm_cenc_validate_pssh (payload, payload_size, &data_offset,
+          &data_size))
     return FALSE;
-  }
-
-  if (FALSE == (payload[4] == 'p' &&
-          payload[5] == 's' && payload[6] == 's' && payload[7] == 'h')) {
-    GST_ERROR_OBJECT (el, "Sanity check failed: provided payload is not pssh");
-    return FALSE;
-  }
-
-  {
-    guint32 version = GST_READ_UINT32_BE (payload + 8);
-    version = version >> 24;
-    payload += 28;
-
-    if (version != 1)
-      GST_ERROR_OBJECT (el, "Sanity check failed: pssh version (%d) != 1",
-          version);
-
-    if (version > 0) {
-      gint i;
-      guint32 kid_count = GST_READ_UINT32_BE (payload);
-      GST_DEBUG_OBJECT (el, "PSSH: kid_count = %d", kid_count);
-      payload += 4;
-      for (i = 0; i < kid_count; i++) {
-        guchar *p = payload;
-        GST_DEBUG_OBJECT (el, "kid[%d] = [%02x.%02x.%02x.%02x."
-            "%02x.%02x.%02x.%02x."
-            "%02x.%02x.%02x.%02x."
-            "%02x.%02x.%02x.%02x]", i,
-            p[0], p[1], p[2], p[3],
-            p[4], p[5], p[6], p[7],
-            p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]
-            );
-
-        payload += 16;
-      }
-    }
-  }
-
-  {
-    gsize data_field_size = GST_READ_UINT32_BE (payload);
-    payload += 4;
-
-    GST_DEBUG_OBJECT (el, "Size of data field inside pssh: %d",
-        data_field_size);
-  }
 
   /* Now we have to hack pssh a little because of Android libmediadrm's pitfall:
      It requires initData (pssh) to have "data" size == 0, and if "data" size != 0,
      android will just refuse to parse in
      av/drm/mediadrm/plugins/clearkey/InitDataParcer.cpp:112
    */
-  *new_payload_size = payload - payload_begin;
+  *new_payload_size = data_offset;
   if (*new_payload_size != payload_size) {
     GST_DEBUG_OBJECT (el, "Overwriting pssh header's size "
         "from %u to %u, and \"data size\" field to 0",
         payload_size, *new_payload_size);
-    GST_WRITE_UINT32_BE (payload_begin, *new_payload_size);
-    GST_WRITE_UINT32_BE (payload - 4, 0);
+    GST_WRITE_UINT32_BE (payload, *new_payload_size);
+    GST_WRITE_UINT32_BE (payload + data_offset - 4, 0);
   }
 
   return TRUE;
@@ -645,7 +600,7 @@ gst_amc_drm_ctx_free (GstAmcCrypto * ctx)
 
 
 static jobject
-gst_amc_get_crypto_info (const GstStructure * s, gsize bufsize)
+gst_amc_drm_cenc_get_crypto_info (const GstStructure * s, gsize bufsize)
 {
   guint alg_id;
   guint n_subsamples = 0;
@@ -769,7 +724,7 @@ gst_amc_drm_get_crypto_info (const GstBuffer * drmbuf)
     return NULL;
   }
 
-  return gst_amc_get_crypto_info (cenc_info, GST_BUFFER_SIZE (drmbuf));
+  return gst_amc_drm_cenc_get_crypto_info (cenc_info, GST_BUFFER_SIZE (drmbuf));
 }
 
 
