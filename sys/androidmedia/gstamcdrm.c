@@ -70,8 +70,9 @@ static struct
   gboolean supported;
 } known_cryptos[] = {
   {
-    // clearkey should be the first, it's used in sysid_is_clearkey
+    /* clearkey should be at [0], it's used in sysid_is_clearkey */
   "1077efec-c0b2-4d02-ace3-3c1e52e2fb4b", "CLEARKEY"}, {
+    /* playready should be at [1], it's used in sysid_is_playready */
   "9a04f079-9840-4286-ab92-e65be0885f95", "PLAYREADY"}, {
   "5E629AF5-38DA-4063-8977-97FFBD9902D4", "MARLIN"}, {
   "edef8ba9-79d6-4ace-a3c8-27dcd51d21ed", "WIDEVINE"}
@@ -120,12 +121,16 @@ static struct
 } media_crypto;
 
 
-
-
 static gboolean
 gst_amc_drm_sysid_is_clearkey (const gchar * sysid)
 {
   return !g_ascii_strcasecmp (sysid, known_cryptos[0].uuid);
+}
+
+static gboolean
+gst_amc_drm_sysid_is_playready (const gchar * sysid)
+{
+  return !g_ascii_strcasecmp (sysid, known_cryptos[1].uuid);
 }
 
 gboolean
@@ -444,11 +449,9 @@ gst_amc_ctx_clear (GstAmcCrypto * ctx)
 
 
 static gboolean
-gst_amc_drm_jmedia_crypto_from_drm_event (GstAmcCrypto * ctx, GstEvent * event)
+gst_amc_drm_jmedia_crypto_from_pssh (GstAmcCrypto * ctx, const guchar * data,
+    guint32 data_size, const gchar * system_id)
 {
-  GstBuffer *data_buf = NULL;
-  const gchar *origin;
-  const gchar *system_id;
   jobject juuid = NULL;
   jobject media_crypto_obj = NULL;
   jobject media_drm_obj = NULL;
@@ -457,50 +460,13 @@ gst_amc_drm_jmedia_crypto_from_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   jbyteArray jinit_data = NULL;
   const jint KEY_TYPE_STREAMING = 1;
   jstring jmime = NULL;
-  guchar *complete_pssh_payload = NULL;
-  gsize complete_pssh_payload_size;
-  gboolean event_is_from_mp4;
 
   GstElement *el = ctx->gstelement;
   JNIEnv *env = gst_jni_get_env ();
 
-  fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
-  AMC_CHK (system_id && data_buf && origin);
+  AMC_CHK (system_id && data && data_size);
 
-  complete_pssh_payload = GST_BUFFER_DATA (data_buf);
-  complete_pssh_payload_size = GST_BUFFER_SIZE (data_buf);
-
-  GST_DEBUG_OBJECT (el, "Parsed drm event. system id = %s"
-      " (%s supported by device), origin = %s, data_size = %d",
-      system_id,
-      gst_amc_drm_is_protection_system_id_supported (system_id) ? "" : "not",
-      origin, complete_pssh_payload_size);
-
-  event_is_from_mp4 = g_str_has_prefix (origin, "isobmff/");
-
-  if (event_is_from_mp4 && gst_amc_drm_sysid_is_clearkey (system_id)
-      && !gst_amc_drm_hack_pssh_initdata (el, complete_pssh_payload,
-          complete_pssh_payload_size, &complete_pssh_payload_size))
-    goto error;
-
-  if (!event_is_from_mp4 && __gst_debug_min >= GST_LEVEL_DEBUG) {
-    guint8 *kid = flucdrm_playready_OBJ_get_first_KID (complete_pssh_payload,
-        complete_pssh_payload_size);
-
-    GST_DEBUG_OBJECT (el, "kid from POBJ = [%02x.%02x.%02x.%02x."
-        "%02x.%02x.%02x.%02x."
-        "%02x.%02x.%02x.%02x."
-        "%02x.%02x.%02x.%02x]",
-        kid[0], kid[1], kid[2], kid[3],
-        kid[4], kid[5], kid[6], kid[7],
-        kid[8], kid[9], kid[10], kid[11], kid[12], kid[13], kid[14], kid[15]
-        );
-    g_free (kid);
-  }
-
-  jinit_data =
-      jbyte_arr_from_data (env, complete_pssh_payload,
-      complete_pssh_payload_size);
+  jinit_data = jbyte_arr_from_data (env, data, data_size);
   AMC_CHK (jinit_data);
 
   juuid = juuid_from_utf8 (env, system_id);
@@ -538,9 +504,9 @@ gst_amc_drm_jmedia_crypto_from_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   }
 #endif
 
-  /* Depending on the source of DRM event we can receive a complete pssh atom
-   * as data (mp4 case), or just an object (mpd case). */
-  jmime = (*env)->NewStringUTF (env, event_is_from_mp4 ? "cenc" : "webm");
+  /* Other known valid mime type is "webm", but we're not sure about it, that's why
+   * we always wrap initData to pssh currently */
+  jmime = (*env)->NewStringUTF (env, "cenc");
   AMC_CHK (jmime);
 
   J_CALL_OBJ (request /* = */ , media_drm_obj, media_drm.get_key_request,
@@ -733,25 +699,90 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
 {
   GstElement *el = ctx->gstelement;
   GstBuffer *data_buf;
+  GstBuffer *buf_to_unref = NULL;
   const gchar *system_id, *origin;
+  gboolean origin_is_iso;
+  guchar *init_data;
+  guint init_data_size;
+
   fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
+
+  /* Ensure we're providing initData */
+  if (!data_buf || !GST_BUFFER_SIZE (data_buf)) {
+    GST_ERROR_OBJECT (el, "No initData in drm event %p", event);
+    return;
+  }
+
+  init_data = GST_BUFFER_DATA (data_buf);
+  init_data_size = GST_BUFFER_SIZE (data_buf);
+
   GST_DEBUG_OBJECT (el, "Received drm event."
-      "SystemId = [%s] (%ssupported by device), origin = [%s], %s data buffer,"
+      "SystemId = [%s] (%ssupported by device), origin = [%s], "
       "data size = %d", system_id,
       gst_amc_drm_is_protection_system_id_supported (system_id) ? "" : "not ",
-      origin, data_buf ? "attached" : "no",
-      data_buf ? GST_BUFFER_SIZE (data_buf) : 0);
+      origin, init_data_size);
 
-  /* Hack for now to be sure we're providing pssh */
-  if (!data_buf || !GST_BUFFER_SIZE (data_buf))
-    return;
+  origin_is_iso = g_str_has_prefix (origin, "isobmff/");
 
-  if (g_str_has_prefix (origin, "isobmff/")
-      && gst_amc_drm_sysid_is_clearkey (system_id)) {
+  /* For case of clearkey we have to hack pssh data because of a bug in
+   * av/drm/mediadrm/plugins/clearkey/InitDataParcer.cpp */
+  if (origin_is_iso && gst_amc_drm_sysid_is_clearkey (system_id)) {
     gsize new_size;
-    gst_amc_drm_hack_pssh_initdata (el, GST_BUFFER_DATA (data_buf),
-        GST_BUFFER_SIZE (data_buf), &new_size);
-    GST_BUFFER_SIZE (data_buf) = new_size;
+    gst_amc_drm_hack_pssh_initdata (el, init_data, init_data_size, &new_size);
+    init_data_size = GST_BUFFER_SIZE (data_buf) = new_size;
+  }
+
+  /* If systemid is playready - dump PO and KID */
+  if (__gst_debug_min >= GST_LEVEL_DEBUG &&
+      gst_amc_drm_sysid_is_playready (system_id)) {
+    guint data_offset = 0;
+    guint data_size = init_data_size;
+    guint8 *kid;
+
+    /* Extract from pssh if needed */
+    if (origin_is_iso) {
+      if (!fluc_drm_cenc_validate_pssh (init_data, init_data_size, &data_offset,
+              &data_size))
+        return;
+    }
+
+    kid = flucdrm_playready_OBJ_get_first_KID (init_data + data_offset,
+        data_size);
+
+    GST_DEBUG_OBJECT (el, "kid from POBJ = [%02x.%02x.%02x.%02x."
+        "%02x.%02x.%02x.%02x."
+        "%02x.%02x.%02x.%02x."
+        "%02x.%02x.%02x.%02x]",
+        kid[0], kid[1], kid[2], kid[3],
+        kid[4], kid[5], kid[6], kid[7],
+        kid[8], kid[9], kid[10], kid[11], kid[12], kid[13], kid[14], kid[15]
+        );
+    g_free (kid);
+  }
+
+  /* If origin is not an iso we prefer to wrap data to pssh v0 */
+  if (!origin_is_iso) {
+    guchar *new_pssh;
+    guint32 new_pssh_size;
+
+    new_pssh =
+        fluc_drm_cenc_wrap_data_to_pssh_v0 (system_id, init_data,
+        init_data_size, &new_pssh_size);
+
+    if (!new_pssh)
+      return;
+
+    /* Replace data_buf with one wrapped to pssh.
+     * There's no leak here, because event is who owns data_buf, but
+     * if we have created our new one - we have to unref it after usage. */
+    buf_to_unref = data_buf = gst_buffer_new ();
+    init_data = GST_BUFFER_DATA (data_buf) = new_pssh;
+    init_data_size = GST_BUFFER_SIZE (data_buf) = new_pssh_size;
+
+    /* Dump result pssh if we're debugging */
+    if (__gst_debug_min >= GST_LEVEL_DEBUG &&
+        !fluc_drm_cenc_validate_pssh (init_data, init_data_size, NULL, NULL))
+      GST_ERROR_OBJECT (el, "Internal error: generated invalid pssh");
   }
 
   gst_element_post_message (el,
@@ -764,11 +795,15 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   } else {
     GST_DEBUG_OBJECT (el,
         "User didn't provide us MediaCrypto, trying In-band mode");
-    if (!gst_amc_drm_jmedia_crypto_from_drm_event (ctx, event)) {
+    if (!gst_amc_drm_jmedia_crypto_from_pssh (ctx, init_data, init_data_size,
+            system_id)) {
       GST_ELEMENT_ERROR (el, LIBRARY, FAILED, (NULL),
           ("In-band mode's drm event parsing failed"));
     }
   }
+
+  if (buf_to_unref)
+    gst_buffer_unref (buf_to_unref);
 }
 
 
