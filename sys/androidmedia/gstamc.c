@@ -78,13 +78,6 @@ static struct
 static struct
 {
   jclass klass;
-  jmethodID is_feature_supported;
-  jmethodID get_video_caps;
-} codec_capabilities;
-
-static struct
-{
-  jclass klass;
   jmethodID constructor;
   jfieldID flags;
   jfieldID offset;
@@ -204,7 +197,6 @@ gst_amc_codec_is_feature_supported (GstAmcCodec * codec,
     GstAmcFormat * format, const gchar * feature)
 {
   gboolean is_feature_supported = FALSE;
-  jstring jtmpstr = NULL;
   jobject codec_info = NULL;
   jobject capabilities = NULL;
 
@@ -213,19 +205,14 @@ gst_amc_codec_is_feature_supported (GstAmcCodec * codec,
   if (!gst_jni_media_codec_get_codec_info (codec->object, codec_info))
     goto error;
 
-
   if (!gst_jni_media_codec_info_get_capabilities_for_type (capabilities,
           codec_info, format))
     goto error;
 
-
-  jtmpstr = (*env)->NewStringUTF (env, feature);
-
-  J_CALL_BOOL (is_feature_supported /* = */ , capabilities,
-      codec_capabilities.is_feature_supported, jtmpstr);
+  gst_jni_media_codec_info_is_feature_supported (&is_feature_supported,
+      capabilities, feature);
 
 error:
-  J_DELETE_LOCAL_REF (jtmpstr);
   J_DELETE_LOCAL_REF (capabilities);
   J_DELETE_LOCAL_REF (codec_info);
 
@@ -267,8 +254,9 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
               codec_info, format))
         goto error;
 
-      J_CALL_OBJ (video_caps /* = */ , capabilities,
-          codec_capabilities.get_video_caps);
+      if (!gst_jni_media_codec_info_get_video_capabilities (video_caps,
+              capabilities))
+        goto error;
 
       /* NOTE: We tried getSupportedHeights and getSupportedWidthsFor
        *  but we obtained non standard resolutions like 1072x8688.
@@ -775,17 +763,6 @@ get_java_classes (void)
       media_codec_buffer_info.offset &&
       media_codec_buffer_info.presentation_time_us &&
       media_codec_buffer_info.size);
-
-
-  codec_capabilities.klass =
-      gst_jni_get_class (env, "android/media/MediaCodecInfo$CodecCapabilities");
-
-  J_INIT_METHOD_ID (codec_capabilities, is_feature_supported,
-      "isFeatureSupported", "(Ljava/lang/String;)Z");
-  J_INIT_METHOD_ID (codec_capabilities, get_video_caps,
-      "getVideoCapabilities",
-      "()Landroid/media/MediaCodecInfo$VideoCapabilities;");
-
 
 
   /* Drm classes & methods */

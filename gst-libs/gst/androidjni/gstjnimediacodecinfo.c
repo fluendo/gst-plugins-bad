@@ -40,6 +40,14 @@ static struct
     jmethodID get_supported_heights;
     jmethodID get_supported_widths_for;
   } video_caps;
+
+  struct
+  {
+    jclass klass;
+    jmethodID is_feature_supported;
+    jmethodID get_video_capabilities;
+  } codec_capabilities;
+
 } media_codec_info;
 
 gboolean
@@ -73,6 +81,15 @@ gst_jni_media_codec_info_init (void)
     J_INIT_METHOD_ID (media_codec_info.video_caps, get_supported_widths_for,
         "getSupportedWidthsFor", "(I)Landroid/util/Range;");
   }
+
+  media_codec_info.codec_capabilities.klass =
+      gst_jni_get_class (env, "android/media/MediaCodecInfo$CodecCapabilities");
+
+  J_INIT_METHOD_ID (media_codec_info.codec_capabilities, is_feature_supported,
+      "isFeatureSupported", "(Ljava/lang/String;)Z");
+  J_INIT_METHOD_ID (media_codec_info.codec_capabilities, get_video_capabilities,
+      "getVideoCapabilities",
+      "()Landroid/media/MediaCodecInfo$VideoCapabilities;");
 
 done:
   _initialized = ret;
@@ -144,6 +161,39 @@ gst_jni_media_codec_info_get_supported_widths_for (jobject widths,
 
   J_CALL_OBJ (widths /* = */ , video_caps,
       media_codec_info.video_caps.get_supported_widths_for, max_height);
+
+  return TRUE;
+error:
+  return FALSE;
+}
+
+gboolean
+gst_jni_media_codec_info_is_feature_supported (gboolean * supported,
+    jobject capabilities, const gchar * feature)
+{
+  JNIEnv *env = gst_jni_get_env ();
+  jstring jtmpstr = NULL;
+
+  jtmpstr = (*env)->NewStringUTF (env, feature);
+
+  J_CALL_BOOL (*supported /* = */ , capabilities,
+      media_codec_info.codec_capabilities.is_feature_supported, jtmpstr);
+
+  J_DELETE_LOCAL_REF (jtmpstr);
+  return TRUE;
+error:
+  J_DELETE_LOCAL_REF (jtmpstr);
+  return FALSE;
+}
+
+gboolean
+gst_jni_media_codec_info_get_video_capabilities (jobject video_capabilities,
+    jobject capabilities)
+{
+  JNIEnv *env = gst_jni_get_env ();
+
+  J_CALL_OBJ (video_capabilities /* = */ , capabilities,
+      media_codec_info.codec_capabilities.get_video_capabilities);
 
   return TRUE;
 error:

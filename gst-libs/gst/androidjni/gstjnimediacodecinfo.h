@@ -53,6 +53,17 @@ gboolean gst_jni_media_codec_info_get_supported_widths_for (
     jobject video_caps,
     jint max_height);
 
+gboolean gst_jni_media_codec_info_is_feature_supported (
+    gboolean *supported,
+    jobject capabilities,
+    const gchar * feature
+);
+
+gboolean gst_jni_media_codec_info_get_video_capabilities (
+    jobject video_capabilities,
+    jobject capabilities
+);
+
 gboolean gst_jni_media_codec_info_video_caps_supported(void);
 
 G_END_DECLS
