@@ -35,6 +35,7 @@
 #include <gst/audio/audio.h>
 #include <gst/androidjni/gstjniutils.h>
 #include <gst/androidjni/gstjnimediacodec.h>
+#include <gst/androidjni/gstjnimediacodecinfo.h>
 #include <gst/androidjni/gstjnimediacodeclist.h>
 #include <string.h>
 #include <jni.h>
@@ -73,19 +74,6 @@ static struct
   jclass klass;
   jmethodID get_upper;
 } android_range;
-
-static struct
-{
-  jclass klass;
-  jmethodID get_capabilities_for_type;
-  struct
-  {
-    jclass klass;
-    jmethodID is_size_supported;
-    jmethodID get_supported_heights;
-    jmethodID get_supported_widths_for;
-  } video_caps;
-} media_codec_info;
 
 static struct
 {
@@ -225,11 +213,11 @@ gst_amc_codec_is_feature_supported (GstAmcCodec * codec,
   if (!gst_jni_media_codec_get_codec_info (codec->object, codec_info))
     goto error;
 
-  AMC_CHK (gst_amc_format_get_jstring (format, "mime", &jtmpstr));
 
-  J_CALL_OBJ (capabilities /* = */ , codec_info,
-      media_codec_info.get_capabilities_for_type, jtmpstr);
-  J_DELETE_LOCAL_REF (jtmpstr);
+  if (!gst_jni_media_codec_info_get_capabilities_for_type (capabilities,
+          codec_info, format))
+    goto error;
+
 
   jtmpstr = (*env)->NewStringUTF (env, feature);
 
@@ -262,13 +250,12 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   if (supported) {
     JNIEnv *env = gst_jni_get_env ();
 
-    if (!media_codec_info.video_caps.klass) {
+    if (!gst_jni_media_codec_info_video_caps_supported ()) {
       GST_ERROR ("Video caps not supported, requires API 21");
     } else {
       jobject codec_info = NULL;
       jobject capabilities = NULL;
       jobject video_caps = NULL;
-      jstring jtmpstr = NULL;
       jboolean supported;
       jobject heights = NULL;
       jobject widths = NULL;
@@ -276,9 +263,9 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
 
       gst_jni_media_codec_get_codec_info (codec->object, codec_info);
 
-      AMC_CHK (gst_amc_format_get_jstring (format, "mime", &jtmpstr));
-      J_CALL_OBJ (capabilities /* = */ , codec_info,
-          media_codec_info.get_capabilities_for_type, jtmpstr);
+      if (!gst_jni_media_codec_info_get_capabilities_for_type (capabilities,
+              codec_info, format))
+        goto error;
 
       J_CALL_OBJ (video_caps /* = */ , capabilities,
           codec_capabilities.get_video_caps);
@@ -293,16 +280,19 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
        *  logged for every board. It may be safely deleted if we finally find
        *  it unnecessary. */
       {
-        J_CALL_OBJ (heights /* = */ , video_caps,
-            media_codec_info.video_caps.get_supported_heights);
+        if (!gst_jni_media_codec_info_get_supported_heights (heights,
+                video_caps))
+          goto error;
         J_CALL_OBJ (upper /* = */ , heights,
             android_range.get_upper);
         J_CALL_INT (max_height /* = */ , upper, java_int.int_value);
         J_DELETE_LOCAL_REF (upper);
         upper = NULL;
 
-        J_CALL_OBJ (widths /* = */ , video_caps,
-            media_codec_info.video_caps.get_supported_widths_for, max_height);
+        if (!gst_jni_media_codec_info_get_supported_widths_for (widths,
+                video_caps, max_height))
+          goto error;
+
         J_CALL_OBJ (upper /* = */ , widths,
             android_range.get_upper);
         J_CALL_INT (max_width /* = */ , upper, java_int.int_value);
@@ -316,24 +306,24 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
       for (;;) {
         max_height = 4320;
         max_width = 7680;
-        J_CALL_BOOL (supported /* = */ , video_caps,
-            media_codec_info.video_caps.is_size_supported, max_width,
-            max_height);
+        if (!gst_jni_media_codec_info_is_size_supported (&supported, video_caps,
+                max_height, max_width))
+          goto error;
         if (supported)
           break;
 
         max_height = 2160;
         max_width = 4096;
-        J_CALL_BOOL (supported /* = */ , video_caps,
-            media_codec_info.video_caps.is_size_supported, max_width,
-            max_height);
+        if (!gst_jni_media_codec_info_is_size_supported (&supported, video_caps,
+                max_height, max_width))
+          goto error;
         if (supported)
           break;
 
         max_width = 3840;
-        J_CALL_BOOL (supported /* = */ , video_caps,
-            media_codec_info.video_caps.is_size_supported, max_width,
-            max_height);
+        if (!gst_jni_media_codec_info_is_size_supported (&supported, video_caps,
+                max_height, max_width))
+          goto error;
         if (supported)
           break;
 
@@ -349,7 +339,6 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
       J_DELETE_LOCAL_REF (upper);
       J_DELETE_LOCAL_REF (widths);
       J_DELETE_LOCAL_REF (heights);
-      J_DELETE_LOCAL_REF (jtmpstr);
       J_DELETE_LOCAL_REF (video_caps);
       J_DELETE_LOCAL_REF (capabilities);
       J_DELETE_LOCAL_REF (codec_info);
@@ -765,6 +754,9 @@ get_java_classes (void)
   if (!gst_jni_media_codec_init ())
     goto error;
 
+  if (gst_jni_media_codec_info_init ())
+    goto error;
+
   media_codec_buffer_info.klass =
       gst_jni_get_class (env, "android/media/MediaCodec$BufferInfo");
   J_INIT_METHOD_ID (media_codec_buffer_info, constructor, "<init>", "()V");
@@ -784,13 +776,6 @@ get_java_classes (void)
       media_codec_buffer_info.presentation_time_us &&
       media_codec_buffer_info.size);
 
-  /* MediaCodecInfo */
-  media_codec_info.klass =
-      gst_jni_get_class (env, "android/media/MediaCodecInfo");
-
-  J_INIT_METHOD_ID (media_codec_info, get_capabilities_for_type,
-      "getCapabilitiesForType",
-      "(Ljava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;");
 
   codec_capabilities.klass =
       gst_jni_get_class (env, "android/media/MediaCodecInfo$CodecCapabilities");
@@ -801,19 +786,7 @@ get_java_classes (void)
       "getVideoCapabilities",
       "()Landroid/media/MediaCodecInfo$VideoCapabilities;");
 
-  media_codec_info.video_caps.klass = gst_jni_get_class (env,
-      "android/media/MediaCodecInfo$VideoCapabilities");
-  if (!media_codec_info.video_caps.klass) {
-    GST_ERROR ("android/media/MediaCodecInfo$VideoCapabilities not found"
-        " (requires API 21)");
-  } else {
-    J_INIT_METHOD_ID (media_codec_info.video_caps, is_size_supported,
-        "isSizeSupported", "(II)Z");
-    J_INIT_METHOD_ID (media_codec_info.video_caps, get_supported_heights,
-        "getSupportedHeights", "()Landroid/util/Range;");
-    J_INIT_METHOD_ID (media_codec_info.video_caps, get_supported_widths_for,
-        "getSupportedWidthsFor", "(I)Landroid/util/Range;");
-  }
+
 
   /* Drm classes & methods */
   AMC_CHK (gst_amc_drm_jni_init (env));
