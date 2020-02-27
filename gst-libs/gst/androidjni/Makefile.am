@@ -8,6 +8,7 @@ libgstandroidjni_@GST_MAJORMINOR@_la_SOURCES = \
 	gstjniamcutils.c \
 	gstjniamcdirectbuffer.c \
 	gstjniaudiotrack.c \
+	gstjnimediacodec.c \
 	gstjnimediacodeclist.c \
 	gstjnimediaformat.c \
 	gstjnisurface.c \
@@ -21,6 +22,7 @@ libgstandroidjni_@GST_MAJORMINOR@include_HEADERS = \
 	gstjniamcutils.h \
 	gstjniamcdirectbuffer.h \
 	gstjniaudiotrack.h \
+	gstjnimediacodec.h \
 	gstjnimediacodeclist.h \
 	gstjnimediaformat.h \
 	gstjnisurface.h \

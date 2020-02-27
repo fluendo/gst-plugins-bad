@@ -34,6 +34,7 @@
 #include <gst/video/video.h>
 #include <gst/audio/audio.h>
 #include <gst/androidjni/gstjniutils.h>
+#include <gst/androidjni/gstjnimediacodec.h>
 #include <gst/androidjni/gstjnimediacodeclist.h>
 #include <string.h>
 #include <jni.h>
@@ -72,28 +73,6 @@ static struct
   jclass klass;
   jmethodID get_upper;
 } android_range;
-
-static struct
-{
-  jclass klass;
-  jmethodID configure;
-  jmethodID create_by_codec_name;
-  jmethodID dequeue_input_buffer;
-  jmethodID dequeue_output_buffer;
-  jmethodID flush;
-  jmethodID get_input_buffers;
-  jmethodID get_output_buffers;
-  jmethodID get_output_format;
-  jmethodID queue_input_buffer;
-  jmethodID release;
-  jmethodID release_output_buffer;
-  jmethodID release_output_buffer_ts;
-  jmethodID set_output_surface;
-  jmethodID start;
-  jmethodID stop;
-  jmethodID queue_secure_input_buffer;
-  jmethodID get_codec_info;
-} media_codec;
 
 static struct
 {
@@ -168,16 +147,11 @@ GstAmcCodec *
 gst_amc_codec_new (const gchar * name)
 {
   GstAmcCodec *codec = NULL;
-  jstring name_str = NULL;
   jobject object = NULL;
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (name);
 
-  name_str = (*env)->NewStringUTF (env, name);
-  AMC_CHK (name_str);
-
-  J_CALL_STATIC_OBJ (object /* = */ , media_codec, create_by_codec_name,
-      name_str);
+  gst_jni_media_codec_create_codec_by_name (object, name);
 
   codec = g_slice_new0 (GstAmcCodec);
   codec->object = (*env)->NewGlobalRef (env, object);
@@ -187,7 +161,6 @@ gst_amc_codec_new (const gchar * name)
   codec->ref_count = 1;
 done:
   J_DELETE_LOCAL_REF (object);
-  J_DELETE_LOCAL_REF (name_str);
   return codec;
 error:
   if (codec)
@@ -229,13 +202,13 @@ gst_amc_codec_unref (GstAmcCodec * codec)
 jmethodID
 gst_amc_codec_get_release_ts_method_id (GstAmcCodec * codec)
 {
-  return media_codec.release_output_buffer_ts;
+  return gst_jni_media_codec_get_release_ts_method_id ();
 }
 
 jmethodID
 gst_amc_codec_get_release_method_id (GstAmcCodec * codec)
 {
-  return media_codec.release_output_buffer;
+  return gst_jni_media_codec_get_release_method_id ();
 }
 
 gboolean
@@ -249,7 +222,8 @@ gst_amc_codec_is_feature_supported (GstAmcCodec * codec,
 
   JNIEnv *env = gst_jni_get_env ();
 
-  J_CALL_OBJ (codec_info /* = */ , codec->object, media_codec.get_codec_info);
+  if (!gst_jni_media_codec_get_codec_info (codec->object, codec_info))
+    goto error;
 
   AMC_CHK (gst_amc_format_get_jstring (format, "mime", &jtmpstr));
 
@@ -300,8 +274,7 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
       jobject widths = NULL;
       jobject upper = NULL;
 
-      J_CALL_OBJ (codec_info /* = */ , codec->object,
-          media_codec.get_codec_info);
+      gst_jni_media_codec_get_codec_info (codec->object, codec_info);
 
       AMC_CHK (gst_amc_format_get_jstring (format, "mime", &jtmpstr));
       J_CALL_OBJ (capabilities /* = */ , codec_info,
@@ -447,9 +420,8 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
   GST_ERROR ("Configure: tunneled=%d, adaptive=%d, mcrypto=%p",
       codec->tunneled_playback_enabled, codec->adaptive_enabled, mcrypto);
 
-  J_CALL_VOID (codec->object, media_codec.configure,
-      format->object, surface, mcrypto, flags);
-  ret = TRUE;
+  ret = gst_jni_media_codec_configure (codec->object, format->object, surface,
+      mcrypto, flags);
 error:
   return ret;
 }
@@ -462,7 +434,7 @@ gst_amc_codec_get_output_format (GstAmcCodec * codec)
   JNIEnv *env = gst_jni_get_env ();
   AMC_CHK (codec);
 
-  J_CALL_OBJ (object /* = */ , codec->object, media_codec.get_output_format);
+  gst_jni_media_codec_get_output_format (codec->object, object);
 
   ret = g_slice_new0 (GstAmcFormat);
   ret->object = (*env)->NewGlobalRef (env, object);
@@ -485,8 +457,7 @@ gst_amc_codec_start (GstAmcCodec * codec)
   JNIEnv *env = gst_jni_get_env ();
 
   AMC_CHK (codec);
-  J_CALL_VOID (codec->object, media_codec.start);
-  ret = TRUE;
+  ret = gst_jni_media_codec_start (codec->object);
 error:
   return ret;
 }
@@ -498,8 +469,7 @@ gst_amc_codec_stop (GstAmcCodec * codec)
   JNIEnv *env = gst_jni_get_env ();
 
   AMC_CHK (codec);
-  J_CALL_VOID (codec->object, media_codec.stop);
-  ret = TRUE;
+  ret = gst_jni_media_codec_stop (codec->object);
 error:
   return ret;
 }
@@ -517,7 +487,7 @@ gst_amc_codec_flush (GstAmcCodec * codec)
   g_mutex_lock (&codec->buffers_lock);
   /* Now buffers with previous flush-id won't be ever released */
   codec->flush_id++;
-  J_CALL_VOID (codec->object, media_codec.flush);
+  gst_jni_media_codec_flush (&codec->object);
   g_mutex_unlock (&codec->buffers_lock);
   ret = TRUE;
 error:
@@ -531,7 +501,7 @@ gst_amc_codec_release (GstAmcCodec * codec)
   JNIEnv *env = gst_jni_get_env ();
 
   AMC_CHK (codec);
-  J_CALL_VOID (codec->object, media_codec.release);
+  gst_jni_media_codec_release (codec->object);
   ret = TRUE;
 error:
   return ret;
@@ -562,8 +532,9 @@ gst_amc_codec_get_output_buffers (GstAmcCodec * codec, gsize * n_buffers)
   AMC_CHK (codec && n_buffers);
   *n_buffers = 0;
 
-  J_CALL_OBJ (output_buffers /* = */ , codec->object,
-      media_codec.get_output_buffers);
+  if (!gst_jni_media_codec_get_output_buffers (codec->object, output_buffers))
+    goto error;
+
   AMC_CHK (output_buffers);
 
   n_output_buffers = (*env)->GetArrayLength (env, output_buffers);
@@ -610,8 +581,9 @@ gst_amc_codec_get_input_buffers (GstAmcCodec * codec, gsize * n_buffers)
 
   *n_buffers = 0;
 
-  J_CALL_OBJ (input_buffers /* = */ , codec->object,
-      media_codec.get_input_buffers);
+  if (!gst_jni_media_codec_get_input_buffers (codec->object, input_buffers))
+    goto error;
+
   AMC_CHK (input_buffers);
 
   n_input_buffers = (*env)->GetArrayLength (env, input_buffers);
@@ -648,12 +620,10 @@ gint
 gst_amc_codec_dequeue_input_buffer (GstAmcCodec * codec, gint64 timeoutUs)
 {
   gint ret = G_MININT;
-  JNIEnv *env = gst_jni_get_env ();
   g_return_val_if_fail (codec != NULL, G_MININT);
 
-  J_CALL_INT (ret /* = */ , codec->object, media_codec.dequeue_input_buffer,
-      timeoutUs);
-error:
+  gst_jni_media_codec_dequeue_input_buffer (codec->object, timeoutUs, &ret);
+
   return ret;
 }
 
@@ -687,7 +657,7 @@ error:
 
 gint
 gst_amc_codec_dequeue_output_buffer (GstAmcCodec * codec,
-    GstAmcBufferInfo * info, gint64 timeoutUs)
+    GstAmcBufferInfo * info, gint64 timeout_us)
 {
   JNIEnv *env;
   gint ret = G_MININT, buf_idx;
@@ -702,8 +672,9 @@ gst_amc_codec_dequeue_output_buffer (GstAmcCodec * codec,
       media_codec_buffer_info.constructor);
   AMC_CHK (info_o);
 
-  J_CALL_INT (buf_idx /* = */ , codec->object,
-      media_codec.dequeue_output_buffer, info_o, timeoutUs);
+  if (!gst_jni_media_codec_dequeue_output_buffer (codec->object, info_o,
+          timeout_us, &buf_idx))
+    goto error;
 
   AMC_CHK (gst_amc_codec_fill_buffer_info (env, info_o, info));
 
@@ -729,9 +700,9 @@ gst_amc_codec_queue_secure_input_buffer (GstAmcCodec * codec, gint index,
   }
 
   /* queueSecureInputBuffer */
-  (*env)->CallVoidMethod (env, codec->object,
-      media_codec.queue_secure_input_buffer, index, info->offset, crypto_info,
-      info->presentation_time_us, info->flags);
+  ret = gst_jni_media_codec_queue_secure_input_buffer (codec->object,
+      index, info->offset, crypto_info, info->presentation_time_us,
+      info->flags);
 
   if (gst_amc_drm_crypto_exception_check (env,
           "media_codec.queue_secure_input_buffer"))
@@ -748,43 +719,22 @@ gboolean
 gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
     const GstAmcBufferInfo * info)
 {
-  gboolean ret = FALSE;
-  JNIEnv *env = gst_jni_get_env ();
-
-  J_CALL_VOID (codec->object, media_codec.queue_input_buffer,
-      index, info->offset, info->size, info->presentation_time_us, info->flags);
-
-  ret = TRUE;
-error:
-  return ret;
+  return gst_jni_media_codec_queue_input_buffer (codec->object, index,
+      info->offset, info->size, info->presentation_time_us, info->flags);
 }
 
 gboolean
 gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index)
 {
-  gboolean ret = FALSE;
-  JNIEnv *env = gst_jni_get_env ();
-
-  J_CALL_VOID (codec->object, media_codec.release_output_buffer,
-      index, JNI_FALSE);
-
-  ret = TRUE;
-error:
-  return ret;
+  return gst_jni_media_codec_release_output_buffer (codec->object, index);
 }
 
 gboolean
 gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index,
     GstClockTime ts)
 {
-  gboolean ret = FALSE;
-  JNIEnv *env = gst_jni_get_env ();
-
-  J_CALL_VOID (codec->object, media_codec.release_output_buffer_ts, index, ts);
-
-  ret = TRUE;
-error:
-  return ret;
+  return gst_jni_media_codec_release_output_buffer_ts (codec->object, index,
+      ts);
 }
 
 static gboolean
@@ -812,55 +762,8 @@ get_java_classes (void)
         "getUpper", "()Ljava/lang/Comparable;");
   }
 
-  media_codec.klass = gst_jni_get_class (env, "android/media/MediaCodec");
-
-  J_INIT_METHOD_ID (media_codec, queue_secure_input_buffer,
-      "queueSecureInputBuffer", "(IILandroid/media/MediaCodec$CryptoInfo;JI)V");
-
-  J_INIT_STATIC_METHOD_ID (media_codec, create_by_codec_name,
-      "createByCodecName", "(Ljava/lang/String;)Landroid/media/MediaCodec;");
-
-  J_INIT_METHOD_ID (media_codec, configure, "configure",
-      "(Landroid/media/MediaFormat;Landroid/view/Surface;Landroid/media/MediaCrypto;I)V");
-
-  J_INIT_METHOD_ID (media_codec, dequeue_input_buffer, "dequeueInputBuffer",
-      "(J)I");
-
-  J_INIT_METHOD_ID (media_codec, dequeue_output_buffer, "dequeueOutputBuffer",
-      "(Landroid/media/MediaCodec$BufferInfo;J)I");
-
-  J_INIT_METHOD_ID (media_codec, flush, "flush", "()V");
-
-  J_INIT_METHOD_ID (media_codec, get_input_buffers, "getInputBuffers",
-      "()[Ljava/nio/ByteBuffer;");
-
-
-  J_INIT_METHOD_ID (media_codec, get_output_buffers, "getOutputBuffers",
-      "()[Ljava/nio/ByteBuffer;");
-
-  J_INIT_METHOD_ID (media_codec, get_output_format, "getOutputFormat",
-      "()Landroid/media/MediaFormat;");
-
-  J_INIT_METHOD_ID (media_codec, queue_input_buffer, "queueInputBuffer",
-      "(IIIJI)V");
-
-  J_INIT_METHOD_ID (media_codec, release, "release", "()V");
-
-  J_INIT_METHOD_ID (media_codec, release_output_buffer, "releaseOutputBuffer",
-      "(IZ)V");
-
-  J_INIT_METHOD_ID (media_codec, release_output_buffer_ts,
-      "releaseOutputBuffer", "(IJ)V");
-
-  J_INIT_METHOD_ID (media_codec, set_output_surface, "setOutputSurface",
-      "(Landroid/view/Surface;)V");
-
-  J_INIT_METHOD_ID (media_codec, start, "start", "()V");
-
-  J_INIT_METHOD_ID (media_codec, stop, "stop", "()V");
-
-  J_INIT_METHOD_ID (media_codec, get_codec_info, "getCodecInfo",
-      "()Landroid/media/MediaCodecInfo;");
+  if (!gst_jni_media_codec_init ())
+    goto error;
 
   media_codec_buffer_info.klass =
       gst_jni_get_class (env, "android/media/MediaCodec$BufferInfo");
@@ -1005,13 +908,7 @@ error:
 gboolean
 gst_amc_codec_set_output_surface (GstAmcCodec * codec, guint8 * surface)
 {
-  JNIEnv *env = gst_jni_get_env ();
-  GST_DEBUG ("Set surface %p to codec %p", surface, codec->object);
-  J_CALL_VOID (codec->object, media_codec.set_output_surface, surface);
-  return TRUE;
-error:
-  GST_ERROR ("Failed to call MediaCodec.setOutputSurface (%p)", surface);
-  return FALSE;
+  return gst_jni_media_codec_set_output_surface (codec->object, surface);
 }
 
 
