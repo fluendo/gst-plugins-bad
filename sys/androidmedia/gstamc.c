@@ -149,6 +149,8 @@ static const struct
   FEATURE_COUNT, NULL}
 };
 
+static GList *registered_codecs;
+
 jbyteArray
 jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size)
 {
@@ -2164,26 +2166,39 @@ gst_amc_audio_channel_mask_to_positions (guint32 channel_mask, gint channels)
 
 
 static gchar *
-create_type_name (const gchar * parent_name, const gchar * codec_name)
+create_type_name (const gchar * parent_name, const gchar * codec_name,
+    const gchar * mime_name)
 {
   gchar *typified_name;
   gint i, k;
   gint parent_name_len = strlen (parent_name);
   gint codec_name_len = strlen (codec_name);
+  gint mime_name_len = strlen (mime_name);
+  gint typified_name_len = 0;
   gboolean upper = TRUE;
 
-  typified_name = g_new0 (gchar, parent_name_len + 1 + strlen (codec_name) + 1);
+  /* Calculate total len skipping non-alnum */
+  typified_name_len =
+      parent_name_len + 1 + codec_name_len + 1 + mime_name_len + 1;
+
+  for (i = 0; i < codec_name_len; i++)
+    if (!g_ascii_isalnum (codec_name[i]))
+      typified_name_len--;
+
+  for (i = 0; i < mime_name_len; i++)
+    if (!g_ascii_isalnum (mime_name[i]))
+      typified_name_len--;
+
+  typified_name = g_new0 (gchar, typified_name_len);
   memcpy (typified_name, parent_name, parent_name_len);
   typified_name[parent_name_len] = '-';
 
-  for (i = 0, k = 0; i < codec_name_len; i++) {
+  for (i = 0, k = parent_name_len + 1; i < codec_name_len; i++) {
     if (g_ascii_isalnum (codec_name[i])) {
       if (upper)
-        typified_name[parent_name_len + 1 + k++] =
-            g_ascii_toupper (codec_name[i]);
+        typified_name[k++] = g_ascii_toupper (codec_name[i]);
       else
-        typified_name[parent_name_len + 1 + k++] =
-            g_ascii_tolower (codec_name[i]);
+        typified_name[k++] = g_ascii_tolower (codec_name[i]);
 
       upper = FALSE;
     } else {
@@ -2192,11 +2207,27 @@ create_type_name (const gchar * parent_name, const gchar * codec_name)
     }
   }
 
+  upper = TRUE;
+  typified_name[k++] = '-';
+  for (i = 0; i < mime_name_len; i++) {
+    if (g_ascii_isalnum (mime_name[i])) {
+      if (upper)
+        typified_name[k++] = g_ascii_toupper (mime_name[i]);
+      else
+        typified_name[k++] = g_ascii_tolower (mime_name[i]);
+
+      upper = FALSE;
+    } else {
+      upper = TRUE;
+    }
+  }
+
   return typified_name;
 }
 
 static gchar *
-create_element_name (gboolean video, gboolean encoder, const gchar * codec_name)
+create_element_name (gboolean video, gboolean encoder, const gchar * codec_name,
+    const gchar * mime_name)
 {
 #define PREFIX_LEN 10
   static const gchar *prefixes[] = {
@@ -2208,6 +2239,8 @@ create_element_name (gboolean video, gboolean encoder, const gchar * codec_name)
   gchar *element_name;
   gint i, k;
   gint codec_name_len = strlen (codec_name);
+  gint mime_name_len = strlen (mime_name);
+  gint element_name_len = 0;
   const gchar *prefix;
 
   if (video && !encoder)
@@ -2219,15 +2252,34 @@ create_element_name (gboolean video, gboolean encoder, const gchar * codec_name)
   else
     prefix = prefixes[3];
 
-  element_name = g_new0 (gchar, PREFIX_LEN + strlen (codec_name) + 1);
+  element_name_len = PREFIX_LEN + codec_name_len + mime_name_len + 2;
+
+  for (i = 0; i < codec_name_len; i++)
+    if (!g_ascii_isalnum (codec_name[i]))
+      element_name_len--;
+
+  for (i = 0; i < mime_name_len; i++)
+    if (!g_ascii_isalnum (mime_name[i]))
+      element_name_len--;
+
+  element_name = g_new0 (gchar, element_name_len);
   memcpy (element_name, prefix, PREFIX_LEN);
 
-  for (i = 0, k = 0; i < codec_name_len; i++) {
+  for (i = 0, k = PREFIX_LEN; i < codec_name_len; i++) {
     if (g_ascii_isalnum (codec_name[i])) {
-      element_name[PREFIX_LEN + k++] = g_ascii_tolower (codec_name[i]);
+      element_name[k++] = g_ascii_tolower (codec_name[i]);
     }
     /* Skip all non-alnum chars */
   }
+
+  element_name[k++] = '-';
+  for (i = 0; i < mime_name_len; i++) {
+    if (g_ascii_isalnum (mime_name[i])) {
+      element_name[k++] = g_ascii_tolower (mime_name[i]);
+    }
+  }
+
+  element_name[k] = '\0';
 
   return element_name;
 }
@@ -2239,38 +2291,32 @@ register_codecs (GstPlugin * plugin)
 {
   gboolean ret = TRUE;
   GList *l;
+  gint i;
 
   GST_DEBUG ("Registering plugins");
 
   for (l = codec_infos; l; l = l->next) {
     GstAmcCodecInfo *codec_info = l->data;
-    gboolean is_audio = FALSE;
-    gboolean is_video = FALSE;
-    gint i;
-    gint n_types;
 
-    GST_DEBUG ("Registering codec '%s'", codec_info->name);
     for (i = 0; i < codec_info->n_supported_types; i++) {
       GstAmcCodecType *codec_type = &codec_info->supported_types[i];
+      GstAmcRegisteredCodec *registered_codec;
+      gboolean is_audio = FALSE;
+      gboolean is_video = FALSE;
 
-      if (g_str_has_prefix (codec_type->mime, "audio/"))
-        is_audio = TRUE;
-      else if (g_str_has_prefix (codec_type->mime, "video/"))
-        is_video = TRUE;
-    }
-
-    n_types = 0;
-    if (is_audio)
-      n_types++;
-    if (is_video)
-      n_types++;
-
-    for (i = 0; i < n_types; i++) {
       GTypeQuery type_query;
       GTypeInfo type_info = { 0, };
       GType type, subtype;
       gchar *type_name, *element_name;
       guint rank;
+
+      GST_DEBUG ("Registering codec '%s' with mime type %s", codec_info->name,
+          codec_type->mime);
+
+      if (g_str_has_prefix (codec_type->mime, "audio/"))
+        is_audio = TRUE;
+      else if (g_str_has_prefix (codec_type->mime, "video/"))
+        is_video = TRUE;
 
       if (is_video && !codec_info->is_encoder) {
         type = gst_amc_video_dec_get_type ();
@@ -2285,23 +2331,30 @@ register_codecs (GstPlugin * plugin)
       memset (&type_info, 0, sizeof (type_info));
       type_info.class_size = type_query.class_size;
       type_info.instance_size = type_query.instance_size;
-      type_name = create_type_name (type_query.type_name, codec_info->name);
+      type_name =
+          create_type_name (type_query.type_name, codec_info->name,
+          codec_type->mime);
 
       if (g_type_from_name (type_name) != G_TYPE_INVALID) {
-        GST_ERROR ("Type '%s' already exists for codec '%s'", type_name,
-            codec_info->name);
+        GST_ERROR ("Type '%s' already exists for codec '%s' with mime %s",
+            type_name, codec_info->name, codec_type->mime);
         g_free (type_name);
         continue;
       }
 
+      registered_codec = g_new0 (GstAmcRegisteredCodec, 1);
+      registered_codec->codec_info = codec_info;
+      registered_codec->codec_type = &codec_info->supported_types[i];
+      registered_codecs = g_list_append (registered_codecs, registered_codec);
+
       subtype = g_type_register_static (type, type_name, &type_info, 0);
       g_free (type_name);
 
-      g_type_set_qdata (subtype, gst_amc_codec_info_quark, codec_info);
+      g_type_set_qdata (subtype, gst_amc_codec_info_quark, registered_codec);
 
       element_name =
           create_element_name (is_video, codec_info->is_encoder,
-          codec_info->name);
+          codec_info->name, codec_type->mime);
 
       /* Give the Google software codec a secondary rank,
        * everything else is likely a hardware codec, except
@@ -2312,23 +2365,8 @@ register_codecs (GstPlugin * plugin)
       else
         rank = GST_RANK_PRIMARY;
 
-      /* FIXME: this should be done looking at the codec feature and it
-       * needs to create one element for each supported mime in the codec
-       * as each mime could support or not some features
-       * In the practice venders splits the codec in regular, tunneled and secure */
-      /* Give the tunneled decoder a rank lower than the non-tunneled */
-      if (g_str_has_suffix (codec_info->name, "tunneled")) {
-        rank = rank - 1;
-      }
-      /* Give the secure decoder a rank lower than the non-secure */
-      if (g_str_has_suffix (codec_info->name, "secure")) {
-        rank = rank - 2;
-      }
-
       ret |= gst_element_register (plugin, element_name, rank, subtype);
       g_free (element_name);
-
-      is_video = FALSE;
     }
   }
 

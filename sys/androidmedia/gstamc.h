@@ -37,6 +37,7 @@ typedef struct _GstAmcCodec GstAmcCodec;
 typedef struct _GstAmcBufferInfo GstAmcBufferInfo;
 typedef struct _GstAmcBuffer GstAmcBuffer;
 typedef struct _GstAmcDRBuffer GstAmcDRBuffer;
+typedef struct _GstAmcRegisteredCodec GstAmcRegisteredCodec;
 
 struct _GstAmcCodecType
 {
@@ -104,6 +105,11 @@ struct _GstAmcBufferInfo
   gint size;
 };
 
+struct _GstAmcRegisteredCodec
+{
+  GstAmcCodecInfo *codec_info;
+  GstAmcCodecType *codec_type;
+};
 
 
 extern GQuark gst_amc_codec_info_quark;

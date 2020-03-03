@@ -476,36 +476,39 @@ gst_amc_video_dec_base_init (gpointer g_class)
 {
   GstElementClass *element_class = GST_ELEMENT_CLASS (g_class);
   GstAmcVideoDecClass *videodec_class = GST_AMC_VIDEO_DEC_CLASS (g_class);
-  const GstAmcCodecInfo *codec_info;
+  const GstAmcRegisteredCodec *registered_codec;
   GstPadTemplate *templ;
   GstCaps *caps;
   gchar *longname;
 
-  codec_info =
+  registered_codec =
       g_type_get_qdata (G_TYPE_FROM_CLASS (g_class), gst_amc_codec_info_quark);
   /* This happens for the base class and abstract subclasses */
-  if (!codec_info)
+  if (!registered_codec)
     return;
 
-  videodec_class->codec_info = codec_info;
+  videodec_class->registered_codec = registered_codec;
   videodec_class->direct_rendering = DEFAULT_DIRECT_RENDERING;
 
   /* Add pad templates */
-  caps = create_sink_caps (codec_info);
+  caps = create_sink_caps (registered_codec->codec_info);
   templ = gst_pad_template_new ("sink", GST_PAD_SINK, GST_PAD_ALWAYS, caps);
   gst_element_class_add_pad_template (element_class, templ);
   gst_object_unref (templ);
 
-  caps = create_src_caps (codec_info, videodec_class->direct_rendering);
+  caps =
+      create_src_caps (registered_codec->codec_info,
+      videodec_class->direct_rendering);
   templ = gst_pad_template_new ("src", GST_PAD_SRC, GST_PAD_ALWAYS, caps);
   gst_element_class_add_pad_template (element_class, templ);
   gst_object_unref (templ);
 
-  longname = g_strdup_printf ("Android MediaCodec %s", codec_info->name);
+  longname =
+      g_strdup_printf ("Android MediaCodec %s",
+      registered_codec->codec_info->name);
   gst_element_class_set_details_simple (element_class,
-      codec_info->name,
-      "Codec/Decoder/Video",
-      longname, "Sebastian Dröge <sebastian.droege@collabora.co.uk>");
+      registered_codec->codec_info->name, "Codec/Decoder/Video", longname,
+      "Sebastian Dröge <sebastian.droege@collabora.co.uk>");
   g_free (longname);
 }
 
@@ -663,7 +666,7 @@ gst_amc_video_dec_open (GstVideoDecoder * decoder)
 
   GST_ERROR_OBJECT (self, "Occupying video decoder");
 
-  self->codec = gst_amc_codec_new (klass->codec_info->name);
+  self->codec = gst_amc_codec_new (klass->registered_codec->codec_info->name);
   if (!self->codec)
     return FALSE;
   self->started = FALSE;
@@ -913,7 +916,8 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
       slice_height = self->slice_height;
       if (slice_height == 0) {
         /* NVidia Tegra 3 on Nexus 7 does not set this */
-        if (g_str_has_prefix (klass->codec_info->name, "OMX.Nvidia.")) {
+        if (g_str_has_prefix (klass->registered_codec->codec_info->name,
+                "OMX.Nvidia.")) {
           slice_height = GST_ROUND_UP_32 (self->height);
         } else {
           GST_ERROR_OBJECT (self, "Slice height not set");
@@ -1018,7 +1022,8 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
          I.e. BigBuckBunny 854x480 H264 reports a stride of 864 when it is
          actually 854, so we use width instead of stride here.
          This is obviously bound to break in the future. */
-      if (g_str_has_prefix (klass->codec_info->name, "OMX.SEC.")) {
+      if (g_str_has_prefix (klass->registered_codec->codec_info->name,
+              "OMX.SEC.")) {
         fixed_stride = self->width;
       } else {
         fixed_stride = self->stride;

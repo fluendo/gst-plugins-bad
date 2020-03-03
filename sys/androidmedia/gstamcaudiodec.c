@@ -338,35 +338,36 @@ gst_amc_audio_dec_base_init (gpointer g_class)
 {
   GstElementClass *element_class = GST_ELEMENT_CLASS (g_class);
   GstAmcAudioDecClass *audiodec_class = GST_AMC_AUDIO_DEC_CLASS (g_class);
-  const GstAmcCodecInfo *codec_info;
+  const GstAmcRegisteredCodec *registered_codec;
   GstPadTemplate *templ;
   GstCaps *caps;
   gchar *longname;
 
-  codec_info =
+  registered_codec =
       g_type_get_qdata (G_TYPE_FROM_CLASS (g_class), gst_amc_codec_info_quark);
   /* This happens for the base class and abstract subclasses */
-  if (!codec_info)
+  if (!registered_codec)
     return;
 
-  audiodec_class->codec_info = codec_info;
+  audiodec_class->registered_codec = registered_codec;
 
   /* Add pad templates */
-  caps = create_sink_caps (codec_info);
+  caps = create_sink_caps (registered_codec->codec_info);
   templ = gst_pad_template_new ("sink", GST_PAD_SINK, GST_PAD_ALWAYS, caps);
   gst_element_class_add_pad_template (element_class, templ);
   gst_object_unref (templ);
 
-  caps = create_src_caps (codec_info);
+  caps = create_src_caps (registered_codec->codec_info);
   templ = gst_pad_template_new ("src", GST_PAD_SRC, GST_PAD_ALWAYS, caps);
   gst_element_class_add_pad_template (element_class, templ);
   gst_object_unref (templ);
 
-  longname = g_strdup_printf ("Android MediaCodec %s", codec_info->name);
+  longname =
+      g_strdup_printf ("Android MediaCodec %s",
+      registered_codec->codec_info->name);
   gst_element_class_set_details_simple (element_class,
-      codec_info->name,
-      "Codec/Decoder/Audio",
-      longname, "Sebastian Dröge <sebastian.droege@collabora.co.uk>");
+      registered_codec->codec_info->name, "Codec/Decoder/Audio", longname,
+      "Sebastian Dröge <sebastian.droege@collabora.co.uk>");
   g_free (longname);
 }
 
@@ -507,7 +508,7 @@ gst_amc_audio_dec_open (GstAudioDecoder * decoder)
 
   GST_ERROR_OBJECT (self, "Occupying audio decoder");
 
-  self->codec = gst_amc_codec_new (klass->codec_info->name);
+  self->codec = gst_amc_codec_new (klass->registered_codec->codec_info->name);
   if (!self->codec)
     return FALSE;
   self->started = FALSE;

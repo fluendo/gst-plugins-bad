@@ -92,7 +92,7 @@ struct _GstAmcAudioDecClass
 {
   GstAudioDecoderClass parent_class;
 
-  const GstAmcCodecInfo *codec_info;
+  const GstAmcRegisteredCodec *registered_codec;
 };
 
 GType gst_amc_audio_dec_get_type (void);
