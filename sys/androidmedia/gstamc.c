@@ -131,6 +131,24 @@ static struct
   jmethodID from_string;
 } uuid;
 
+static const struct
+{
+  gint id;
+  const gchar *str;
+} features_to_check[] = {
+  {
+  FEATURE_ADAPTIVE_PLAYBACK, "adaptive-playback"}, {
+  FEATURE_DYNAMIC_TIMESTAMP, "dynamic-timestamp"}, {
+  FEATURE_FRAME_PARSING, "frame-parsing"}, {
+  FEATURE_INTRA_REFRESH, "intra-refresh"}, {
+  FEATURE_LOW_LATENCY, "low-latency"}, {
+  FEATURE_MULTIPLE_FRAMES, "multiple-frames"}, {
+  FEATURE_PARTIAL_FRAME, "partial-frame"}, {
+  FEATURE_SECURE_PLAYBACK, "secure-playback"}, {
+  FEATURE_TUNNELED_PLAYBACK, "tunneled-playback"}, {
+  FEATURE_COUNT, NULL}
+};
+
 jbyteArray
 jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size)
 {
@@ -1025,6 +1043,39 @@ error:
   return FALSE;
 }
 
+static GstAmcCodecFeature *
+gst_amc_get_codec_feature (JNIEnv * env, jclass capabilities,
+    const gchar * feature, GstAmcCodecFeature * codec_feature)
+{
+  jmethodID supported_id, required_id;
+  jstring jtmpstr;
+  gboolean supported, required;
+
+  supported = required = FALSE;
+
+  supported_id =
+      (*env)->GetMethodID (env, capabilities, "isFeatureSupported",
+      "(Ljava/lang/String;)Z");
+
+  required_id =
+      (*env)->GetMethodID (env, capabilities, "isFeatureRequired",
+      "(Ljava/lang/String;)Z");
+
+  jtmpstr = (*env)->NewStringUTF (env, feature);
+  supported =
+      (*env)->CallBooleanMethod (env, capabilities, supported_id, jtmpstr);
+  required =
+      (*env)->CallBooleanMethod (env, capabilities, required_id, jtmpstr);
+
+  if (supported) {
+    codec_feature->name = feature;
+    codec_feature->required = required;
+  }
+
+  J_DELETE_LOCAL_REF (jtmpstr);
+
+  return codec_feature;
+}
 
 static gboolean
 scan_codecs (GstPlugin * plugin)
@@ -1133,7 +1184,7 @@ scan_codecs (GstPlugin * plugin)
     jobject codec_info = NULL;
     jclass codec_info_class = NULL;
     jmethodID get_capabilities_for_type_id, get_name_id;
-    jmethodID get_supported_types_id, is_encoder_id, is_feature_supported_id;
+    jmethodID get_supported_types_id, is_encoder_id;
     jobject name = NULL;
     const gchar *name_str = NULL;
     jboolean is_encoder;
@@ -1299,6 +1350,7 @@ scan_codecs (GstPlugin * plugin)
 
     for (j = 0; j < n_supported_types; j++) {
       GstAmcCodecType *gst_codec_type;
+      gint feature_idx = 0;
       jobject supported_type = NULL;
       gchar *supported_type_str = NULL;
       jobject capabilities = NULL;
@@ -1347,32 +1399,14 @@ scan_codecs (GstPlugin * plugin)
         goto next_supported_type;
       }
 
-
-      is_feature_supported_id =
-          (*env)->GetMethodID (env, capabilities_class, "isFeatureSupported",
-          "(Ljava/lang/String;)Z");
-
-      if (is_feature_supported_id) {
-        gboolean adaptivePlaybackSupported;
-        jstring jtmpstr;
-
-        jtmpstr = (*env)->NewStringUTF (env, "adaptive-playback");
-        adaptivePlaybackSupported =
-            (*env)->CallBooleanMethod (env, capabilities,
-            is_feature_supported_id, jtmpstr);
-        if ((*env)->ExceptionCheck (env)) {
-          GST_ERROR
-              ("Caught exception on quering if adaptive-playback is supported");
-          (*env)->ExceptionClear (env);
-        }
-        J_DELETE_LOCAL_REF (jtmpstr);
-        GST_ERROR
-            ("&&& Codec %s: adaptive-playback %ssupported",
-            name_str, adaptivePlaybackSupported ? "" : "not ");
-      } else {
-        GST_ERROR ("&&& isFeatureSupported not found ");
+      gst_codec_type->features = g_new0 (GstAmcCodecFeature, FEATURE_COUNT);
+      gst_codec_type->n_features = FEATURE_COUNT;
+      while (features_to_check[feature_idx].str) {
+        gst_amc_get_codec_feature (env, capabilities_class,
+            features_to_check[feature_idx].str,
+            &gst_codec_type->features[feature_idx]);
+        feature_idx++;
       }
-
 
       color_formats_id =
           (*env)->GetFieldID (env, capabilities_class, "colorFormats", "[I");
@@ -1549,10 +1583,16 @@ scan_codecs (GstPlugin * plugin)
 
       for (j = 0; j < gst_codec_info->n_supported_types; j++) {
         GstAmcCodecType *gst_codec_type = &gst_codec_info->supported_types[j];
+        gint k;
 
         g_free (gst_codec_type->mime);
         g_free (gst_codec_type->color_formats);
         g_free (gst_codec_type->profile_levels);
+
+        for (k = 0; k < gst_codec_type->n_features; k++) {
+          g_free (&(gst_codec_type->features[k]));
+        }
+
       }
       g_free (gst_codec_info->supported_types);
       g_free (gst_codec_info->name);

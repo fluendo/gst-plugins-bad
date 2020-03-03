@@ -32,6 +32,7 @@ G_BEGIN_DECLS
 
 typedef struct _GstAmcCodecInfo GstAmcCodecInfo;
 typedef struct _GstAmcCodecType GstAmcCodecType;
+typedef struct _GstAmcCodecFeature GstAmcCodecFeature;
 typedef struct _GstAmcCodec GstAmcCodec;
 typedef struct _GstAmcBufferInfo GstAmcBufferInfo;
 typedef struct _GstAmcBuffer GstAmcBuffer;
@@ -50,6 +51,9 @@ struct _GstAmcCodecType
     gint level;
   } *profile_levels;
   gint n_profile_levels;
+
+  GstAmcCodecFeature *features;
+  gint n_features;
 };
 
 struct _GstAmcCodecInfo
@@ -58,6 +62,13 @@ struct _GstAmcCodecInfo
   gboolean is_encoder;
   GstAmcCodecType *supported_types;
   gint n_supported_types;
+};
+
+struct _GstAmcCodecFeature
+{
+  const gchar *name;
+  gboolean available;
+  gboolean required;
 };
 
 struct _GstAmcBuffer
@@ -92,6 +103,8 @@ struct _GstAmcBufferInfo
   gint64 presentation_time_us;
   gint size;
 };
+
+
 
 extern GQuark gst_amc_codec_info_quark;
 
