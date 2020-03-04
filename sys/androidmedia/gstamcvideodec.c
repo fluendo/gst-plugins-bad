@@ -76,6 +76,15 @@ enum
   PROP_0,
   PROP_DRM_AGENT_HANDLE,
   PROP_AUDIO_SESSION_ID,
+  PROP_ADAPTIVE_PLAYBACK,
+  PROP_DYNAMIC_TIMESTAMP,
+  PROP_FRAME_PARSING,
+  PROP_INTRA_REFRESH,
+  PROP_LOW_LATENCY,
+  PROP_MULTIPLE_FRAMES,
+  PROP_PARTIAL_FRAME,
+  PROP_SECURE_PLAYBACK,
+  PROP_TUNNELED_PLAYBACK,
   PROP_ENABLE_INBAND_DRM
 };
 
@@ -606,6 +615,11 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
   GstElementClass *element_class = GST_ELEMENT_CLASS (klass);
   GstVideoDecoderClass *videodec_class = GST_VIDEO_DECODER_CLASS (klass);
+  GstAmcCodecFeature *features = NULL;
+  GstAmcCodecFeature *feature = NULL;
+
+  if (klass->registered_codec)
+    features = klass->registered_codec->codec_type->features;
 
   gobject_class->finalize = gst_amc_video_dec_finalize;
 
@@ -645,6 +659,81 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
           "Allow or not inband proccessing of DRM event",
           GST_AMC_DRM_DEFAULT_INBAND_DRM_ENABLED,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+  if (features) {
+    feature = features + FEATURE_ADAPTIVE_PLAYBACK;
+    if (feature->available) {
+      g_object_class_install_property (gobject_class, PROP_ADAPTIVE_PLAYBACK,
+          g_param_spec_boolean ("adaptive-playback", "Adaptive Playback",
+              "Adaptive playback", feature->required,
+              feature->required ? G_PARAM_READABLE : G_PARAM_READWRITE));
+    }
+
+    feature = features + FEATURE_DYNAMIC_TIMESTAMP;
+    if (feature->available) {
+      g_object_class_install_property (gobject_class, PROP_DYNAMIC_TIMESTAMP,
+          g_param_spec_boolean ("dynamic-timestamp", "Dynamic Timestamp",
+              "Dynamic Timestamp", feature->required,
+              feature->required ? G_PARAM_READABLE : G_PARAM_READWRITE));
+    }
+
+    feature = features + FEATURE_FRAME_PARSING;
+    if (feature->available) {
+      g_object_class_install_property (gobject_class, PROP_FRAME_PARSING,
+          g_param_spec_boolean ("frame-parsing", "Frame Parsing",
+              "Frame Parsing", feature->required,
+              feature->required ? G_PARAM_READABLE : G_PARAM_READWRITE));
+    }
+
+    feature = features + FEATURE_INTRA_REFRESH;
+    if (feature->available) {
+      g_object_class_install_property (gobject_class, PROP_INTRA_REFRESH,
+          g_param_spec_boolean ("intra-refresh", "Intra Refresh",
+              "Intra Refresh", feature->required,
+              feature->required ? G_PARAM_READABLE : G_PARAM_READWRITE));
+    }
+
+    feature = features + FEATURE_INTRA_REFRESH;
+    if (feature->available) {
+      g_object_class_install_property (gobject_class, PROP_INTRA_REFRESH,
+          g_param_spec_boolean ("intra-refresh", "Intra Refresh",
+              "Intra Refresh", feature->required,
+              feature->required ? G_PARAM_READABLE : G_PARAM_READWRITE));
+    }
+
+    feature = features + FEATURE_LOW_LATENCY;
+    if (feature->available) {
+      g_object_class_install_property (gobject_class, PROP_LOW_LATENCY,
+          g_param_spec_boolean ("low-latency", "Low Latency",
+              "Low Latency", feature->required,
+              feature->required ? G_PARAM_READABLE : G_PARAM_READWRITE));
+    }
+
+    feature = features + FEATURE_MULTIPLE_FRAMES;
+    if (feature->available) {
+      g_object_class_install_property (gobject_class, PROP_MULTIPLE_FRAMES,
+          g_param_spec_boolean ("multiple-frames", "Multiple Frames",
+              "Multiple Frames", feature->required,
+              feature->required ? G_PARAM_READABLE : G_PARAM_READWRITE));
+    }
+
+    feature = features + FEATURE_SECURE_PLAYBACK;
+    if (feature->available) {
+      g_object_class_install_property (gobject_class, PROP_SECURE_PLAYBACK,
+          g_param_spec_boolean ("secure-playback", "Secure Playback",
+              "Secure Playback", feature->required,
+              feature->required ? G_PARAM_READABLE : G_PARAM_READWRITE));
+    }
+
+    feature = features + FEATURE_TUNNELED_PLAYBACK;
+    if (feature->available) {
+      g_object_class_install_property (gobject_class, PROP_TUNNELED_PLAYBACK,
+          g_param_spec_boolean ("tunneled-playback", "Tunneled Playback",
+              "Tunneled Playback", feature->required,
+              feature->required ? G_PARAM_READABLE : G_PARAM_READWRITE));
+    }
+
+  }
+
 }
 
 static void
