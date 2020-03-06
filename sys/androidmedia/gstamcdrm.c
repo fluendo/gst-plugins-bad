@@ -62,6 +62,7 @@ typedef struct _GstAmcCrypto
   GstElement *gstelement;
 } GstAmcCrypto;
 
+/* Taken from https://dashif.org/identifiers/content_protection/ */
 static struct
 {
   const char *uuid;
@@ -69,16 +70,15 @@ static struct
   gboolean supported;
 } known_cryptos[] = {
   {
-    // clearkey should be the first, it's used in sysid_is_clearkey
+    /* clearkey should be at [0], it's used in sysid_is_clearkey */
   "1077efec-c0b2-4d02-ace3-3c1e52e2fb4b", "CLEARKEY"}, {
-  "9a04f079-9840-4286-ab92-e65be0885f95", "PLAYREADY_BE"}, {
-  "79f0049a-4098-8642-ab92-e65be0885f95", "PLAYREADY"}
+    /* playready should be at [1], it's used in sysid_is_playready */
+  "9a04f079-9840-4286-ab92-e65be0885f95", "PLAYREADY"}, {
+  "5E629AF5-38DA-4063-8977-97FFBD9902D4", "MARLIN"}, {
+  "edef8ba9-79d6-4ace-a3c8-27dcd51d21ed", "WIDEVINE"}
 };
 
 static gboolean cached_supported_system_ids = FALSE;
-
-/* this constant is taken from Android docs for MediaCodec */
-static const int CRYPTO_MODE_AES_CTR = 1;
 
 /* JNI classes */
 static struct
@@ -102,6 +102,7 @@ static struct
   jmethodID get_key_request;
   jmethodID provide_key_response;
   jmethodID close_session;
+  jmethodID get_security_level;
 } media_drm;
 
 static struct
@@ -120,12 +121,16 @@ static struct
 } media_crypto;
 
 
-
-
 static gboolean
 gst_amc_drm_sysid_is_clearkey (const gchar * sysid)
 {
   return !g_ascii_strcasecmp (sysid, known_cryptos[0].uuid);
+}
+
+static gboolean
+gst_amc_drm_sysid_is_playready (const gchar * sysid)
+{
+  return !g_ascii_strcasecmp (sysid, known_cryptos[1].uuid);
 }
 
 gboolean
@@ -138,6 +143,10 @@ gst_amc_drm_jni_init (JNIEnv * env)
 
   J_INIT_METHOD_ID (media_drm, constructor, "<init>", "(Ljava/util/UUID;)V");
   J_INIT_METHOD_ID (media_drm, open_session, "openSession", "()[B");
+#if 0
+  /* Fails on some boards */
+  J_INIT_METHOD_ID (media_drm, get_security_level, "getSecurityLevel", "([B)I");
+#endif
   J_INIT_METHOD_ID (media_drm, get_key_request, "getKeyRequest", "(" "[B"       // byte[] scope
       "[B"                      // byte[] init
       "Ljava/lang/String;"      // String mimeType
@@ -317,68 +326,23 @@ static gboolean
 gst_amc_drm_hack_pssh_initdata (GstElement * el, guchar * payload,
     gsize payload_size, gsize * new_payload_size)
 {
-  guchar *payload_begin = payload;
-  if (payload_size < 32) {
-    GST_ERROR_OBJECT (el, "Invalid pssh data");
+  guint data_offset, data_size;
+  if (!fluc_drm_cenc_validate_pssh (payload, payload_size, &data_offset,
+          &data_size))
     return FALSE;
-  }
-
-  if (FALSE == (payload[4] == 'p' &&
-          payload[5] == 's' && payload[6] == 's' && payload[7] == 'h')) {
-    GST_ERROR_OBJECT (el, "Sanity check failed: provided payload is not pssh");
-    return FALSE;
-  }
-
-  {
-    guint32 version = GST_READ_UINT32_BE (payload + 8);
-    version = version >> 24;
-    payload += 28;
-
-    if (version != 1)
-      GST_ERROR_OBJECT (el, "Sanity check failed: pssh version (%d) != 1",
-          version);
-
-    if (version > 0) {
-      gint i;
-      guint32 kid_count = GST_READ_UINT32_BE (payload);
-      GST_DEBUG_OBJECT (el, "PSSH: kid_count = %d", kid_count);
-      payload += 4;
-      for (i = 0; i < kid_count; i++) {
-        guchar *p = payload;
-        GST_DEBUG_OBJECT (el, "kid[%d] = [%02x.%02x.%02x.%02x."
-            "%02x.%02x.%02x.%02x."
-            "%02x.%02x.%02x.%02x."
-            "%02x.%02x.%02x.%02x]", i,
-            p[0], p[1], p[2], p[3],
-            p[4], p[5], p[6], p[7],
-            p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]
-            );
-
-        payload += 16;
-      }
-    }
-  }
-
-  {
-    gsize data_field_size = GST_READ_UINT32_BE (payload);
-    payload += 4;
-
-    GST_DEBUG_OBJECT (el, "Size of data field inside pssh: %d",
-        data_field_size);
-  }
 
   /* Now we have to hack pssh a little because of Android libmediadrm's pitfall:
      It requires initData (pssh) to have "data" size == 0, and if "data" size != 0,
      android will just refuse to parse in
      av/drm/mediadrm/plugins/clearkey/InitDataParcer.cpp:112
    */
-  *new_payload_size = payload - payload_begin;
+  *new_payload_size = data_offset;
   if (*new_payload_size != payload_size) {
     GST_DEBUG_OBJECT (el, "Overwriting pssh header's size "
         "from %u to %u, and \"data size\" field to 0",
         payload_size, *new_payload_size);
-    GST_WRITE_UINT32_BE (payload_begin, *new_payload_size);
-    GST_WRITE_UINT32_BE (payload - 4, 0);
+    GST_WRITE_UINT32_BE (payload, *new_payload_size);
+    GST_WRITE_UINT32_BE (payload + data_offset - 4, 0);
   }
 
   return TRUE;
@@ -485,11 +449,9 @@ gst_amc_ctx_clear (GstAmcCrypto * ctx)
 
 
 static gboolean
-gst_amc_drm_jmedia_crypto_from_drm_event (GstAmcCrypto * ctx, GstEvent * event)
+gst_amc_drm_jmedia_crypto_from_pssh (GstAmcCrypto * ctx, const guchar * data,
+    guint32 data_size, const gchar * system_id)
 {
-  GstBuffer *data_buf = NULL;
-  const gchar *origin;
-  const gchar *system_id;
   jobject juuid = NULL;
   jobject media_crypto_obj = NULL;
   jobject media_drm_obj = NULL;
@@ -498,35 +460,13 @@ gst_amc_drm_jmedia_crypto_from_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   jbyteArray jinit_data = NULL;
   const jint KEY_TYPE_STREAMING = 1;
   jstring jmime = NULL;
-  guchar *complete_pssh_payload = NULL;
-  gsize complete_pssh_payload_size;
-  gboolean event_is_from_mp4;
 
   GstElement *el = ctx->gstelement;
   JNIEnv *env = gst_jni_get_env ();
 
-  fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
-  AMC_CHK (system_id && data_buf && origin);
+  AMC_CHK (system_id && data && data_size);
 
-  complete_pssh_payload = GST_BUFFER_DATA (data_buf);
-  complete_pssh_payload_size = GST_BUFFER_SIZE (data_buf);
-
-  GST_DEBUG_OBJECT (el, "Parsed drm event. system id = %s"
-      " (%s supported by device), origin = %s, data_size = %d",
-      system_id,
-      gst_amc_drm_is_protection_system_id_supported (system_id) ? "" : "not",
-      origin, complete_pssh_payload_size);
-
-  event_is_from_mp4 = g_str_has_prefix (origin, "isobmff/");
-
-  if (event_is_from_mp4 && gst_amc_drm_sysid_is_clearkey (system_id)
-      && !gst_amc_drm_hack_pssh_initdata (el, complete_pssh_payload,
-          complete_pssh_payload_size, &complete_pssh_payload_size))
-    goto error;
-
-  jinit_data =
-      jbyte_arr_from_data (env, complete_pssh_payload,
-      complete_pssh_payload_size);
+  jinit_data = jbyte_arr_from_data (env, data, data_size);
   AMC_CHK (jinit_data);
 
   juuid = juuid_from_utf8 (env, system_id);
@@ -539,9 +479,34 @@ gst_amc_drm_jmedia_crypto_from_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   J_CALL_OBJ (jsession_id /* = */ , media_drm_obj, media_drm.open_session);
   AMC_CHK (jsession_id);
 
-  /* Depending on the source of DRM event we can receive a complete pssh atom
-   * as data (mp4 case), or just an object (mpd case). */
-  jmime = (*env)->NewStringUTF (env, event_is_from_mp4 ? "cenc" : "webm");
+  /* Throws exception on some boards with message "Failed to get security level" */
+#if 0
+  /* Log native security level of the device, obtained by MediaDrm session */
+  {
+    guint sec_level;
+    /* Enums from MediaDrm's documentation, from 0 to 5 */
+    const gchar *android_sec_levels[] = {
+      "SECURITY_LEVEL_UNKNOWN",
+      "SECURITY_LEVEL_SW_SECURE_CRYPTO",
+      "SECURITY_LEVEL_SW_SECURE_DECODE",
+      "SECURITY_LEVEL_HW_SECURE_CRYPTO",
+      "SECURITY_LEVEL_HW_SECURE_DECODE",
+      "SECURITY_LEVEL_HW_SECURE_ALL"
+    };
+
+    J_CALL_INT (sec_level /* = */ , media_drm_obj, media_drm.get_security_level,
+        jsession_id);
+
+    GST_DEBUG_OBJECT (el, "MediaDrm session opened with security level %s (%d)",
+        android_sec_levels
+        [sec_level < G_N_ELEMENTS (android_sec_levels) ?
+            sec_level : 0], sec_level);
+  }
+#endif
+
+  /* Other known valid mime type is "webm", but we're not sure about it, that's why
+   * we always wrap initData to pssh currently */
+  jmime = (*env)->NewStringUTF (env, "cenc");
   AMC_CHK (jmime);
 
   J_CALL_OBJ (request /* = */ , media_drm_obj, media_drm.get_key_request,
@@ -601,8 +566,9 @@ gst_amc_drm_ctx_free (GstAmcCrypto * ctx)
 
 
 static jobject
-gst_amc_get_crypto_info (const GstStructure * s, gsize bufsize)
+gst_amc_drm_cenc_get_crypto_info (const GstStructure * s, gsize bufsize)
 {
+  guint alg_id;
   guint n_subsamples = 0;
   jint j_n_subsamples = 0;
   gboolean ok = FALSE;
@@ -678,6 +644,11 @@ gst_amc_get_crypto_info (const GstStructure * s, gsize bufsize)
     AMC_CHK (j_kid && j_iv);
   }
 
+  /* We support only AES_CTR or AES_CBC.
+   * In Android's constants they're the same as in tenc: CTR = 1, CBC = 2 */
+  AMC_CHK (gst_structure_get_uint (s, "algorithm_id", &alg_id));
+  AMC_CHK (alg_id == 1 || alg_id == 2);
+
   // new MediaCodec.CryptoInfo
   crypto_info = (*env)->NewObject (env, media_codec_crypto_info.klass,
       media_codec_crypto_info.constructor);
@@ -688,7 +659,7 @@ gst_amc_get_crypto_info (const GstStructure * s, gsize bufsize)
       j_n_bytes_of_encrypted_data,      // int[] newNumBytesOfEncryptedData
       j_kid,                    // byte[] newKey
       j_iv,                     // byte[] newIV
-      CRYPTO_MODE_AES_CTR       // int newMode
+      alg_id                    // int newMode
       );
 
   crypto_info_ret = crypto_info;
@@ -719,7 +690,7 @@ gst_amc_drm_get_crypto_info (const GstBuffer * drmbuf)
     return NULL;
   }
 
-  return gst_amc_get_crypto_info (cenc_info, GST_BUFFER_SIZE (drmbuf));
+  return gst_amc_drm_cenc_get_crypto_info (cenc_info, GST_BUFFER_SIZE (drmbuf));
 }
 
 
@@ -728,25 +699,90 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
 {
   GstElement *el = ctx->gstelement;
   GstBuffer *data_buf;
+  GstBuffer *buf_to_unref = NULL;
   const gchar *system_id, *origin;
+  gboolean origin_is_iso;
+  guchar *init_data;
+  guint init_data_size;
+
   fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
+
+  /* Ensure we're providing initData */
+  if (!data_buf || !GST_BUFFER_SIZE (data_buf)) {
+    GST_ERROR_OBJECT (el, "No initData in drm event %p", event);
+    return;
+  }
+
+  init_data = GST_BUFFER_DATA (data_buf);
+  init_data_size = GST_BUFFER_SIZE (data_buf);
+
   GST_DEBUG_OBJECT (el, "Received drm event."
-      "SystemId = [%s] (%ssupported by device), origin = [%s], %s data buffer,"
+      "SystemId = [%s] (%ssupported by device), origin = [%s], "
       "data size = %d", system_id,
       gst_amc_drm_is_protection_system_id_supported (system_id) ? "" : "not ",
-      origin, data_buf ? "attached" : "no",
-      data_buf ? GST_BUFFER_SIZE (data_buf) : 0);
+      origin, init_data_size);
 
-  /* Hack for now to be sure we're providing pssh */
-  if (!data_buf || !GST_BUFFER_SIZE (data_buf))
-    return;
+  origin_is_iso = g_str_has_prefix (origin, "isobmff/");
 
-  if (g_str_has_prefix (origin, "isobmff/")
-      && gst_amc_drm_sysid_is_clearkey (system_id)) {
+  /* For case of clearkey we have to hack pssh data because of a bug in
+   * av/drm/mediadrm/plugins/clearkey/InitDataParcer.cpp */
+  if (origin_is_iso && gst_amc_drm_sysid_is_clearkey (system_id)) {
     gsize new_size;
-    gst_amc_drm_hack_pssh_initdata (el, GST_BUFFER_DATA (data_buf),
-        GST_BUFFER_SIZE (data_buf), &new_size);
-    GST_BUFFER_SIZE (data_buf) = new_size;
+    gst_amc_drm_hack_pssh_initdata (el, init_data, init_data_size, &new_size);
+    init_data_size = GST_BUFFER_SIZE (data_buf) = new_size;
+  }
+
+  /* If systemid is playready - dump PO and KID */
+  if (__gst_debug_min >= GST_LEVEL_DEBUG &&
+      gst_amc_drm_sysid_is_playready (system_id)) {
+    guint data_offset = 0;
+    guint data_size = init_data_size;
+    guint8 *kid;
+
+    /* Extract from pssh if needed */
+    if (origin_is_iso) {
+      if (!fluc_drm_cenc_validate_pssh (init_data, init_data_size, &data_offset,
+              &data_size))
+        return;
+    }
+
+    kid = flucdrm_playready_OBJ_get_first_KID (init_data + data_offset,
+        data_size);
+
+    GST_DEBUG_OBJECT (el, "kid from POBJ = [%02x.%02x.%02x.%02x."
+        "%02x.%02x.%02x.%02x."
+        "%02x.%02x.%02x.%02x."
+        "%02x.%02x.%02x.%02x]",
+        kid[0], kid[1], kid[2], kid[3],
+        kid[4], kid[5], kid[6], kid[7],
+        kid[8], kid[9], kid[10], kid[11], kid[12], kid[13], kid[14], kid[15]
+        );
+    g_free (kid);
+  }
+
+  /* If origin is not an iso we prefer to wrap data to pssh v0 */
+  if (!origin_is_iso) {
+    guchar *new_pssh;
+    guint32 new_pssh_size;
+
+    new_pssh =
+        fluc_drm_cenc_wrap_data_to_pssh_v0 (system_id, init_data,
+        init_data_size, &new_pssh_size);
+
+    if (!new_pssh)
+      return;
+
+    /* Replace data_buf with one wrapped to pssh.
+     * There's no leak here, because event is who owns data_buf, but
+     * if we have created our new one - we have to unref it after usage. */
+    buf_to_unref = data_buf = gst_buffer_new ();
+    init_data = GST_BUFFER_DATA (data_buf) = new_pssh;
+    init_data_size = GST_BUFFER_SIZE (data_buf) = new_pssh_size;
+
+    /* Dump result pssh if we're debugging */
+    if (__gst_debug_min >= GST_LEVEL_DEBUG &&
+        !fluc_drm_cenc_validate_pssh (init_data, init_data_size, NULL, NULL))
+      GST_ERROR_OBJECT (el, "Internal error: generated invalid pssh");
   }
 
   gst_element_post_message (el,
@@ -759,9 +795,15 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   } else {
     GST_DEBUG_OBJECT (el,
         "User didn't provide us MediaCrypto, trying In-band mode");
-    if (!gst_amc_drm_jmedia_crypto_from_drm_event (ctx, event))
-      GST_ERROR_OBJECT (el, "In-band mode's drm event parsing failed");
+    if (!gst_amc_drm_jmedia_crypto_from_pssh (ctx, init_data, init_data_size,
+            system_id)) {
+      GST_ELEMENT_ERROR (el, LIBRARY, FAILED, (NULL),
+          ("In-band mode's drm event parsing failed"));
+    }
   }
+
+  if (buf_to_unref)
+    gst_buffer_unref (buf_to_unref);
 }
 
 

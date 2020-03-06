@@ -432,7 +432,11 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
 
   AMC_CHK (codec && format);
 
-  mcrypto = gst_amc_drm_mcrypto_get (drm_ctx);
+  if (drm_ctx) {
+    mcrypto = gst_amc_drm_mcrypto_get (drm_ctx);
+    AMC_CHK (mcrypto);
+    gst_amc_format_set_int (format, "secure-playback", 1);
+  }
 
   gst_amc_codec_enable_adaptive_playback (codec, format);
   if (audio_session_id) {
