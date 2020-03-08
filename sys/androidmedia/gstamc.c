@@ -1126,6 +1126,7 @@ scan_codecs (GstPlugin * plugin)
         const gchar *mime;
         const GValue *cfarr;
         const GValue *plarr;
+        const GValue *farr;
         guint k, n3;
         GstAmcCodecType *gst_codec_type = &gst_codec_info->supported_types[j];
 
@@ -1163,6 +1164,28 @@ scan_codecs (GstPlugin * plugin)
           gst_codec_type->profile_levels[k].profile = g_value_get_int (p);
           gst_codec_type->profile_levels[k].level = g_value_get_int (l);
         }
+
+        farr = gst_structure_get_value (sts, "features");
+        n3 = gst_value_array_get_size (farr);
+        gst_codec_type->n_features = n3;
+
+        gst_codec_type->features = g_new0 (GstAmcCodecFeature, n3);
+        for (k = 0; k < n3; k++) {
+          const GValue *fv = gst_value_array_get_value (farr, k);
+          const GstStructure *fs = gst_value_get_structure (fv);
+          const gchar *name;
+          GstAmcCodecFeature *gst_codec_feature = &gst_codec_type->features[k];
+
+          name = gst_structure_get_string (fs, "name");
+          gst_codec_feature->name = g_strdup (name);
+
+          gst_structure_get_boolean (fs, "available",
+              &gst_codec_feature->available);
+
+          gst_structure_get_boolean (fs, "required",
+              &gst_codec_feature->required);
+        }
+
       }
 
       codec_infos = g_list_append (codec_infos, gst_codec_info);
@@ -1637,10 +1660,13 @@ scan_codecs (GstPlugin * plugin)
         GstStructure *sts = gst_structure_empty_new ("gst-amc-supported-type");
         GValue stv = { 0, };
         GValue tmparr = { 0, };
+        GValue farr = { 0, };
         gint j;
 
         gst_structure_set (sts, "mime", G_TYPE_STRING, gst_codec_type->mime,
             NULL);
+
+        g_value_init (&farr, GST_TYPE_ARRAY);
 
         g_value_init (&tmparr, GST_TYPE_ARRAY);
         for (j = 0; j < gst_codec_type->n_color_formats; j++) {
@@ -1670,6 +1696,28 @@ scan_codecs (GstPlugin * plugin)
           g_value_unset (&tmparr2);
         }
         gst_structure_set_value (sts, "profile-levels", &tmparr);
+
+        for (j = 0; j < gst_codec_type->n_features; j++) {
+          GstAmcCodecFeature *feature = &gst_codec_type->features[j];
+          GstStructure *fs = gst_structure_empty_new ("gst-amc-codec-feature");
+          GValue fv = { 0, };
+
+          gst_structure_set (fs, "name", G_TYPE_STRING, feature->name, NULL);
+
+          gst_structure_set (fs, "available", G_TYPE_BOOLEAN,
+              feature->available, NULL);
+
+          gst_structure_set (fs, "required", G_TYPE_BOOLEAN,
+              feature->required, NULL);
+
+          g_value_init (&fv, GST_TYPE_STRUCTURE);
+          gst_value_set_structure (&fv, fs);
+          gst_value_array_append_value (&farr, &fv);
+          gst_structure_free (fs);
+        }
+
+        gst_structure_set_value (sts, "features", &farr);
+        g_value_unset (&farr);
 
         g_value_init (&stv, GST_TYPE_STRUCTURE);
         gst_value_set_structure (&stv, sts);
