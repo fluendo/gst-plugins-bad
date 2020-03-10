@@ -513,8 +513,10 @@ gst_amc_codec_flush (GstAmcCodec * codec)
 {
   gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
-
-  AMC_CHK (codec);
+  /* !! be careful with AMC_CHK and J_CALL macros here: they may jump
+   * to "error" label */
+  if (G_UNLIKELY (!codec))
+    return FALSE;
 
   /* Before we flush, we "invalidate all previously pushed buffers,
    * because it's incorrect to call releaseOutputBuffer after flush. */
@@ -522,9 +524,9 @@ gst_amc_codec_flush (GstAmcCodec * codec)
   /* Now buffers with previous flush-id won't be ever released */
   codec->flush_id++;
   J_CALL_VOID (codec->object, media_codec.flush);
-  g_mutex_unlock (&codec->buffers_lock);
   ret = TRUE;
 error:
+  g_mutex_unlock (&codec->buffers_lock);
   return ret;
 }
 
