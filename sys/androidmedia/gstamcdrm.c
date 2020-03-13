@@ -60,10 +60,7 @@ typedef struct _GstAmcCrypto
   jbyteArray mdrm_session_id;
 
   GstElement *gstelement;
-
-  /* stored data from last drm event, used for comparsion */
-  gchar *last_system_id;
-  GstBuffer *last_init_data_buf;
+  guint32 last_drm_event_hash;
 } GstAmcCrypto;
 
 /* Taken from https://dashif.org/identifiers/content_protection/ */
@@ -562,15 +559,6 @@ gst_amc_drm_ctx_free (GstAmcCrypto * ctx)
 {
   if (!ctx)
     return;
-
-  if (ctx->last_init_data_buf) {
-    gst_buffer_unref (ctx->last_init_data_buf);
-    ctx->last_init_data_buf = NULL;
-  }
-
-  g_free (ctx->last_system_id);
-  ctx->last_system_id = NULL;
-
   gst_amc_ctx_clear (ctx);
   g_free (ctx);
 }
@@ -705,58 +693,25 @@ gst_amc_drm_get_crypto_info (const GstBuffer * drmbuf)
 }
 
 
-static gboolean
-gst_amc_drm_init_data_updated (GstAmcCrypto * ctx, GstBuffer * data_buf,
-    const gchar * system_id)
-{
-  if (ctx->mcrypto &&
-      ctx->last_init_data_buf != NULL &&
-      GST_BUFFER_SIZE (ctx->last_init_data_buf) == GST_BUFFER_SIZE (data_buf) &&
-      ctx->last_system_id &&
-      g_ascii_strcasecmp (ctx->last_system_id, system_id) == 0 &&
-      memcmp (GST_BUFFER_DATA (ctx->last_init_data_buf),
-          GST_BUFFER_DATA (data_buf), GST_BUFFER_SIZE (data_buf)) == 0) {
-    GST_INFO_OBJECT (ctx->gstelement,
-        "DRM event has same systemId & initData"
-        " as the one we already have a key for. Do nothing.");
-    return FALSE;
-  }
-
-  if (ctx->last_init_data_buf)
-    gst_buffer_unref (ctx->last_init_data_buf);
-  ctx->last_init_data_buf = gst_buffer_ref (data_buf);
-
-  g_free (ctx->last_system_id);
-  ctx->last_system_id = strdup (system_id);
-
-  return TRUE;
-}
-
-
 void
 gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
 {
   GstElement *el = ctx->gstelement;
-  GstBuffer *data_buf;
+  GstBuffer *data_buf = NULL;
   GstBuffer *buf_to_unref = NULL;
-  const gchar *system_id, *origin;
+  const gchar *system_id = NULL, *origin = NULL;
   gboolean origin_is_iso;
   guchar *init_data;
   guint init_data_size;
+  guint32 new_drm_event_hash;
 
   fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
 
-  /* Ensure we're providing initData */
-  if (!data_buf || !GST_BUFFER_SIZE (data_buf) || !GST_BUFFER_DATA (data_buf)) {
-    GST_ERROR_OBJECT (el, "No initData in drm event %p", event);
+  if (!data_buf || !GST_BUFFER_SIZE (data_buf) || !GST_BUFFER_DATA (data_buf)
+      || !system_id) {
+    GST_ERROR_OBJECT (el, "Invalid drm event %p", event);
     return;
   }
-
-  /* If drm event carries the same init data/sysId we have already proccessed -
-   * we prefer to do nothing, because key request adds delay to the playback,
-   * that potentially leads to problems in other elements. */
-  if (!gst_amc_drm_init_data_updated (ctx, data_buf, system_id))
-    return;
 
   init_data = GST_BUFFER_DATA (data_buf);
   init_data_size = GST_BUFFER_SIZE (data_buf);
@@ -804,6 +759,18 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
         );
     g_free (kid);
   }
+
+  /* If drm event carries the same init data/sysId we have already proccessed -
+   * we prefer to do nothing, because key request adds delay to the playback,
+   * that potentially leads to problems in other elements. */
+  new_drm_event_hash =
+      fluc_drm_compile_hash (system_id, init_data, init_data_size);
+  if (ctx->mcrypto && ctx->last_drm_event_hash == new_drm_event_hash) {
+    GST_INFO_OBJECT (el, "DRM event has same systemId & initData"
+        " as the one we already have a key for. Do nothing.");
+    return;
+  }
+  ctx->last_drm_event_hash = new_drm_event_hash;
 
   /* If origin is not an iso we prefer to wrap data to pssh v0 */
   if (!origin_is_iso) {
