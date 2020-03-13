@@ -60,6 +60,7 @@ typedef struct _GstAmcCrypto
   jbyteArray mdrm_session_id;
 
   GstElement *gstelement;
+  guint32 last_drm_event_hash;
 } GstAmcCrypto;
 
 /* Taken from https://dashif.org/identifiers/content_protection/ */
@@ -466,6 +467,12 @@ gst_amc_drm_jmedia_crypto_from_pssh (GstAmcCrypto * ctx, const guchar * data,
 
   AMC_CHK (system_id && data && data_size);
 
+  /* Reset mdrm, mcrypto, mdrm_session_id to NULLs,
+   * it will be safer in case of failure */
+  if (ctx->mdrm || ctx->mcrypto || ctx->mdrm_session_id) {
+    gst_amc_ctx_clear (ctx);
+  }
+
   jinit_data = jbyte_arr_from_data (env, data, data_size);
   AMC_CHK (jinit_data);
 
@@ -521,13 +528,6 @@ gst_amc_drm_jmedia_crypto_from_pssh (GstAmcCrypto * ctx, const guchar * data,
       media_crypto.constructor, juuid, jsession_id);
   AMC_CHK (media_crypto_obj);
 
-  if (ctx->mdrm || ctx->mcrypto || ctx->mdrm_session_id) {
-    GST_WARNING_OBJECT (el, "Overwriting already existing drm context:"
-        " mdrm(%p), mcrypto(%p), mdrm_session_id(%p)",
-        ctx->mdrm, ctx->mcrypto, ctx->mdrm_session_id);
-    gst_amc_ctx_clear (ctx);
-  }
-
   /* Will be unreffed in free_format func */
   ctx->mdrm = (*env)->NewGlobalRef (env, media_drm_obj);
   ctx->mcrypto = (*env)->NewGlobalRef (env, media_crypto_obj);
@@ -559,7 +559,6 @@ gst_amc_drm_ctx_free (GstAmcCrypto * ctx)
 {
   if (!ctx)
     return;
-
   gst_amc_ctx_clear (ctx);
   g_free (ctx);
 }
@@ -698,18 +697,19 @@ void
 gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
 {
   GstElement *el = ctx->gstelement;
-  GstBuffer *data_buf;
+  GstBuffer *data_buf = NULL;
   GstBuffer *buf_to_unref = NULL;
-  const gchar *system_id, *origin;
+  const gchar *system_id = NULL, *origin = NULL;
   gboolean origin_is_iso;
   guchar *init_data;
   guint init_data_size;
+  guint32 new_drm_event_hash;
 
   fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
 
-  /* Ensure we're providing initData */
-  if (!data_buf || !GST_BUFFER_SIZE (data_buf)) {
-    GST_ERROR_OBJECT (el, "No initData in drm event %p", event);
+  if (!data_buf || !GST_BUFFER_SIZE (data_buf) || !GST_BUFFER_DATA (data_buf)
+      || !system_id) {
+    GST_ERROR_OBJECT (el, "Invalid drm event %p", event);
     return;
   }
 
@@ -760,6 +760,18 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
     g_free (kid);
   }
 
+  /* If drm event carries the same init data/sysId we have already proccessed -
+   * we prefer to do nothing, because key request adds delay to the playback,
+   * that potentially leads to problems in other elements. */
+  new_drm_event_hash =
+      fluc_drm_compile_hash (system_id, init_data, init_data_size);
+  if (ctx->mcrypto && ctx->last_drm_event_hash == new_drm_event_hash) {
+    GST_INFO_OBJECT (el, "DRM event has same systemId & initData"
+        " as the one we already have a key for. Do nothing.");
+    return;
+  }
+  ctx->last_drm_event_hash = new_drm_event_hash;
+
   /* If origin is not an iso we prefer to wrap data to pssh v0 */
   if (!origin_is_iso) {
     guchar *new_pssh;
@@ -798,7 +810,7 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
     if (!gst_amc_drm_jmedia_crypto_from_pssh (ctx, init_data, init_data_size,
             system_id)) {
       GST_ELEMENT_ERROR (el, LIBRARY, FAILED, (NULL),
-          ("In-band mode's drm event parsing failed"));
+          ("In-band mode's drm event proccessing failed"));
     }
   }
 
