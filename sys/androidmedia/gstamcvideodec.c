@@ -605,9 +605,16 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
   GstVideoDecoderClass *videodec_class = GST_VIDEO_DECODER_CLASS (klass);
   GstAmcCodecFeature *features = NULL;
   GstAmcCodecFeature *feature = NULL;
+  gchar *longname = NULL;
+  gchar **details_string_list;
+  gchar *description;
+  gint i = 1;
 
-  if (klass->registered_codec)
+  if (klass->registered_codec) {
     features = klass->registered_codec->codec_type->features;
+    details_string_list = g_new0 (gchar *, FEATURE_COUNT + 1);
+    details_string_list[0] = g_strdup ("Codec/Decoder/Video");
+  }
 
   gobject_class->finalize = gst_amc_video_dec_finalize;
 
@@ -654,6 +661,8 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
           g_param_spec_boolean ("adaptive-playback", "Adaptive Playback",
               "Adaptive playback", feature->required,
               feature->required ? G_PARAM_READABLE : G_PARAM_READWRITE));
+
+      details_string_list[i++] = g_strdup ("Adaptive");
     }
 
     feature = features + FEATURE_DYNAMIC_TIMESTAMP;
@@ -669,14 +678,6 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
       g_object_class_install_property (gobject_class, PROP_FRAME_PARSING,
           g_param_spec_boolean ("frame-parsing", "Frame Parsing",
               "Frame Parsing", feature->required,
-              feature->required ? G_PARAM_READABLE : G_PARAM_READWRITE));
-    }
-
-    feature = features + FEATURE_INTRA_REFRESH;
-    if (feature->available) {
-      g_object_class_install_property (gobject_class, PROP_INTRA_REFRESH,
-          g_param_spec_boolean ("intra-refresh", "Intra Refresh",
-              "Intra Refresh", feature->required,
               feature->required ? G_PARAM_READABLE : G_PARAM_READWRITE));
     }
 
@@ -710,6 +711,8 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
           g_param_spec_boolean ("secure-playback", "Secure Playback",
               "Secure Playback", feature->required,
               feature->required ? G_PARAM_READABLE : G_PARAM_READWRITE));
+
+      details_string_list[i++] = g_strdup ("Secure");
     }
 
     feature = features + FEATURE_TUNNELED_PLAYBACK;
@@ -718,10 +721,26 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
           g_param_spec_boolean ("tunneled-playback", "Tunneled Playback",
               "Tunneled Playback", feature->required,
               feature->required ? G_PARAM_READABLE : G_PARAM_READWRITE));
+
+      details_string_list[i++] = g_strdup ("Tunneled");
     }
 
   }
 
+  if (klass->registered_codec) {
+    description = g_strjoinv ("/", details_string_list);
+
+    longname =
+        g_strdup_printf ("Android MediaCodec %s",
+        klass->registered_codec->codec_info->name);
+    gst_element_class_set_details_simple (element_class,
+        klass->registered_codec->codec_info->name, description, longname,
+        "Sebastian Dröge <sebastian.droege@collabora.co.uk>");
+
+    g_free (longname);
+    g_free (description);
+    g_strfreev (details_string_list);
+  }
 }
 
 static void
