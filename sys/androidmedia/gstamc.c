@@ -45,6 +45,7 @@ GST_DEBUG_CATEGORY (gst_amc_debug);
 GQuark gst_amc_codec_info_quark = 0;
 
 static GList *codec_infos = NULL;
+static GList *registered_codecs = NULL;
 #ifdef GST_AMC_IGNORE_UNKNOWN_COLOR_FORMATS
 static gboolean ignore_unknown_color_formats = TRUE;
 #else
@@ -148,8 +149,6 @@ static const struct
   FEATURE_TUNNELED_PLAYBACK, "tunneled-playback"}, {
   FEATURE_COUNT, NULL}
 };
-
-static GList *registered_codecs;
 
 jbyteArray
 jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size)
@@ -1047,13 +1046,13 @@ error:
 
 static GstAmcCodecFeature *
 gst_amc_get_codec_feature (JNIEnv * env, jclass capabilities,
-    const gchar * feature, GstAmcCodecFeature * codec_feature)
+    const gchar * feature, GstAmcCodecFeature * codec_feature,
+    jobject capabilities_obj)
 {
   jmethodID supported_id, required_id;
   jstring jtmpstr;
-  gboolean supported, required;
 
-  supported = required = FALSE;
+  codec_feature->supported = codec_feature->required = FALSE;
 
   supported_id =
       (*env)->GetMethodID (env, capabilities, "isFeatureSupported",
@@ -1064,15 +1063,11 @@ gst_amc_get_codec_feature (JNIEnv * env, jclass capabilities,
       "(Ljava/lang/String;)Z");
 
   jtmpstr = (*env)->NewStringUTF (env, feature);
-  supported =
-      (*env)->CallBooleanMethod (env, capabilities, supported_id, jtmpstr);
-  required =
-      (*env)->CallBooleanMethod (env, capabilities, required_id, jtmpstr);
-
-  if (supported) {
-    codec_feature->name = feature;
-    codec_feature->required = required;
-  }
+  codec_feature->supported =
+      (*env)->CallBooleanMethod (env, capabilities_obj, supported_id, jtmpstr);
+  codec_feature->required =
+      (*env)->CallBooleanMethod (env, capabilities_obj, required_id, jtmpstr);
+  codec_feature->name = feature;
 
   J_DELETE_LOCAL_REF (jtmpstr);
 
@@ -1179,8 +1174,8 @@ scan_codecs (GstPlugin * plugin)
           name = gst_structure_get_string (fs, "name");
           gst_codec_feature->name = g_strdup (name);
 
-          gst_structure_get_boolean (fs, "available",
-              &gst_codec_feature->available);
+          gst_structure_get_boolean (fs, "supported",
+              &gst_codec_feature->supported);
 
           gst_structure_get_boolean (fs, "required",
               &gst_codec_feature->required);
@@ -1429,7 +1424,7 @@ scan_codecs (GstPlugin * plugin)
       while (features_to_check[feature_idx].str) {
         gst_amc_get_codec_feature (env, capabilities_class,
             features_to_check[feature_idx].str,
-            &gst_codec_type->features[feature_idx]);
+            &gst_codec_type->features[feature_idx], capabilities);
         feature_idx++;
       }
 
@@ -1704,8 +1699,8 @@ scan_codecs (GstPlugin * plugin)
 
           gst_structure_set (fs, "name", G_TYPE_STRING, feature->name, NULL);
 
-          gst_structure_set (fs, "available", G_TYPE_BOOLEAN,
-              feature->available, NULL);
+          gst_structure_set (fs, "supported", G_TYPE_BOOLEAN,
+              feature->supported, NULL);
 
           gst_structure_set (fs, "required", G_TYPE_BOOLEAN,
               feature->required, NULL);
@@ -2392,10 +2387,19 @@ register_codecs (GstPlugin * plugin)
 
       registered_codec = g_new0 (GstAmcRegisteredCodec, 1);
       registered_codec->codec_info = codec_info;
-      registered_codec->codec_type = &codec_info->supported_types[i];
+      registered_codec->codec_type = codec_type;
       registered_codecs = g_list_append (registered_codecs, registered_codec);
 
-      subtype = g_type_register_static (type, type_name, &type_info, 0);
+      if (is_video && !codec_info->is_encoder) {
+        /* subtype class_init will set the features in regsitered_codec properties */
+        subtype =
+            g_type_register_static_simple (type, type_name,
+            type_query.class_size, gst_amc_video_dec_dynamic_class_init,
+            type_query.instance_size, NULL, 0);
+      } else {
+        subtype = g_type_register_static (type, type_name, &type_info, 0);
+      }
+
       g_free (type_name);
 
       g_type_set_qdata (subtype, gst_amc_codec_info_quark, registered_codec);

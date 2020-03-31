@@ -68,7 +68,7 @@ struct _GstAmcCodecInfo
 struct _GstAmcCodecFeature
 {
   const gchar *name;
-  gboolean available;
+  gboolean supported;
   gboolean required;
 };
 
