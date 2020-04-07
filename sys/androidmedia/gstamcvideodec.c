@@ -1221,7 +1221,7 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
         GST_DEBUG_OBJECT (self, "Dequeueing output buffer timed out");
         continue;
       case G_MININT:
-        CHK (!"Failure dequeueing input buffer");
+        CHK (!"Failure dequeueing output buffer");
       default:
         g_assert_not_reached ();
     }
