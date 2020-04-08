@@ -1139,7 +1139,14 @@ gst_amc_video_dec_stop_srcpad_loop (GstAmcVideoDec * self)
   self->srcpad_loop_started = FALSE;
 }
 
-
+static void
+gst_amc_video_dec_clear_frame_output (GstVideoCodecFrame * frame)
+{
+  if (frame->output_buffer) {
+    gst_buffer_unref (frame->output_buffer);
+    frame->output_buffer = NULL;
+  }
+}
 
 #define CHK(statement) do {                     \
     if (G_UNLIKELY (!(statement))) {            \
@@ -1265,6 +1272,12 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
       flow_ret = gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
       goto finish;
     } else if (klass->direct_rendering) {
+      /* gst_video_decoder_get_output_frame may get a buffer from the list
+       * decoder->priv->frames or allocate new one with
+       * gst_video_decoder_alloc_output_frame (). In second case it's 100%,
+       * and in first case it "might be possible", that frame already has an
+       * output buffer.*/
+      gst_amc_video_dec_clear_frame_output (frame);
 #if USE_AMCVIDEOSINK
       /* Code for running with amcvideosink */
       GstAmcDRBuffer *b;
@@ -1671,6 +1684,13 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
   self = GST_AMC_VIDEO_DEC (decoder);
 
   GST_LOG_OBJECT (self, "Handling frame");
+
+  /* Frame might be cached in the base class, we make sure we don't store the
+   * reference on the output_buffer which is important for hw decoding: while
+   * output buffer is not freed (and not rendered) it may be the cause of lock on
+   * gst_amc_codec_dequeue_input_buffer */
+  if (GST_AMC_VIDEO_DEC_GET_CLASS (self)->direct_rendering)
+    gst_amc_video_dec_clear_frame_output (frame);
 
   if (!self->started) {
     GST_ERROR_OBJECT (self, "Codec not started yet");
