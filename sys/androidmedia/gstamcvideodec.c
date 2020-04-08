@@ -1278,6 +1278,9 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
        * and in first case it "might be possible", that frame already has an
        * output buffer.*/
       gst_amc_video_dec_clear_frame_output (frame);
+      /* Increase the reference because we're going to modify the frame after
+       * pushing. */
+      gst_video_codec_frame_ref (frame);
 #if USE_AMCVIDEOSINK
       /* Code for running with amcvideosink */
       GstAmcDRBuffer *b;
@@ -1318,6 +1321,15 @@ gst_amc_video_dec_loop (GstAmcVideoDec * self)
             gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
       }
 #endif
+      /* gst_video_decoder_finish_frame () creates a subbuffer from output_buffer,
+       * and pushes it downstream, so it's safe to remove output_buffer
+       * now. Also there's no race condition with frames, because we're holding
+       * STREAM_LOCK. We remove output_buffer to make sure base class won't hold
+       * a reference to it, it's important, because if buffer won't be rendered,
+       * it must be released, otherwise decoder can stuck on dequeuing input or
+       * output buffers. */
+      gst_amc_video_dec_clear_frame_output (frame);
+      gst_video_codec_frame_unref (frame);
       goto finish;
     } else if (buffer_info.size > 0) {
       flow_ret = gst_video_decoder_alloc_output_frame (GST_VIDEO_DECODER
