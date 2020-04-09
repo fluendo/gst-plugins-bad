@@ -437,8 +437,7 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
     AMC_CHK (mcrypto);
     gst_amc_format_set_int (format, "secure-playback", 1);
   }
-
-  gst_amc_codec_enable_adaptive_playback (codec, format);
+  //  gst_amc_codec_enable_adaptive_playback (codec, format);
   if (audio_session_id) {
     GST_DEBUG ("Enabling tunneled playback with session id %d",
         audio_session_id);
