@@ -1206,11 +1206,8 @@ gst_amc_audio_dec_handle_frame (GstAudioDecoder * decoder, GstBuffer * inbuf)
 
     if (self->downstream_flow_ret != GST_FLOW_OK) {
       memset (&buffer_info, 0, sizeof (buffer_info));
-      if (self->drm_ctx)
-        gst_amc_codec_queue_secure_input_buffer (self->codec, idx,
-            &buffer_info, inbuf);
-      else
-        gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info);
+      gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info, inbuf,
+          self->drm_ctx);
       goto downstream_error;
     }
 
@@ -1260,12 +1257,8 @@ gst_amc_audio_dec_handle_frame (GstAudioDecoder * decoder, GstBuffer * inbuf)
         idx, buffer_info.size, buffer_info.presentation_time_us,
         buffer_info.flags);
 
-    if (self->drm_ctx) {
-      if (!gst_amc_codec_queue_secure_input_buffer (self->codec, idx,
-              &buffer_info, inbuf))
-        goto queue_error;
-    } else
-        if (!gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info))
+    if (!gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info,
+            inbuf, self->drm_ctx))
       goto queue_error;
   }
 
@@ -1356,7 +1349,8 @@ gst_amc_audio_dec_drain (GstAmcAudioDec * self)
         gst_util_uint64_scale (self->last_upstream_ts, 1, GST_USECOND);
     buffer_info.flags |= BUFFER_FLAG_END_OF_STREAM;
 
-    if (gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info)) {
+    if (gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info, NULL,
+            self->drm_ctx)) {
       GST_DEBUG_OBJECT (self, "Waiting until codec is drained");
       g_cond_wait (self->drain_cond, self->drain_lock);
       GST_DEBUG_OBJECT (self, "Drained codec");

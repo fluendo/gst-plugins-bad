@@ -809,8 +809,9 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
         "User didn't provide us MediaCrypto, trying In-band mode");
     if (!gst_amc_drm_jmedia_crypto_from_pssh (ctx, init_data, init_data_size,
             system_id)) {
-      GST_ELEMENT_ERROR (el, LIBRARY, FAILED, (NULL),
-          ("In-band mode's drm event proccessing failed"));
+      GST_INFO_OBJECT (el, "In-band mode's drm event proccessing failed");
+      /* This is not a true error situation, there might be more drm events with
+       * other systemIds */
     }
   }
 

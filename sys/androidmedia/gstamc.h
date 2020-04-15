@@ -120,11 +120,9 @@ gint gst_amc_codec_dequeue_input_buffer (GstAmcCodec * codec, gint64 timeoutUs);
 gint gst_amc_codec_dequeue_output_buffer (GstAmcCodec * codec,
     GstAmcBufferInfo * info, gint64 timeoutUs);
 
-gboolean gst_amc_codec_queue_secure_input_buffer (GstAmcCodec * codec,
-    gint index, const GstAmcBufferInfo * info, const GstBuffer * drmbuf);
-
 gboolean gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
-    const GstAmcBufferInfo * info);
+    const GstAmcBufferInfo * info, const GstBuffer * drmbuf,
+    GstAmcCrypto * drmctx);
 gboolean gst_amc_codec_release_output_buffer (GstAmcCodec * codec, gint index);
 gboolean gst_amc_codec_render_output_buffer (GstAmcCodec * codec, gint index,
     GstClockTime ts);

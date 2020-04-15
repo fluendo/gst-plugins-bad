@@ -1810,10 +1810,9 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
         " flags 0x%08x", idx, buffer_info.size,
         buffer_info.presentation_time_us, buffer_info.flags);
 
-    queued_input_buffer = self->drm_ctx ?
-        gst_amc_codec_queue_secure_input_buffer (self->codec, idx,
-        &buffer_info, frame->input_buffer)
-        : gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info);
+    queued_input_buffer =
+        gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info,
+        frame->input_buffer, self->drm_ctx);
 
     CHK (queued_input_buffer);
 
@@ -1894,7 +1893,8 @@ gst_amc_video_dec_eos (GstVideoDecoder * decoder)
        if for some reason the task is going to stop..
      */
     g_mutex_lock (self->drain_lock);
-    if (gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info)) {
+    if (gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info, NULL,
+            self->drm_ctx)) {
       GST_ERROR_OBJECT (self, "Waiting until codec is drained");
 
       self->drain_cond_signalling = FALSE;
