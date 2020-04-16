@@ -719,12 +719,11 @@ error:
   return ret;
 }
 
-gboolean
+static gboolean
 gst_amc_codec_queue_secure_input_buffer (GstAmcCodec * codec, gint index,
-    const GstAmcBufferInfo * info, const GstBuffer * drmbuf)
+    const GstAmcBufferInfo * info, const GstBuffer * drmbuf, JNIEnv * env)
 {
   gboolean ret = FALSE;
-  JNIEnv *env = gst_jni_get_env ();
   jobject crypto_info = NULL;
 
   crypto_info = gst_amc_drm_get_crypto_info (drmbuf);
@@ -752,10 +751,21 @@ error:
 
 gboolean
 gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
-    const GstAmcBufferInfo * info)
+    const GstAmcBufferInfo * info, const GstBuffer * drmbuf,
+    GstAmcCrypto * drmctx)
 {
   gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
+
+  if (drmctx && drmbuf) {
+    /* Encrypted input.
+     * FIXME: drmbuf == NULL when decoder is draining.
+     * But it's not well checked if decoder is really drained well with
+     * non-secure queueInputBuffer () */
+    AMC_CHK (gst_amc_drm_mcrypto_get (drmctx));
+    return gst_amc_codec_queue_secure_input_buffer (codec, index, info, drmbuf,
+        env);
+  }
 
   J_CALL_VOID (codec->object, media_codec.queue_input_buffer,
       index, info->offset, info->size, info->presentation_time_us, info->flags);
