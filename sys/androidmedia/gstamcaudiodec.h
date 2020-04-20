@@ -83,6 +83,7 @@ struct _GstAmcAudioDec
   gint n_buffers;
 
   GstAmcCrypto *drm_ctx;
+  GstCaps *postponed_configure_caps;
 };
 
 struct _GstAmcAudioDecClass

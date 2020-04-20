@@ -1534,6 +1534,16 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
 
   GST_DEBUG_OBJECT (self, "Setting new caps %" GST_PTR_FORMAT, state->caps);
 
+  if (G_UNLIKELY (self->drm_ctx && !gst_amc_drm_mcrypto_get (self->drm_ctx))) {
+    GST_INFO_OBJECT (self,
+        "DRM context isn't ready yet, have to postpone configure");
+    self->postponed_configure = TRUE;
+    /* As we're postponing configuration, we have to assume caps will be accepted.
+     * We'll call gst_amc_audio_dec_set_format () on first buffer input, and if it fails,
+     * we'll return GST_FLOW_NOT_NEGOTIATED. */
+    goto accepted;
+  }
+
   /* Check if the caps change is a real format change or if only irrelevant
    * parts of the caps have changed or nothing at all.
    */
@@ -1566,10 +1576,6 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
       GST_ERROR_OBJECT (self, "Failed to start codec again");
     }
   }
-
-  if (self->input_state)
-    gst_video_codec_state_unref (self->input_state);
-  self->input_state = NULL;
 
   if (needs_config) {
     gst_buffer_replace (&self->codec_data, state->codec_data);
@@ -1642,9 +1648,15 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     }
   }
 
-  self->input_state = gst_video_codec_state_ref (state);
-  self->input_state_changed = TRUE;
   self->started = TRUE;
+accepted:
+  gst_video_codec_state_ref (state);
+
+  if (self->input_state)
+    gst_video_codec_state_unref (self->input_state);
+
+  self->input_state = state;
+  self->input_state_changed = TRUE;
 
   return TRUE;
 }
@@ -1696,6 +1708,14 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
   self = GST_AMC_VIDEO_DEC (decoder);
 
   GST_LOG_OBJECT (self, "Handling frame");
+
+  if (G_UNLIKELY (self->postponed_configure)) {
+    GST_INFO_OBJECT (self, "Executing postponed configure");
+    self->postponed_configure = FALSE;
+    if (G_UNLIKELY (!gst_amc_video_dec_set_format (decoder, self->input_state)))
+      return GST_FLOW_NOT_NEGOTIATED;
+  }
+
 
   /* Frame might be cached in the base class, we make sure we don't store the
    * reference on the output_buffer which is important for hw decoding: while

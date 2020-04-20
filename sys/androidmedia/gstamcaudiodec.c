@@ -492,6 +492,7 @@ gst_amc_audio_dec_finalize (GObject * object)
   g_mutex_free (self->drain_lock);
   g_cond_free (self->drain_cond);
 
+  gst_caps_replace (&self->postponed_configure_caps, NULL);
   G_OBJECT_CLASS (parent_class)->finalize (object);
 }
 
@@ -948,6 +949,16 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
 
   GST_DEBUG_OBJECT (self, "Setting new caps %" GST_PTR_FORMAT, caps);
 
+  if (G_UNLIKELY (self->drm_ctx && !gst_amc_drm_mcrypto_get (self->drm_ctx))) {
+    GST_INFO_OBJECT (self,
+        "DRM context isn't ready yet, have to postpone configure");
+    gst_caps_replace (&self->postponed_configure_caps, caps);
+    /* As we're postponing configuration, we have to assume caps will be accepted.
+     * We'll call gst_amc_audio_dec_set_format () on first buffer input, and if it fails,
+     * we'll return GST_FLOW_NOT_NEGOTIATED. */
+    return TRUE;
+  }
+
   /* Check if the caps change is a real format change or if only irrelevant
    * parts of the caps have changed or nothing at all.
    */
@@ -1136,6 +1147,16 @@ gst_amc_audio_dec_handle_frame (GstAudioDecoder * decoder, GstBuffer * inbuf)
   self = GST_AMC_AUDIO_DEC (decoder);
 
   GST_DEBUG_OBJECT (self, "Handling frame");
+
+  if (G_UNLIKELY (self->postponed_configure_caps)) {
+    gboolean configured;
+    GST_INFO_OBJECT (self, "Executing postponed configure");
+    configured =
+        gst_amc_audio_dec_set_format (decoder, self->postponed_configure_caps);
+    gst_caps_replace (&self->postponed_configure_caps, NULL);
+    if (G_UNLIKELY (!configured))
+      return GST_FLOW_NOT_NEGOTIATED;
+  }
 
   /* Make sure to keep a reference to the input here,
    * it can be unreffed from the other thread if
