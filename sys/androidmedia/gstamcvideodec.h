@@ -96,6 +96,7 @@ struct _GstAmcVideoDec
   GstFlowReturn downstream_flow_ret;
   gboolean stop_loop;
   GstAmcCrypto *drm_ctx;
+  gboolean inband_drm_enabled;
   gboolean srcpad_loop_started;
   gint cached_input_buffer;
 

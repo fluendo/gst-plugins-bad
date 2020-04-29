@@ -76,6 +76,7 @@ enum
   PROP_0,
   PROP_DRM_AGENT_HANDLE,
   PROP_AUDIO_SESSION_ID,
+  PROP_ENABLE_INBAND_DRM
 };
 
 /* class initialization */
@@ -515,6 +516,9 @@ gst_amc_video_dec_get_property (GObject * object, guint prop_id, GValue * value,
 {
   GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
   switch (prop_id) {
+    case PROP_ENABLE_INBAND_DRM:
+      g_value_set_boolean (value, thiz->inband_drm_enabled);
+      break;
     case PROP_DRM_AGENT_HANDLE:
       g_value_set_pointer (value,
           (gpointer) gst_amc_drm_mcrypto_get (thiz->drm_ctx));
@@ -539,6 +543,11 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
 {
   GstAmcVideoDec *thiz = GST_AMC_VIDEO_DEC (object);
   switch (prop_id) {
+    case PROP_ENABLE_INBAND_DRM:
+      thiz->inband_drm_enabled = g_value_get_boolean (value);
+      if (thiz->drm_ctx)
+        gst_amc_drm_enable_inband (thiz->drm_ctx, thiz->inband_drm_enabled);
+      break;
     case PROP_DRM_AGENT_HANDLE:
       gst_amc_drm_mcrypto_set (thiz->drm_ctx, g_value_get_pointer (value));
       break;
@@ -571,8 +580,10 @@ gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
        * it is an error
        */
       if (gst_amc_drm_is_drm_event (event)) {
-        if (!self->drm_ctx)
+        if (!self->drm_ctx) {
           self->drm_ctx = gst_amc_drm_ctx_new (GST_ELEMENT (self));
+          gst_amc_drm_enable_inband (self->drm_ctx, self->inband_drm_enabled);
+        }
         gst_amc_drm_handle_drm_event (self->drm_ctx, event);
         handled = TRUE;
       }
@@ -626,6 +637,11 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
           "Audio Session ID for tunneled video playback",
           0, G_MAXINT, 0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  g_object_class_install_property (gobject_class, PROP_ENABLE_INBAND_DRM,
+      g_param_spec_boolean ("enable-inband-drm", "Enable inband DRM",
+          "Allow or not inband proccessing of DRM event",
+          GST_AMC_DRM_DEFAULT_INBAND_DRM_ENABLED,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 }
 
 static void
@@ -635,6 +651,8 @@ gst_amc_video_dec_init (GstAmcVideoDec * self, GstAmcVideoDecClass * klass)
 
   self->drain_lock = g_mutex_new ();
   self->drain_cond = g_cond_new ();
+
+  self->inband_drm_enabled = GST_AMC_DRM_DEFAULT_INBAND_DRM_ENABLED;
 }
 
 static gboolean

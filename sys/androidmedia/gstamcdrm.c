@@ -61,6 +61,8 @@ typedef struct _GstAmcCrypto
 
   GstElement *gstelement;
   guint32 last_drm_event_hash;
+
+  gboolean inband_drm_enabled;
 } GstAmcCrypto;
 
 /* Taken from https://dashif.org/identifiers/content_protection/ */
@@ -551,7 +553,14 @@ gst_amc_drm_ctx_new (GstElement * element)
 {
   GstAmcCrypto *ctx = g_new0 (GstAmcCrypto, 1);
   ctx->gstelement = element;
+  ctx->inband_drm_enabled = GST_AMC_DRM_DEFAULT_INBAND_DRM_ENABLED;
   return ctx;
+}
+
+void
+gst_amc_drm_enable_inband (GstAmcCrypto * ctx, gboolean enabled)
+{
+  ctx->inband_drm_enabled = enabled;
 }
 
 void
@@ -804,7 +813,7 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
 
   if (ctx->mcrypto) {
     GST_DEBUG_OBJECT (el, "Received from user MediaCrypto [%p]", ctx->mcrypto);
-  } else {
+  } else if (ctx->inband_drm_enabled) {
     GST_DEBUG_OBJECT (el,
         "User didn't provide us MediaCrypto, trying In-band mode");
     if (!gst_amc_drm_jmedia_crypto_from_pssh (ctx, init_data, init_data_size,
