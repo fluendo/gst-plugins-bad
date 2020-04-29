@@ -681,6 +681,17 @@ error:
   return crypto_info_ret;
 }
 
+gboolean
+gst_amc_drm_validate_mcrypto (GstAmcCrypto * ctx)
+{
+  if (G_LIKELY (ctx->mcrypto))
+    return TRUE;
+
+  GST_ELEMENT_ERROR (ctx->gstelement, STREAM, DECRYPT_NOKEY, (NULL),
+      ("Decryption isn't possible: no MediaCrypto"));
+
+  return FALSE;
+}
 
 jobject
 gst_amc_drm_get_crypto_info (const GstBuffer * drmbuf)
