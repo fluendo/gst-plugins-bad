@@ -65,7 +65,8 @@ static GstFlowReturn gst_amc_audio_dec_drain (GstAmcAudioDec * self);
 enum
 {
   PROP_0,
-  PROP_DRM_AGENT_HANDLE
+  PROP_DRM_AGENT_HANDLE,
+  PROP_ENABLE_INBAND_DRM
 };
 
 /* class initialization */
@@ -339,6 +340,9 @@ gst_amc_audio_dec_get_property (GObject * object, guint prop_id, GValue * value,
 {
   GstAmcAudioDec *thiz = GST_AMC_AUDIO_DEC (object);
   switch (prop_id) {
+    case PROP_ENABLE_INBAND_DRM:
+      g_value_set_boolean (value, thiz->inband_drm_enabled);
+      break;
     case PROP_DRM_AGENT_HANDLE:
       g_value_set_pointer (value,
           (gpointer) gst_amc_drm_mcrypto_get (thiz->drm_ctx));
@@ -356,6 +360,11 @@ gst_amc_audio_dec_set_property (GObject * object, guint prop_id,
 {
   GstAmcAudioDec *thiz = GST_AMC_AUDIO_DEC (object);
   switch (prop_id) {
+    case PROP_ENABLE_INBAND_DRM:
+      thiz->inband_drm_enabled = g_value_get_boolean (value);
+      if (thiz->drm_ctx)
+        gst_amc_drm_enable_inband (thiz->drm_ctx, thiz->inband_drm_enabled);
+      break;
     case PROP_DRM_AGENT_HANDLE:
       gst_amc_drm_mcrypto_set (thiz->drm_ctx, g_value_get_pointer (value));
       break;
@@ -380,8 +389,10 @@ gst_amc_audio_dec_event (GstAudioDecoder * dec, GstEvent * event)
       if (gst_amc_drm_is_drm_event (event)) {
         GstAmcAudioDec *self = GST_AMC_AUDIO_DEC (dec);
 
-        if (!self->drm_ctx)
+        if (!self->drm_ctx) {
           self->drm_ctx = gst_amc_drm_ctx_new (GST_ELEMENT (self));
+          gst_amc_drm_enable_inband (self->drm_ctx, self->inband_drm_enabled);
+        }
         gst_amc_drm_handle_drm_event (self->drm_ctx, event);
         handled = TRUE;
       }
@@ -428,6 +439,11 @@ gst_amc_audio_dec_class_init (GstAmcAudioDecClass * klass)
           "The DRM Agent handle to use for decrypting",
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  g_object_class_install_property (gobject_class, PROP_ENABLE_INBAND_DRM,
+      g_param_spec_boolean ("enable-inband-drm", "Enable inband DRM",
+          "Allow or not inband proccessing of DRM event",
+          GST_AMC_DRM_DEFAULT_INBAND_DRM_ENABLED,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 }
 
 static void
@@ -438,6 +454,7 @@ gst_amc_audio_dec_init (GstAmcAudioDec * self, GstAmcAudioDecClass * klass)
 
   self->drain_lock = g_mutex_new ();
   self->drain_cond = g_cond_new ();
+  self->inband_drm_enabled = GST_AMC_DRM_DEFAULT_INBAND_DRM_ENABLED;
 }
 
 static gboolean

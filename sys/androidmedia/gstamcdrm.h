@@ -50,6 +50,8 @@
 
 G_BEGIN_DECLS
 
+#define GST_AMC_DRM_DEFAULT_INBAND_DRM_ENABLED TRUE
+
 /* Opaque class */
 typedef struct _GstAmcCrypto GstAmcCrypto;
 
@@ -81,6 +83,12 @@ gst_amc_drm_crypto_exception_check (JNIEnv * env, const gchar * call);
 
 /* Init related Java classes */
 gboolean gst_amc_drm_jni_init (JNIEnv * env);
+
+/* Enable/disable inband proccessing of DRM event */
+void gst_amc_drm_enable_inband (GstAmcCrypto * ctx, gboolean enabled);
+
+/* Check if MCrypto is obtained and emit GST_STREAM_ERROR_DECRYPT_NOKEY otherwise */
+gboolean gst_amc_drm_validate_mcrypto (GstAmcCrypto * ctx);
 
 G_END_DECLS
 #endif /* __GST_AMC_DRM_H__ */

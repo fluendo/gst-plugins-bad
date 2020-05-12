@@ -83,6 +83,7 @@ struct _GstAmcAudioDec
   gint n_buffers;
 
   GstAmcCrypto *drm_ctx;
+  gboolean inband_drm_enabled;
 };
 
 struct _GstAmcAudioDecClass
