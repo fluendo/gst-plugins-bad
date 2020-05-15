@@ -856,8 +856,9 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
   gboolean ret = FALSE;
 
   if (idx >= self->n_output_buffers) {
-    GST_ERROR_OBJECT (self, "Invalid output buffer index %d of %d",
-        idx, self->n_output_buffers);
+    GST_ERROR_OBJECT (self,
+        "Invalid output buffer index %d of %" G_GSIZE_FORMAT, idx,
+        self->n_output_buffers);
     goto done;
   }
 
@@ -869,14 +870,14 @@ gst_amc_video_dec_fill_buffer (GstAmcVideoDec * self, gint idx,
 
     if (buf->size <= buffer_info->offset) {
       GST_ERROR_OBJECT (self,
-          "Sanity check failed: buf->size (%d) <= buf_info->offset (%d)",
-          buf->size, buffer_info->offset);
+          "Sanity check failed: buf->size (%" G_GSIZE_FORMAT
+          ") <= buf_info->offset (%d)", buf->size, buffer_info->offset);
       goto done;
     }
 
     if (buf->size < copysize + buffer_info->offset) {
       GST_WARNING_OBJECT (self, "Buffer info from android's decoder"
-          " doesn't match the buffer: buf->size = %d"
+          " doesn't match the buffer: buf->size = %" G_GSIZE_FORMAT
           "buf_info->offset = %d, buf_info->size = %d."
           "We'll copy only the buf->size.",
           buf->size, buffer_info->offset, buffer_info->size);
@@ -1927,7 +1928,8 @@ gst_amc_video_dec_eos (GstVideoDecoder * decoder)
     g_mutex_unlock (self->drain_lock);
 
   } else
-    GST_ERROR_OBJECT (self, "Failed to acquire buffer for EOS: %d/%d", idx,
+    GST_ERROR_OBJECT (self,
+        "Failed to acquire buffer for EOS: %d/%" G_GSIZE_FORMAT, idx,
         self->n_input_buffers);
 
   GST_VIDEO_DECODER_STREAM_LOCK (self);

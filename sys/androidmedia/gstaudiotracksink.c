@@ -260,8 +260,8 @@ gst_audio_track_sink_setcaps (GstBaseSink * bsink, GstCaps * caps)
     return FALSE;
   }
   GST_INFO_OBJECT (sink,
-      "Created AudioTrack: min_buffer_size=%d latency=%lld session_id=%d",
-      buffer_size * 3, sink->latency, sink->audio_session_id);
+      "Created AudioTrack: min_buffer_size=%d latency=%" G_GUINT64_FORMAT
+      " session_id=%d", buffer_size * 3, sink->latency, sink->audio_session_id);
   return TRUE;
 }
 
