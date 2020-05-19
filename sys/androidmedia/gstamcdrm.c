@@ -744,6 +744,11 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
 
   origin_is_iso = g_str_has_prefix (origin, "isobmff/");
 
+  if (!gst_amc_drm_sysid_is_playready (system_id)) {
+    GST_DEBUG_OBJECT (el, "system id is not Playready, skipping");
+    return;
+  }
+
   /* For case of clearkey we have to hack pssh data because of a bug in
    * av/drm/mediadrm/plugins/clearkey/InitDataParcer.cpp */
   if (origin_is_iso && gst_amc_drm_sysid_is_clearkey (system_id)) {
