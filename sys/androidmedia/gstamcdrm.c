@@ -63,6 +63,7 @@ typedef struct _GstAmcCrypto
   guint32 last_drm_event_hash;
 
   gboolean inband_drm_enabled;
+  GPtrArray *playready_kids;
 } GstAmcCrypto;
 
 /* Taken from https://dashif.org/identifiers/content_protection/ */
@@ -436,6 +437,10 @@ static void
 gst_amc_ctx_clear (GstAmcCrypto * ctx)
 {
   JNIEnv *env = gst_jni_get_env ();
+
+  g_ptr_array_free (ctx->playready_kids, TRUE);
+  ctx->playready_kids = NULL;
+
   if (ctx->mdrm) {
     /* If we (not user) were the one who opened drmsession - we must close it */
     if (ctx->mdrm_session_id) {
@@ -572,9 +577,9 @@ gst_amc_drm_ctx_free (GstAmcCrypto * ctx)
   g_free (ctx);
 }
 
-
 static jobject
-gst_amc_drm_cenc_get_crypto_info (const GstStructure * s, gsize bufsize)
+gst_amc_drm_cenc_get_crypto_info (GstAmcCrypto * ctx, const GstStructure * s,
+    gsize bufsize)
 {
   guint alg_id;
   guint n_subsamples = 0;
@@ -587,6 +592,7 @@ gst_amc_drm_cenc_get_crypto_info (const GstStructure * s, gsize bufsize)
   jint *n_bytes_of_clear_data = NULL;
   jint *n_bytes_of_encrypted_data = NULL;
   JNIEnv *env = gst_jni_get_env ();
+  GstElement *el = ctx->gstelement;
 
   ok = gst_structure_get_uint (s, "subsample_count", &n_subsamples);
   AMC_CHK (ok && n_subsamples);
@@ -635,6 +641,7 @@ gst_amc_drm_cenc_get_crypto_info (const GstStructure * s, gsize bufsize)
   {
     const GValue *kid_val, *iv_val;
     const GstBuffer *kid_buf, *iv_buf;
+    const guchar *kid;
 
     AMC_CHK (kid_val = gst_structure_get_value (s, "kid"));
     AMC_CHK (kid_buf = gst_value_get_buffer (kid_val));
@@ -647,7 +654,29 @@ gst_amc_drm_cenc_get_crypto_info (const GstStructure * s, gsize bufsize)
     AMC_CHK ((GST_BUFFER_SIZE (kid_buf) >= 16)
         && (GST_BUFFER_SIZE (iv_buf) >= 16));
 
-    j_kid = jbyte_arr_from_data (env, GST_BUFFER_DATA (kid_buf), 16);
+    kid = GST_BUFFER_DATA (kid_buf);
+
+    /* We have to check each buffer to maybe detect kid mismatch. In this
+     * case sometimes we can override kid, if we detect it differs only with
+     * byte order.*/
+    if (ctx->playready_kids) {
+      const guchar *kid_override =
+          flucdrm_KID_validate_or_override (kid, ctx->playready_kids);
+
+      if (kid_override) {
+        /* Log override if logging is debug */
+        if (G_UNLIKELY (__gst_debug_min >= GST_LEVEL_DEBUG
+                && memcmp (kid, kid_override, 16) != 0)) {
+          GST_DEBUG_OBJECT (el,
+              "overriding kid " FLUC_16BYTE_FORMAT " with " FLUC_16BYTE_FORMAT,
+              FLUC_16BYTE_ARGS (kid), FLUC_16BYTE_ARGS (kid_override));
+        }
+
+        kid = kid_override;
+      }
+    }
+
+    j_kid = jbyte_arr_from_data (env, kid, 16);
     j_iv = jbyte_arr_from_data (env, GST_BUFFER_DATA (iv_buf), 16);
     AMC_CHK (j_kid && j_iv);
   }
@@ -694,7 +723,7 @@ gst_amc_drm_validate_mcrypto (GstAmcCrypto * ctx)
 }
 
 jobject
-gst_amc_drm_get_crypto_info (const GstBuffer * drmbuf)
+gst_amc_drm_get_crypto_info (GstAmcCrypto * ctx, const GstBuffer * drmbuf)
 {
   const GstStructure *cenc_info;
 
@@ -709,7 +738,8 @@ gst_amc_drm_get_crypto_info (const GstBuffer * drmbuf)
     return NULL;
   }
 
-  return gst_amc_drm_cenc_get_crypto_info (cenc_info, GST_BUFFER_SIZE (drmbuf));
+  return gst_amc_drm_cenc_get_crypto_info (ctx, cenc_info,
+      GST_BUFFER_SIZE (drmbuf));
 }
 
 
@@ -724,6 +754,7 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   guchar *init_data;
   guint init_data_size;
   guint32 new_drm_event_hash;
+  GPtrArray *playready_kids = NULL;
 
   fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
 
@@ -753,31 +784,28 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   }
 
   /* If systemid is playready - dump PO and KID */
-  if (__gst_debug_min >= GST_LEVEL_DEBUG &&
-      gst_amc_drm_sysid_is_playready (system_id)) {
+  if (gst_amc_drm_sysid_is_playready (system_id)) {
     guint data_offset = 0;
     guint data_size = init_data_size;
-    guint8 *kid;
-
+    int i;
     /* Extract from pssh if needed */
     if (origin_is_iso) {
-      if (!fluc_drm_cenc_validate_pssh (init_data, init_data_size, &data_offset,
-              &data_size))
+      if (!fluc_drm_cenc_validate_pssh (init_data, init_data_size,
+              &data_offset, &data_size))
         return;
     }
 
-    kid = flucdrm_playready_OBJ_get_first_KID (init_data + data_offset,
-        data_size);
+    playready_kids =
+        flucdrm_playready_OBJ_get_KIDs (init_data + data_offset, data_size);
 
-    GST_DEBUG_OBJECT (el, "kid from POBJ = [%02x.%02x.%02x.%02x."
-        "%02x.%02x.%02x.%02x."
-        "%02x.%02x.%02x.%02x."
-        "%02x.%02x.%02x.%02x]",
-        kid[0], kid[1], kid[2], kid[3],
-        kid[4], kid[5], kid[6], kid[7],
-        kid[8], kid[9], kid[10], kid[11], kid[12], kid[13], kid[14], kid[15]
-        );
-    g_free (kid);
+    if (playready_kids) {
+      for (i = 0; i < playready_kids->len; i++) {
+        gpointer kid = g_ptr_array_index (playready_kids, i);
+
+        GST_DEBUG_OBJECT (el, "kid [%d] from POBJ = " FLUC_16BYTE_FORMAT,
+            i, FLUC_16BYTE_ARGS (kid));
+      }
+    }
   }
 
   /* If drm event carries the same init data/sysId we have already proccessed -
@@ -788,9 +816,14 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   if (ctx->mcrypto && ctx->last_drm_event_hash == new_drm_event_hash) {
     GST_INFO_OBJECT (el, "DRM event has same systemId & initData"
         " as the one we already have a key for. Do nothing.");
+    g_ptr_array_free (playready_kids, TRUE);
     return;
   }
   ctx->last_drm_event_hash = new_drm_event_hash;
+
+  if (ctx->playready_kids)
+    g_ptr_array_free (ctx->playready_kids, TRUE);
+  ctx->playready_kids = playready_kids;
 
   /* If origin is not an iso we prefer to wrap data to pssh v0 */
   if (!origin_is_iso) {

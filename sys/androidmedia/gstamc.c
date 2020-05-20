@@ -721,12 +721,13 @@ error:
 
 static gboolean
 gst_amc_codec_queue_secure_input_buffer (GstAmcCodec * codec, gint index,
-    const GstAmcBufferInfo * info, const GstBuffer * drmbuf, JNIEnv * env)
+    const GstAmcBufferInfo * info, const GstBuffer * drmbuf, JNIEnv * env,
+    GstAmcCrypto * ctx)
 {
   gboolean ret = FALSE;
   jobject crypto_info = NULL;
 
-  crypto_info = gst_amc_drm_get_crypto_info (drmbuf);
+  crypto_info = gst_amc_drm_get_crypto_info (ctx, drmbuf);
   if (!crypto_info) {
     GST_ERROR ("Couldn't create MediaCodec.CryptoInfo object"
         " or parse cenc structure");
@@ -765,7 +766,7 @@ gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
     AMC_CHK (gst_amc_drm_validate_mcrypto (drmctx));
 
     return gst_amc_codec_queue_secure_input_buffer (codec, index, info, drmbuf,
-        env);
+        env, drmctx);
   }
 
   J_CALL_VOID (codec->object, media_codec.queue_input_buffer,
