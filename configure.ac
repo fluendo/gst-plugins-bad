@@ -2313,6 +2313,8 @@ dnl *** output files ***
 
 dnl po/Makefile.in
 
+AM_COND_IF([HAVE_CPU_X86_64], AC_CONFIG_FILES( sys/dshowsrcwrapper/Makefile sys/dshowsrcwrapper/baseclasses/Makefile ))
+
 AC_CONFIG_FILES(
 Makefile
 common/Makefile
@@ -2412,8 +2414,6 @@ sys/d3dvideosink/Makefile
 sys/decklink/Makefile
 sys/directdraw/Makefile
 sys/directsound/Makefile
-sys/dshowsrcwrapper/Makefile
-sys/dshowsrcwrapper/baseclasses/Makefile
 sys/dshowvideosink/Makefile
 sys/dvb/Makefile
 sys/fbdev/Makefile
