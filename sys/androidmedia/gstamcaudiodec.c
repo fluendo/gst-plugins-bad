@@ -88,7 +88,23 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
 
   for (i = 0; i < codec_info->n_supported_types; i++) {
     const GstAmcCodecType *type = &codec_info->supported_types[i];
+    if (strcmp (type->mime, "audio/ac3") == 0) {
+      GstStructure *tmp;
 
+      tmp = gst_structure_new ("audio/x-ac3",
+          "rate", GST_TYPE_INT_RANGE, 8000, 48000,
+          "channels", GST_TYPE_INT_RANGE, 1, 6,
+          "framed", G_TYPE_BOOLEAN, TRUE, NULL);
+      gst_caps_merge_structure (ret, tmp);
+    } else if (strcmp (type->mime, "audio/eac3") == 0) {
+      GstStructure *tmp;
+
+      tmp = gst_structure_new ("audio/x-eac3",
+          "rate", GST_TYPE_INT_RANGE, 8000, 48000,
+          "channels", GST_TYPE_INT_RANGE, 1, 6,
+          "framed", G_TYPE_BOOLEAN, TRUE, NULL);
+      gst_caps_merge_structure (ret, tmp);
+    } else
 #if 0                           /* decoding of mp3 is disabled due to GST-27. */
     if (strcmp (type->mime, "audio/mpeg") == 0) {
       GstStructure *tmp;
@@ -276,6 +292,10 @@ caps_to_mime (GstCaps * caps)
     return "audio/g711-mlaw";
   } else if (strcmp (name, "audio/x-vorbis") == 0) {
     return "audio/vorbis";
+  } else if (strcmp (name, "audio/x-eac3") == 0) {
+    return "audio/eac3";
+  } else if (strcmp (name, "audio/x-ac3") == 0) {
+    return "audio/ac3";
   }
 
   return NULL;
