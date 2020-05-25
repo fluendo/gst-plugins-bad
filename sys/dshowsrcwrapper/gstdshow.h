@@ -21,13 +21,13 @@
 
 #ifndef _GSTDSHOW_
 #define _GSTDSHOW_
-
+#include <sal.h>
 #include <streams.h>
 #include <windows.h>
 #include <tchar.h>
 #include <objbase.h>
 #include <dshow.h>
-#include <Rpc.h>
+#include <rpc.h>
 
 #include <gst/gst.h>
 #include <gst/video/video.h>

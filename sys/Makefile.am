@@ -46,8 +46,12 @@ else
 DIRECTDRAW_DIR=
 endif
 
-if USE_DIRECTSHOW
-DIRECTSHOW_DIR=winks
+if USE_DIRECTSHOW 
+if HAVE_CPU_X86_64
+DIRECTSHOW_DIR=winks dshowsrcwrapper
+else
+DIRECTSHOW_DIR=winks 
+endif
 else
 DIRECTSHOW_DIR=
 endif
