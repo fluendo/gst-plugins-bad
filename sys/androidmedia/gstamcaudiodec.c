@@ -96,6 +96,13 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
           "channels", GST_TYPE_INT_RANGE, 1, 6,
           "framed", G_TYPE_BOOLEAN, TRUE, NULL);
       gst_caps_merge_structure (ret, tmp);
+
+      /* Add also audio/x-ac3-encrypted */
+      gst_caps_merge_structure (ret,
+          gst_structure_new ("audio/x-ac3-encrypted",
+              "rate", GST_TYPE_INT_RANGE, 8000, 48000,
+              "channels", GST_TYPE_INT_RANGE, 1, 6,
+              "framed", G_TYPE_BOOLEAN, TRUE, NULL));
     } else if (strcmp (type->mime, "audio/eac3") == 0) {
       GstStructure *tmp;
 
@@ -104,6 +111,13 @@ create_sink_caps (const GstAmcCodecInfo * codec_info)
           "channels", GST_TYPE_INT_RANGE, 1, 6,
           "framed", G_TYPE_BOOLEAN, TRUE, NULL);
       gst_caps_merge_structure (ret, tmp);
+
+      /* Add also audio/x-eac3-encrypted */
+      gst_caps_merge_structure (ret,
+          gst_structure_new ("audio/x-eac3-encrypted",
+              "rate", GST_TYPE_INT_RANGE, 8000, 48000,
+              "channels", GST_TYPE_INT_RANGE, 1, 6,
+              "framed", G_TYPE_BOOLEAN, TRUE, NULL));
     } else
 #if 0                           /* decoding of mp3 is disabled due to GST-27. */
     if (strcmp (type->mime, "audio/mpeg") == 0) {
@@ -292,9 +306,11 @@ caps_to_mime (GstCaps * caps)
     return "audio/g711-mlaw";
   } else if (strcmp (name, "audio/x-vorbis") == 0) {
     return "audio/vorbis";
-  } else if (strcmp (name, "audio/x-eac3") == 0) {
+  } else if (strcmp (name, "audio/x-eac3") == 0
+      || strcmp (name, "audio/x-eac3-encrypted") == 0) {
     return "audio/eac3";
-  } else if (strcmp (name, "audio/x-ac3") == 0) {
+  } else if (strcmp (name, "audio/x-ac3") == 0
+      || strcmp (name, "audio/x-ac3-encrypted") == 0) {
     return "audio/ac3";
   }
 
