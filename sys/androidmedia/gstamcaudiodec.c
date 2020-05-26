@@ -493,7 +493,8 @@ gst_amc_audio_dec_init (GstAmcAudioDec * self, GstAmcAudioDecClass * klass)
   self->inband_drm_enabled = GST_AMC_DRM_DEFAULT_INBAND_DRM_ENABLED;
   self->sync_mode =
       g_str_has_prefix (klass->codec_info->name, "OMX.MTK.AUDIO.DECODER");
-
+  self->skip_first_out_buffer =
+      !g_strcmp0 (klass->codec_info->name, "OMX.google.mp3.decoder");
 }
 
 static gboolean
@@ -772,7 +773,6 @@ retry:
   if (buffer_info.size > 0) {
     GstBuffer *outbuf;
     GstAmcBuffer *buf;
-    GstAmcAudioDecClass *klass = GST_AMC_AUDIO_DEC_GET_CLASS (self);
 
     /* This sometimes happens at EOS or if the input is not properly framed,
      * let's handle it gracefully by allocating a new buffer for the current
@@ -781,14 +781,11 @@ retry:
     if (idx >= self->n_output_buffers)
       goto invalid_buffer_index;
 
-    if (strcmp (klass->codec_info->name, "OMX.google.mp3.decoder") == 0) {
-      /* Google's MP3 decoder outputs garbage in the first output buffer
-       * so we just drop it here */
-      if (self->n_buffers == 1) {
-        GST_DEBUG_OBJECT (self,
-            "Skipping first buffer of Google MP3 decoder output");
-        goto done;
-      }
+    /* Google's MP3 decoder outputs garbage in the first output buffer
+     * so we just drop it here */
+    if (G_UNLIKELY (self->skip_first_out_buffer && self->n_buffers == 1)) {
+      GST_DEBUG_OBJECT (self, "Skipping first buffer");
+      goto done;
     }
 
     buf = &self->output_buffers[idx];
