@@ -342,8 +342,8 @@ gst_amc_drm_hack_pssh_initdata (GstElement * el, guchar * payload,
   *new_payload_size = data_offset;
   if (*new_payload_size != payload_size) {
     GST_DEBUG_OBJECT (el, "Overwriting pssh header's size "
-        "from %u to %u, and \"data size\" field to 0",
-        payload_size, *new_payload_size);
+        "from %" G_GSIZE_FORMAT " to %" G_GSIZE_FORMAT
+        ", and \"data size\" field to 0", payload_size, *new_payload_size);
     GST_WRITE_UINT32_BE (payload, *new_payload_size);
     GST_WRITE_UINT32_BE (payload + data_offset - 4, 0);
   }
@@ -357,7 +357,8 @@ gst_amc_drm_log_big (GstElement * el, const gchar * pref, const gchar * text,
     gsize size)
 {
   jsize i;
-  GST_DEBUG_OBJECT (el, "start logging %s of size %d", pref, size);
+  GST_DEBUG_OBJECT (el, "start logging %s of size %" G_GSIZE_FORMAT, pref,
+      size);
   for (i = 0; i < size; i += 700) {
     gchar chunk[701];
     snprintf (chunk, 701, "%s", text + i);
@@ -616,8 +617,8 @@ gst_amc_drm_cenc_get_crypto_info (const GstStructure * s, gsize bufsize)
     }
 
     if (G_UNLIKELY (entries_sumsize != bufsize)) {
-      GST_ERROR ("Sanity check failed: bufsize %d != entries size %d",
-          bufsize, entries_sumsize);
+      GST_ERROR ("Sanity check failed: bufsize %" G_GSIZE_FORMAT
+          " != entries size %" G_GSIZE_FORMAT, bufsize, entries_sumsize);
       AMC_CHK (0);
     }
 

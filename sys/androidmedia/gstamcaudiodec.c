@@ -743,14 +743,15 @@ retry:
 
     if (buffer_info.offset >= buf->size) {
       GST_ERROR_OBJECT (self,
-          "Sanity check failed: buf->size (%d) <= buffer_info.offset (%d)."
-          "Dropping the buffer.", buf->size, buffer_info.offset);
+          "Sanity check failed: buf->size (%" G_GSIZE_FORMAT
+          ") <= buffer_info.offset (%d)." "Dropping the buffer.", buf->size,
+          buffer_info.offset);
       goto done;
     } else {
       gsize copysize = buffer_info.size;
       if (buf->size < copysize + buffer_info.offset) {
         GST_WARNING_OBJECT (self, "Buffer info from android's decoder"
-            " doesn't match the buffer: buf->size = %d"
+            " doesn't match the buffer: buf->size = %" G_GSIZE_FORMAT ""
             "buf_info->offset = %d, buf_info->size = %d."
             "We'll copy only the buf->size.",
             buf->size, buffer_info.offset, buffer_info.size);
@@ -875,7 +876,8 @@ flow_error:
 invalid_buffer_index:
   {
     GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL),
-        ("Invalid input buffer index %d of %d", idx, self->n_input_buffers));
+        ("Invalid input buffer index %d of %" G_GSIZE_FORMAT "", idx,
+            self->n_input_buffers));
     gst_pad_push_event (GST_AUDIO_DECODER_SRC_PAD (self), gst_event_new_eos ());
     gst_pad_pause_task (GST_AUDIO_DECODER_SRC_PAD (self));
     self->downstream_flow_ret = GST_FLOW_ERROR;
@@ -1294,7 +1296,8 @@ downstream_error:
 invalid_buffer_index:
   {
     GST_ELEMENT_ERROR (self, LIBRARY, FAILED, (NULL),
-        ("Invalid input buffer index %d of %d", idx, self->n_input_buffers));
+        ("Invalid input buffer index %d of %" G_GSIZE_FORMAT, idx,
+            self->n_input_buffers));
     if (inbuf)
       gst_buffer_unref (inbuf);
     return GST_FLOW_ERROR;
@@ -1380,7 +1383,7 @@ gst_amc_audio_dec_drain (GstAmcAudioDec * self)
     g_mutex_unlock (self->drain_lock);
     GST_AUDIO_DECODER_STREAM_LOCK (self);
   } else if (idx >= self->n_input_buffers) {
-    GST_ERROR_OBJECT (self, "Invalid input buffer index %d of %d",
+    GST_ERROR_OBJECT (self, "Invalid input buffer index %d of %" G_GSIZE_FORMAT,
         idx, self->n_input_buffers);
     ret = GST_FLOW_ERROR;
   } else {

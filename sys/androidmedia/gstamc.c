@@ -594,7 +594,7 @@ gst_amc_codec_get_output_buffers (GstAmcCodec * codec, gsize * n_buffers)
   }
 
   *n_buffers = n_output_buffers;
-  GST_DEBUG ("Created %d", *n_buffers);
+  GST_DEBUG ("Created %" G_GSIZE_FORMAT, *n_buffers);
 done:
   J_DELETE_LOCAL_REF (output_buffers);
   return ret;
