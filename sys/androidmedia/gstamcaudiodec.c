@@ -687,9 +687,13 @@ retry:
   GST_AUDIO_DECODER_STREAM_UNLOCK (self);
   /* Wait at most 100ms here, some codecs don't fail dequeueing if
    * the codec is flushing, causing deadlocks during shutdown */
-  idx =
-      gst_amc_codec_dequeue_output_buffer (self->codec, &buffer_info,
-      self->sync_mode ? 0 : 100000);
+  idx = gst_amc_codec_dequeue_output_buffer (self->codec, &buffer_info,
+      /* In sync mode we try to get the output buffer immediatelly,
+       * and if we don't have one, we decide that maybe it needs more
+       * input. But not if we're draining, because there's no input
+       * anymore in that case, and it will spinlock until the output
+       * is ready. */
+      self->sync_mode && !self->draining ? 0 : 100000);
   GST_AUDIO_DECODER_STREAM_LOCK (self);
   /*} */
 
@@ -1431,7 +1435,15 @@ gst_amc_audio_dec_drain (GstAmcAudioDec * self)
     if (gst_amc_codec_queue_input_buffer (self->codec, idx, &buffer_info, NULL,
             self->drm_ctx)) {
       GST_DEBUG_OBJECT (self, "Waiting until codec is drained");
-      g_cond_wait (self->drain_cond, self->drain_lock);
+      if (self->sync_mode) {
+        g_mutex_unlock (self->drain_lock);
+        while (self->draining && self->downstream_flow_ret == GST_FLOW_OK) {
+          gst_amc_audio_dec_loop (self);
+        }
+        g_mutex_lock (self->drain_lock);
+      } else {
+        g_cond_wait (self->drain_cond, self->drain_lock);
+      }
       GST_DEBUG_OBJECT (self, "Drained codec");
       ret = GST_FLOW_OK;
     } else {
