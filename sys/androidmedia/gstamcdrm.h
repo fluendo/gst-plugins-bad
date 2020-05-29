@@ -59,7 +59,7 @@ typedef struct _GstAmcCrypto GstAmcCrypto;
 void gst_amc_drm_log_known_supported_protection_schemes (void);
 
 /* Convert drm metadata in the buffer to CryptoInfo object */
-jobject gst_amc_drm_get_crypto_info (const GstBuffer * drmbuf);
+jobject gst_amc_drm_get_crypto_info (GstAmcCrypto * ctx, const GstBuffer * drmbuf);
 
 /* Create Drm context */
 GstAmcCrypto *gst_amc_drm_ctx_new (GstElement * element);
