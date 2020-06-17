@@ -438,6 +438,8 @@ gst_amc_audio_dec_event (GstAudioDecoder * dec, GstEvent * event)
       break;
   }
 
+  if (handled)
+    gst_event_unref (event);
   return handled;
 }
 
