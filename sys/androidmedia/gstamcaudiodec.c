@@ -491,9 +491,11 @@ gst_amc_audio_dec_init (GstAmcAudioDec * self, GstAmcAudioDecClass * klass)
   self->drain_cond = g_cond_new ();
   self->inband_drm_enabled = GST_AMC_DRM_DEFAULT_INBAND_DRM_ENABLED;
   self->sync_mode =
-      g_str_has_prefix (klass->codec_info->name, "OMX.MTK.AUDIO.DECODER");
+      g_str_has_prefix (klass->registered_codec->codec_info->name,
+      "OMX.MTK.AUDIO.DECODER");
   self->skip_first_out_buffer =
-      !g_strcmp0 (klass->codec_info->name, "OMX.google.mp3.decoder");
+      !g_strcmp0 (klass->registered_codec->codec_info->name,
+      "OMX.google.mp3.decoder");
 }
 
 static gboolean

@@ -70,6 +70,7 @@ struct _GstAmcCodecFeature
   const gchar *name;
   gboolean supported;
   gboolean required;
+  gboolean available;
 };
 
 struct _GstAmcBuffer

@@ -132,23 +132,13 @@ static struct
   jmethodID from_string;
 } uuid;
 
-static const struct
-{
-  gint id;
-  const gchar *str;
-} features_to_check[] = {
-  {
-  FEATURE_ADAPTIVE_PLAYBACK, "adaptive-playback"}, {
-  FEATURE_DYNAMIC_TIMESTAMP, "dynamic-timestamp"}, {
-  FEATURE_FRAME_PARSING, "frame-parsing"}, {
-  FEATURE_INTRA_REFRESH, "intra-refresh"}, {
-  FEATURE_LOW_LATENCY, "low-latency"}, {
-  FEATURE_MULTIPLE_FRAMES, "multiple-frames"}, {
-  FEATURE_PARTIAL_FRAME, "partial-frame"}, {
-  FEATURE_SECURE_PLAYBACK, "secure-playback"}, {
-  FEATURE_TUNNELED_PLAYBACK, "tunneled-playback"}, {
-  FEATURE_COUNT, NULL}
+static const gchar *features_to_check[] = {
+  "adaptive-playback",
+  "secure-playback",
+  "tunneled-playback",
+  NULL
 };
+
 
 jbyteArray
 jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size)
@@ -1082,7 +1072,7 @@ scan_codecs (GstPlugin * plugin)
   GstJniMediaCodecList *codec_list = NULL;
   jint codec_count, i;
   jobjectArray jcodec_infos;
-  const GstStructure *cache_data;
+  const GstStructure *cache_data = NULL;
 
   GST_DEBUG ("Scanning codecs");
 
@@ -1421,9 +1411,9 @@ scan_codecs (GstPlugin * plugin)
 
       gst_codec_type->features = g_new0 (GstAmcCodecFeature, FEATURE_COUNT);
       gst_codec_type->n_features = FEATURE_COUNT;
-      while (features_to_check[feature_idx].str) {
+      while (features_to_check[feature_idx]) {
         gst_amc_get_codec_feature (env, capabilities_class,
-            features_to_check[feature_idx].str,
+            features_to_check[feature_idx],
             &gst_codec_type->features[feature_idx], capabilities);
         feature_idx++;
       }
@@ -1603,15 +1593,11 @@ scan_codecs (GstPlugin * plugin)
 
       for (j = 0; j < gst_codec_info->n_supported_types; j++) {
         GstAmcCodecType *gst_codec_type = &gst_codec_info->supported_types[j];
-        gint k;
 
         g_free (gst_codec_type->mime);
         g_free (gst_codec_type->color_formats);
         g_free (gst_codec_type->profile_levels);
-
-        for (k = 0; k < gst_codec_type->n_features; k++) {
-          g_free (&(gst_codec_type->features[k]));
-        }
+        g_free (gst_codec_type->features);
 
       }
       g_free (gst_codec_info->supported_types);
