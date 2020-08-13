@@ -1565,9 +1565,18 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
       (is_format_change || (is_size_change && !adaptive));
   needs_config = !self->started || needs_disable;
 
-  /* FIXME: This is not an error, but we want to force this log
-   * and for now we can only achieve it in android using GST_ERROR */
-  GST_ERROR_OBJECT (self, "needs_disable=%d needs_config=%d", needs_disable,
+  if (self->drm_ctx) {
+    gboolean need_drm_reconfigure;
+
+    if (G_UNLIKELY (!gst_amc_drm_mcrypto_update (self->drm_ctx,
+                &need_drm_reconfigure))) {
+      GST_ERROR_OBJECT (self, "Failed to update MediaCrypto");
+      return FALSE;
+    }
+    needs_config |= need_drm_reconfigure;
+  }
+
+  GST_INFO_OBJECT (self, "needs_disable=%d needs_config=%d", needs_disable,
       needs_config);
 
   if (needs_disable) {
