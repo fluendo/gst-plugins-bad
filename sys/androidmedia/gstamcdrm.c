@@ -861,10 +861,13 @@ gst_amc_drm_mcrypto_update (GstAmcCrypto * ctx, gboolean * need_configure)
    * one. */
   for (l = ctx->drm_events_pack; l; l = l->next) {
     GstEvent *e = (GstEvent *) l->data;
+    gint h = fluc_drm_event_compile_hash (e);
 
-    if (ctx->last_drm_event_hash == fluc_drm_event_compile_hash (e)) {
-      GST_INFO_OBJECT (el,
-          "Found drm event that same hash as one already in use. "
+    GST_ERROR ("### comparing hash %d", h);
+
+    if (ctx->last_drm_event_hash == h) {
+      GST_ERROR_OBJECT (el,
+          "### Found drm event that same hash as one already in use. "
           "will keep using previous MediaCrypto");
       goto beach;
     }
@@ -879,6 +882,7 @@ gst_amc_drm_mcrypto_update (GstAmcCrypto * ctx, gboolean * need_configure)
         *need_configure = TRUE;
 
       ctx->last_drm_event_hash = fluc_drm_event_compile_hash (e);
+      GST_ERROR ("### storing hash %d", ctx->last_drm_event_hash);
       break;
     }
   }
@@ -887,6 +891,7 @@ beach:
 
   if (G_LIKELY (ctx->mcrypto)) {
     ctx->drm_reconfigured = TRUE;
+    GST_ERROR ("### mcrypto ready");
     return TRUE;
   }
 
@@ -926,6 +931,8 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
     g_list_free_full (ctx->drm_events_pack, (GDestroyNotify) gst_event_unref);
     ctx->drm_events_pack = NULL;
     ctx->drm_reconfigured = FALSE;
+    GST_ERROR ("### clearing list of size %d",
+        g_list_length (ctx->drm_events_pack));
   }
 
   ctx->drm_events_pack =
