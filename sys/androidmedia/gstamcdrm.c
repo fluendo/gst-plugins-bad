@@ -64,6 +64,9 @@ typedef struct _GstAmcCrypto
 
   gboolean inband_drm_enabled;
   GPtrArray *playready_kids;
+
+  GList *drm_events_pack;
+  gboolean drm_reconfigured;
 } GstAmcCrypto;
 
 /* Taken from https://dashif.org/identifiers/content_protection/ */
@@ -575,6 +578,8 @@ gst_amc_drm_ctx_free (GstAmcCrypto * ctx)
   if (!ctx)
     return;
   gst_amc_ctx_clear (ctx);
+
+  g_list_free_full (ctx->drm_events_pack, gst_event_unref);
   g_free (ctx);
 }
 
@@ -711,13 +716,185 @@ error:
   return crypto_info_ret;
 }
 
-gboolean
-gst_amc_drm_validate_mcrypto (GstAmcCrypto * ctx)
-{
-  if (G_LIKELY (ctx->mcrypto))
-    return TRUE;
 
-  GST_ELEMENT_ERROR (ctx->gstelement, STREAM, DECRYPT_NOKEY, (NULL),
+static gboolean
+gst_amc_drm_try_drm_event (GstAmcCrypto * ctx, GstEvent * event)
+{
+  GstElement *el = ctx->gstelement;
+  GstBuffer *data_buf = NULL;
+  GstBuffer *buf_to_unref = NULL;
+  const gchar *system_id = NULL, *origin = NULL;
+  gboolean origin_is_iso;
+  guchar *init_data;
+  guint init_data_size;
+  guint32 new_drm_event_hash;
+  GPtrArray *playready_kids = NULL;
+  gboolean system_supported;
+
+  fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
+
+  if (!data_buf || !GST_BUFFER_SIZE (data_buf) || !GST_BUFFER_DATA (data_buf)
+      || !system_id) {
+    GST_ERROR_OBJECT (el, "Invalid drm event %p", event);
+    return FALSE;
+  }
+
+  init_data = GST_BUFFER_DATA (data_buf);
+  init_data_size = GST_BUFFER_SIZE (data_buf);
+
+  system_supported = gst_amc_drm_is_protection_system_id_supported (system_id);
+
+  GST_DEBUG_OBJECT (el, "Received drm event."
+      "SystemId = [%s] (%ssupported by device), origin = [%s], "
+      "data size = %d", system_id, system_supported ? "" : "not ",
+      origin, init_data_size);
+
+  if (!system_supported) {
+    GST_INFO_OBJECT (el, "Skipping drm event: device doesn't support [%s]",
+        system_id);
+    return FALSE;
+  }
+
+  origin_is_iso = g_str_has_prefix (origin, "isobmff/");
+
+  /* For case of clearkey we have to hack pssh data because of a bug in
+   * av/drm/mediadrm/plugins/clearkey/InitDataParcer.cpp */
+  if (origin_is_iso && gst_amc_drm_sysid_is_clearkey (system_id)) {
+    gsize new_size;
+    gst_amc_drm_hack_pssh_initdata (el, init_data, init_data_size, &new_size);
+    init_data_size = GST_BUFFER_SIZE (data_buf) = new_size;
+  }
+
+  /* If systemid is playready - dump PO and KID */
+  if (gst_amc_drm_sysid_is_playready (system_id)) {
+    guint data_offset = 0;
+    guint data_size = init_data_size;
+    int i;
+    /* Extract from pssh if needed */
+    if (origin_is_iso) {
+      if (!fluc_drm_cenc_validate_pssh (init_data, init_data_size,
+              &data_offset, &data_size))
+        return FALSE;
+    }
+
+    playready_kids =
+        flucdrm_playready_OBJ_get_KIDs (init_data + data_offset, data_size);
+
+    if (playready_kids) {
+      for (i = 0; i < playready_kids->len; i++) {
+        gpointer kid = g_ptr_array_index (playready_kids, i);
+
+        GST_DEBUG_OBJECT (el, "kid [%d] from POBJ = " FLUC_16BYTE_FORMAT,
+            i, FLUC_16BYTE_ARGS (kid));
+      }
+    }
+  }
+
+  new_drm_event_hash =
+      fluc_drm_compile_hash (system_id, init_data, init_data_size);
+
+  /* If origin is not an iso we prefer to wrap data to pssh v0 */
+  if (!origin_is_iso) {
+    guchar *new_pssh;
+    guint32 new_pssh_size;
+
+    new_pssh =
+        fluc_drm_cenc_wrap_data_to_pssh_v0 (system_id, init_data,
+        init_data_size, &new_pssh_size);
+
+    if (!new_pssh)
+      return FALSE;
+
+    /* Replace data_buf with one wrapped to pssh.
+     * There's no leak here, because event is who owns data_buf, but
+     * if we have created our new one - we have to unref it after usage. */
+    buf_to_unref = data_buf = gst_buffer_new ();
+    init_data = GST_BUFFER_DATA (data_buf) = new_pssh;
+    init_data_size = GST_BUFFER_SIZE (data_buf) = new_pssh_size;
+
+    /* Dump result pssh if we're debugging */
+    if (__gst_debug_min >= GST_LEVEL_DEBUG &&
+        !fluc_drm_cenc_validate_pssh (init_data, init_data_size, NULL, NULL))
+      GST_ERROR_OBJECT (el, "Internal error: generated invalid pssh");
+  }
+
+  gst_element_post_message (el,
+      gst_message_new_element (GST_OBJECT (el),
+          gst_structure_new ("prepare-drm-agent-handle",
+              "init_data", GST_TYPE_BUFFER, data_buf, NULL)));
+
+  if (ctx->mcrypto) {
+    GST_DEBUG_OBJECT (el, "Received from user MediaCrypto [%p]", ctx->mcrypto);
+  } else if (ctx->inband_drm_enabled) {
+    GST_DEBUG_OBJECT (el,
+        "User didn't provide us MediaCrypto, trying In-band mode");
+    if (!gst_amc_drm_jmedia_crypto_from_pssh (ctx, init_data, init_data_size,
+            system_id)) {
+      GST_INFO_OBJECT (el, "In-band mode's drm event proccessing failed");
+    }
+  }
+
+  if (ctx->mcrypto) {
+    /* MCrypto successfully updated.
+       Now we store event's hash and KIDs from this event. */
+    ctx->last_drm_event_hash = new_drm_event_hash;
+
+    if (ctx->playready_kids)
+      g_ptr_array_free (ctx->playready_kids, TRUE);
+    ctx->playready_kids = playready_kids;
+    playready_kids = NULL;
+  }
+
+  if (playready_kids)
+    g_ptr_array_free (playready_kids, TRUE);
+
+  if (buf_to_unref)
+    gst_buffer_unref (buf_to_unref);
+
+  return ctx->mcrypto ? TRUE : FALSE;
+}
+
+
+gboolean
+gst_amc_drm_mcrypto_update (GstAmcCrypto * ctx, gboolean * need_configure)
+{
+  GList *l;
+  GstElement *el = ctx->gstelement;
+
+  if (need_configure)
+    *need_configure = FALSE;
+
+  /* First check if we can keep current MCrypto: it is so
+   * if one of events in the pack has the same hash as the current
+   * one. */
+  for (l = ctx->drm_events_pack; l; l = l->next) {
+    GstEvent *e = (GstEvent *) l->data;
+
+    if (ctx->last_drm_event_hash == fluc_drm_event_compile_hash (e)) {
+      GST_INFO_OBJECT (el,
+          "Found drm event that same hash as one already in use. "
+          "will keep using previous MediaCrypto");
+      goto beach;
+    }
+  }
+
+  /* If no drm event "can be reused", try to create new MCrypto */
+  for (l = ctx->drm_events_pack; l; l = l->next) {
+    if (gst_amc_drm_try_drm_event (ctx, e)) {
+      if (need_configure)
+        *need_configure = TRUE;
+      break;
+    }
+  }
+
+beach:
+
+  if (G_LIKELY (ctx->mcrypto)) {
+    ctx->drm_reconfigured = TRUE;
+    return TRUE;
+  }
+
+  GST_ELEMENT_ERROR (el, STREAM, DECRYPT_NOKEY, (NULL),
       ("Decryption isn't possible: no MediaCrypto"));
 
   return FALSE;
@@ -747,130 +924,16 @@ gst_amc_drm_get_crypto_info (GstAmcCrypto * ctx, const GstBuffer * drmbuf)
 void
 gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
 {
-  GstElement *el = ctx->gstelement;
-  GstBuffer *data_buf = NULL;
-  GstBuffer *buf_to_unref = NULL;
-  const gchar *system_id = NULL, *origin = NULL;
-  gboolean origin_is_iso;
-  guchar *init_data;
-  guint init_data_size;
-  guint32 new_drm_event_hash;
-  GPtrArray *playready_kids = NULL;
-
-  fluc_drm_event_parse (event, &system_id, &data_buf, &origin);
-
-  if (!data_buf || !GST_BUFFER_SIZE (data_buf) || !GST_BUFFER_DATA (data_buf)
-      || !system_id) {
-    GST_ERROR_OBJECT (el, "Invalid drm event %p", event);
-    return;
+  if (ctx->drm_reconfigured) {
+    /* If we receive the drm event after the last configuration, first
+     * free the previous event list */
+    g_list_free_full (ctx->drm_events_pack, gst_event_unref);
+    ctx->drm_events_pack = NULL;
+    ctx->drm_reconfigured = FALSE;
   }
 
-  init_data = GST_BUFFER_DATA (data_buf);
-  init_data_size = GST_BUFFER_SIZE (data_buf);
-
-  GST_DEBUG_OBJECT (el, "Received drm event."
-      "SystemId = [%s] (%ssupported by device), origin = [%s], "
-      "data size = %d", system_id,
-      gst_amc_drm_is_protection_system_id_supported (system_id) ? "" : "not ",
-      origin, init_data_size);
-
-  origin_is_iso = g_str_has_prefix (origin, "isobmff/");
-
-  /* For case of clearkey we have to hack pssh data because of a bug in
-   * av/drm/mediadrm/plugins/clearkey/InitDataParcer.cpp */
-  if (origin_is_iso && gst_amc_drm_sysid_is_clearkey (system_id)) {
-    gsize new_size;
-    gst_amc_drm_hack_pssh_initdata (el, init_data, init_data_size, &new_size);
-    init_data_size = GST_BUFFER_SIZE (data_buf) = new_size;
-  }
-
-  /* If systemid is playready - dump PO and KID */
-  if (gst_amc_drm_sysid_is_playready (system_id)) {
-    guint data_offset = 0;
-    guint data_size = init_data_size;
-    int i;
-    /* Extract from pssh if needed */
-    if (origin_is_iso) {
-      if (!fluc_drm_cenc_validate_pssh (init_data, init_data_size,
-              &data_offset, &data_size))
-        return;
-    }
-
-    playready_kids =
-        flucdrm_playready_OBJ_get_KIDs (init_data + data_offset, data_size);
-
-    if (playready_kids) {
-      for (i = 0; i < playready_kids->len; i++) {
-        gpointer kid = g_ptr_array_index (playready_kids, i);
-
-        GST_DEBUG_OBJECT (el, "kid [%d] from POBJ = " FLUC_16BYTE_FORMAT,
-            i, FLUC_16BYTE_ARGS (kid));
-      }
-    }
-  }
-
-  /* If drm event carries the same init data/sysId we have already proccessed -
-   * we prefer to do nothing, because key request adds delay to the playback,
-   * that potentially leads to problems in other elements. */
-  new_drm_event_hash =
-      fluc_drm_compile_hash (system_id, init_data, init_data_size);
-  if (ctx->mcrypto && ctx->last_drm_event_hash == new_drm_event_hash) {
-    GST_INFO_OBJECT (el, "DRM event has same systemId & initData"
-        " as the one we already have a key for. Do nothing.");
-    g_ptr_array_free (playready_kids, TRUE);
-    return;
-  }
-  ctx->last_drm_event_hash = new_drm_event_hash;
-
-  if (ctx->playready_kids)
-    g_ptr_array_free (ctx->playready_kids, TRUE);
-  ctx->playready_kids = playready_kids;
-
-  /* If origin is not an iso we prefer to wrap data to pssh v0 */
-  if (!origin_is_iso) {
-    guchar *new_pssh;
-    guint32 new_pssh_size;
-
-    new_pssh =
-        fluc_drm_cenc_wrap_data_to_pssh_v0 (system_id, init_data,
-        init_data_size, &new_pssh_size);
-
-    if (!new_pssh)
-      return;
-
-    /* Replace data_buf with one wrapped to pssh.
-     * There's no leak here, because event is who owns data_buf, but
-     * if we have created our new one - we have to unref it after usage. */
-    buf_to_unref = data_buf = gst_buffer_new ();
-    init_data = GST_BUFFER_DATA (data_buf) = new_pssh;
-    init_data_size = GST_BUFFER_SIZE (data_buf) = new_pssh_size;
-
-    /* Dump result pssh if we're debugging */
-    if (__gst_debug_min >= GST_LEVEL_DEBUG &&
-        !fluc_drm_cenc_validate_pssh (init_data, init_data_size, NULL, NULL))
-      GST_ERROR_OBJECT (el, "Internal error: generated invalid pssh");
-  }
-
-  gst_element_post_message (el,
-      gst_message_new_element (GST_OBJECT (el),
-          gst_structure_new ("prepare-drm-agent-handle",
-              "init_data", GST_TYPE_BUFFER, data_buf, NULL)));
-
-  if (ctx->mcrypto) {
-    GST_DEBUG_OBJECT (el, "Received from user MediaCrypto [%p]", ctx->mcrypto);
-  } else if (ctx->inband_drm_enabled) {
-    GST_DEBUG_OBJECT (el,
-        "User didn't provide us MediaCrypto, trying In-band mode");
-    if (!gst_amc_drm_jmedia_crypto_from_pssh (ctx, init_data, init_data_size,
-            system_id)) {
-      GST_INFO_OBJECT (el, "In-band mode's drm event proccessing failed");
-      /* This is not a true error situation, there might be more drm events with
-       * other systemIds */
-    }
-  }
-
-  if (buf_to_unref)
-    gst_buffer_unref (buf_to_unref);
+  ctx->drm_events_pack =
+      g_list_append (ctx->drm_events_pack, gst_event_ref (event));
 }
 
 

@@ -433,7 +433,6 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
   AMC_CHK (codec && format);
 
   if (drm_ctx) {
-    AMC_CHK (gst_amc_drm_validate_mcrypto (drm_ctx));
     mcrypto = gst_amc_drm_mcrypto_get (drm_ctx);
     gst_amc_format_set_int (format, "secure-playback", 1);
   }

@@ -1033,6 +1033,19 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
 
   needs_disable = self->started;
 
+  if (self->drm_ctx) {
+    gboolean need_drm_reconfigure;
+
+    if (G_UNLIKELY (!gst_amc_drm_mcrypto_update (self->drm_ctx,
+                &need_drm_reconfigure))) {
+      GST_ERROR_OBJECT (self, "Failed to update MediaCrypto");
+      return FALSE;
+    }
+
+    needs_disable |= need_drm_reconfigure;
+  }
+
+
   /* If the component is not started and a real format change happens
    * we have to restart the component. If no real format change
    * happened we can just exit here.
