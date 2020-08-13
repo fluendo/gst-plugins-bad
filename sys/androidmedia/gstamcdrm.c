@@ -861,9 +861,9 @@ gst_amc_drm_mcrypto_update (GstAmcCrypto * ctx, gboolean * need_configure)
    * one. */
   for (l = ctx->drm_events_pack; l; l = l->next) {
     GstEvent *e = (GstEvent *) l->data;
-    gint h = fluc_drm_event_compile_hash (e);
+    guint32 h = fluc_drm_event_compile_hash (e);
 
-    GST_ERROR ("### comparing hash %d", h);
+    GST_ERROR ("### comparing hash %d to %d", h, ctx->last_drm_event_hash);
 
     if (ctx->last_drm_event_hash == h) {
       GST_ERROR_OBJECT (el,
