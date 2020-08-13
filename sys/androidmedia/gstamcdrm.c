@@ -727,7 +727,6 @@ gst_amc_drm_try_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   gboolean origin_is_iso;
   guchar *init_data;
   guint init_data_size;
-  guint32 new_drm_event_hash;
   GPtrArray *playready_kids = NULL;
   gboolean system_supported;
 
@@ -790,9 +789,6 @@ gst_amc_drm_try_drm_event (GstAmcCrypto * ctx, GstEvent * event)
     }
   }
 
-  new_drm_event_hash =
-      fluc_drm_compile_hash (system_id, init_data, init_data_size);
-
   /* If origin is not an iso we prefer to wrap data to pssh v0 */
   if (!origin_is_iso) {
     guchar *new_pssh;
@@ -835,10 +831,6 @@ gst_amc_drm_try_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   }
 
   if (ctx->mcrypto) {
-    /* MCrypto successfully updated.
-       Now we store event's hash and KIDs from this event. */
-    ctx->last_drm_event_hash = new_drm_event_hash;
-
     if (ctx->playready_kids)
       g_ptr_array_free (ctx->playready_kids, TRUE);
     ctx->playready_kids = playready_kids;
@@ -880,9 +872,13 @@ gst_amc_drm_mcrypto_update (GstAmcCrypto * ctx, gboolean * need_configure)
 
   /* If no drm event "can be reused", try to create new MCrypto */
   for (l = ctx->drm_events_pack; l; l = l->next) {
+    GstEvent *e = (GstEvent *) l->data;
+
     if (gst_amc_drm_try_drm_event (ctx, e)) {
       if (need_configure)
         *need_configure = TRUE;
+
+      ctx->last_drm_event_hash = fluc_drm_event_compile_hash (e);
       break;
     }
   }
