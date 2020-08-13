@@ -579,7 +579,7 @@ gst_amc_drm_ctx_free (GstAmcCrypto * ctx)
     return;
   gst_amc_ctx_clear (ctx);
 
-  g_list_free_full (ctx->drm_events_pack, gst_event_unref);
+  g_list_free_full (ctx->drm_events_pack, (GDestroyNotify) gst_event_unref);
   g_free (ctx);
 }
 
@@ -927,7 +927,7 @@ gst_amc_drm_handle_drm_event (GstAmcCrypto * ctx, GstEvent * event)
   if (ctx->drm_reconfigured) {
     /* If we receive the drm event after the last configuration, first
      * free the previous event list */
-    g_list_free_full (ctx->drm_events_pack, gst_event_unref);
+    g_list_free_full (ctx->drm_events_pack, (GDestroyNotify) gst_event_unref);
     ctx->drm_events_pack = NULL;
     ctx->drm_reconfigured = FALSE;
   }
