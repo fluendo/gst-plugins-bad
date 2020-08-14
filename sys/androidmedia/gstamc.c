@@ -433,7 +433,6 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
   AMC_CHK (codec && format);
 
   if (drm_ctx) {
-    AMC_CHK (gst_amc_drm_validate_mcrypto (drm_ctx));
     mcrypto = gst_amc_drm_mcrypto_get (drm_ctx);
     gst_amc_format_set_int (format, "secure-playback", 1);
   }
@@ -759,12 +758,6 @@ gst_amc_codec_queue_input_buffer (GstAmcCodec * codec, gint index,
   JNIEnv *env = gst_jni_get_env ();
 
   if (drmctx && drmbuf) {
-    /* Encrypted input.
-     * FIXME: drmbuf == NULL when decoder is draining.
-     * But it's not well checked if decoder is really drained well with
-     * non-secure queueInputBuffer () */
-    AMC_CHK (gst_amc_drm_validate_mcrypto (drmctx));
-
     return gst_amc_codec_queue_secure_input_buffer (codec, index, info, drmbuf,
         env, drmctx);
   }

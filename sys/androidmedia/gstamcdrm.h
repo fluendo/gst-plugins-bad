@@ -87,8 +87,10 @@ gboolean gst_amc_drm_jni_init (JNIEnv * env);
 /* Enable/disable inband proccessing of DRM event */
 void gst_amc_drm_enable_inband (GstAmcCrypto * ctx, gboolean enabled);
 
-/* Check if MCrypto is obtained and emit GST_STREAM_ERROR_DECRYPT_NOKEY otherwise */
-gboolean gst_amc_drm_validate_mcrypto (GstAmcCrypto * ctx);
+/* Get MediaCrypto for decoder, or keep using previous one if possible.
+ * If no MediaCrypto can be created, emits an error */
+gboolean gst_amc_drm_mcrypto_update (GstAmcCrypto * ctx, gboolean * need_configure);
+
 
 G_END_DECLS
 #endif /* __GST_AMC_DRM_H__ */
