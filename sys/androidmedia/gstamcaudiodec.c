@@ -1139,7 +1139,8 @@ gst_amc_audio_dec_set_format (GstAudioDecoder * decoder, GstCaps * caps)
 
   self->n_buffers = 0;
 
-  if (!gst_amc_codec_configure (self->codec, format, NULL, self->drm_ctx, 0, 0)) {
+  if (!gst_amc_codec_configure (self->codec, format, NULL, self->drm_ctx, 0, 0,
+          GST_AMC_DEFAULT_ADAPTIVE_PLAYBACK_ENABLED)) {
     gst_amc_format_free (format);
     GST_ERROR_OBJECT (self, "Failed to configure codec");
     return FALSE;

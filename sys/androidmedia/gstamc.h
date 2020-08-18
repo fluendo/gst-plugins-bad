@@ -72,6 +72,7 @@ struct _GstAmcCodec
   guint flush_id;
   GMutex buffers_lock;
   gboolean tunneled_playback_enabled;
+  gboolean enable_adaptive_playback;
   gboolean adaptive_enabled;
   /* < private > */
   jobject object;               /* global reference */
@@ -102,7 +103,8 @@ void gst_amc_codec_unref (GstAmcCodec * codec);
 jmethodID gst_amc_codec_get_release_method_id (GstAmcCodec * codec);
 jmethodID gst_amc_codec_get_release_ts_method_id (GstAmcCodec * codec);
 gboolean gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
-    guint8 * surface, GstAmcCrypto * drm_ctx, gint flags, gint audio_session_id);
+    guint8 * surface, GstAmcCrypto * drm_ctx, gint flags,
+    gint audio_session_id, gboolean enable_adaptive_playback);
 GstAmcFormat *gst_amc_codec_get_output_format (GstAmcCodec * codec);
 
 gboolean gst_amc_codec_start (GstAmcCodec * codec);
