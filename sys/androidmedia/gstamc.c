@@ -45,6 +45,7 @@ GST_DEBUG_CATEGORY (gst_amc_debug);
 GQuark gst_amc_codec_info_quark = 0;
 
 static GList *codec_infos = NULL;
+static GList *registered_codecs = NULL;
 #ifdef GST_AMC_IGNORE_UNKNOWN_COLOR_FORMATS
 static gboolean ignore_unknown_color_formats = TRUE;
 #else
@@ -130,6 +131,14 @@ static struct
   jclass klass;
   jmethodID from_string;
 } uuid;
+
+static const gchar *features_to_check[] = {
+  "adaptive-playback",
+  "secure-playback",
+  "tunneled-playback",
+  NULL
+};
+
 
 jbyteArray
 jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size)
@@ -1025,6 +1034,35 @@ error:
   return FALSE;
 }
 
+static GstAmcCodecFeature *
+gst_amc_get_codec_feature (JNIEnv * env, jclass capabilities,
+    const gchar * feature, GstAmcCodecFeature * codec_feature,
+    jobject capabilities_obj)
+{
+  jmethodID supported_id, required_id;
+  jstring jtmpstr;
+
+  codec_feature->supported = codec_feature->required = FALSE;
+
+  supported_id =
+      (*env)->GetMethodID (env, capabilities, "isFeatureSupported",
+      "(Ljava/lang/String;)Z");
+
+  required_id =
+      (*env)->GetMethodID (env, capabilities, "isFeatureRequired",
+      "(Ljava/lang/String;)Z");
+
+  jtmpstr = (*env)->NewStringUTF (env, feature);
+  codec_feature->supported =
+      (*env)->CallBooleanMethod (env, capabilities_obj, supported_id, jtmpstr);
+  codec_feature->required =
+      (*env)->CallBooleanMethod (env, capabilities_obj, required_id, jtmpstr);
+  codec_feature->name = feature;
+
+  J_DELETE_LOCAL_REF (jtmpstr);
+
+  return codec_feature;
+}
 
 static gboolean
 scan_codecs (GstPlugin * plugin)
@@ -1034,7 +1072,7 @@ scan_codecs (GstPlugin * plugin)
   GstJniMediaCodecList *codec_list = NULL;
   jint codec_count, i;
   jobjectArray jcodec_infos;
-  const GstStructure *cache_data;
+  const GstStructure *cache_data = NULL;
 
   GST_DEBUG ("Scanning codecs");
 
@@ -1073,6 +1111,7 @@ scan_codecs (GstPlugin * plugin)
         const gchar *mime;
         const GValue *cfarr;
         const GValue *plarr;
+        const GValue *farr;
         guint k, n3;
         GstAmcCodecType *gst_codec_type = &gst_codec_info->supported_types[j];
 
@@ -1110,6 +1149,28 @@ scan_codecs (GstPlugin * plugin)
           gst_codec_type->profile_levels[k].profile = g_value_get_int (p);
           gst_codec_type->profile_levels[k].level = g_value_get_int (l);
         }
+
+        farr = gst_structure_get_value (sts, "features");
+        n3 = gst_value_array_get_size (farr);
+        gst_codec_type->n_features = n3;
+
+        gst_codec_type->features = g_new0 (GstAmcCodecFeature, n3);
+        for (k = 0; k < n3; k++) {
+          const GValue *fv = gst_value_array_get_value (farr, k);
+          const GstStructure *fs = gst_value_get_structure (fv);
+          const gchar *name;
+          GstAmcCodecFeature *gst_codec_feature = &gst_codec_type->features[k];
+
+          name = gst_structure_get_string (fs, "name");
+          gst_codec_feature->name = g_strdup (name);
+
+          gst_structure_get_boolean (fs, "supported",
+              &gst_codec_feature->supported);
+
+          gst_structure_get_boolean (fs, "required",
+              &gst_codec_feature->required);
+        }
+
       }
 
       codec_infos = g_list_append (codec_infos, gst_codec_info);
@@ -1133,7 +1194,7 @@ scan_codecs (GstPlugin * plugin)
     jobject codec_info = NULL;
     jclass codec_info_class = NULL;
     jmethodID get_capabilities_for_type_id, get_name_id;
-    jmethodID get_supported_types_id, is_encoder_id, is_feature_supported_id;
+    jmethodID get_supported_types_id, is_encoder_id;
     jobject name = NULL;
     const gchar *name_str = NULL;
     jboolean is_encoder;
@@ -1299,6 +1360,7 @@ scan_codecs (GstPlugin * plugin)
 
     for (j = 0; j < n_supported_types; j++) {
       GstAmcCodecType *gst_codec_type;
+      gint feature_idx = 0;
       jobject supported_type = NULL;
       gchar *supported_type_str = NULL;
       jobject capabilities = NULL;
@@ -1347,32 +1409,14 @@ scan_codecs (GstPlugin * plugin)
         goto next_supported_type;
       }
 
-
-      is_feature_supported_id =
-          (*env)->GetMethodID (env, capabilities_class, "isFeatureSupported",
-          "(Ljava/lang/String;)Z");
-
-      if (is_feature_supported_id) {
-        gboolean adaptivePlaybackSupported;
-        jstring jtmpstr;
-
-        jtmpstr = (*env)->NewStringUTF (env, "adaptive-playback");
-        adaptivePlaybackSupported =
-            (*env)->CallBooleanMethod (env, capabilities,
-            is_feature_supported_id, jtmpstr);
-        if ((*env)->ExceptionCheck (env)) {
-          GST_ERROR
-              ("Caught exception on quering if adaptive-playback is supported");
-          (*env)->ExceptionClear (env);
-        }
-        J_DELETE_LOCAL_REF (jtmpstr);
-        GST_ERROR
-            ("&&& Codec %s: adaptive-playback %ssupported",
-            name_str, adaptivePlaybackSupported ? "" : "not ");
-      } else {
-        GST_ERROR ("&&& isFeatureSupported not found ");
+      gst_codec_type->features = g_new0 (GstAmcCodecFeature, FEATURE_COUNT);
+      gst_codec_type->n_features = FEATURE_COUNT;
+      while (features_to_check[feature_idx]) {
+        gst_amc_get_codec_feature (env, capabilities_class,
+            features_to_check[feature_idx],
+            &gst_codec_type->features[feature_idx], capabilities);
+        feature_idx++;
       }
-
 
       color_formats_id =
           (*env)->GetFieldID (env, capabilities_class, "colorFormats", "[I");
@@ -1553,6 +1597,8 @@ scan_codecs (GstPlugin * plugin)
         g_free (gst_codec_type->mime);
         g_free (gst_codec_type->color_formats);
         g_free (gst_codec_type->profile_levels);
+        g_free (gst_codec_type->features);
+
       }
       g_free (gst_codec_info->supported_types);
       g_free (gst_codec_info->name);
@@ -1595,10 +1641,13 @@ scan_codecs (GstPlugin * plugin)
         GstStructure *sts = gst_structure_empty_new ("gst-amc-supported-type");
         GValue stv = { 0, };
         GValue tmparr = { 0, };
+        GValue farr = { 0, };
         gint j;
 
         gst_structure_set (sts, "mime", G_TYPE_STRING, gst_codec_type->mime,
             NULL);
+
+        g_value_init (&farr, GST_TYPE_ARRAY);
 
         g_value_init (&tmparr, GST_TYPE_ARRAY);
         for (j = 0; j < gst_codec_type->n_color_formats; j++) {
@@ -1628,6 +1677,28 @@ scan_codecs (GstPlugin * plugin)
           g_value_unset (&tmparr2);
         }
         gst_structure_set_value (sts, "profile-levels", &tmparr);
+
+        for (j = 0; j < gst_codec_type->n_features; j++) {
+          GstAmcCodecFeature *feature = &gst_codec_type->features[j];
+          GstStructure *fs = gst_structure_empty_new ("gst-amc-codec-feature");
+          GValue fv = { 0, };
+
+          gst_structure_set (fs, "name", G_TYPE_STRING, feature->name, NULL);
+
+          gst_structure_set (fs, "supported", G_TYPE_BOOLEAN,
+              feature->supported, NULL);
+
+          gst_structure_set (fs, "required", G_TYPE_BOOLEAN,
+              feature->required, NULL);
+
+          g_value_init (&fv, GST_TYPE_STRUCTURE);
+          gst_value_set_structure (&fv, fs);
+          gst_value_array_append_value (&farr, &fv);
+          gst_structure_free (fs);
+        }
+
+        gst_structure_set_value (sts, "features", &farr);
+        g_value_unset (&farr);
 
         g_value_init (&stv, GST_TYPE_STRUCTURE);
         gst_value_set_structure (&stv, sts);
@@ -2124,26 +2195,39 @@ gst_amc_audio_channel_mask_to_positions (guint32 channel_mask, gint channels)
 
 
 static gchar *
-create_type_name (const gchar * parent_name, const gchar * codec_name)
+create_type_name (const gchar * parent_name, const gchar * codec_name,
+    const gchar * mime_name)
 {
   gchar *typified_name;
   gint i, k;
   gint parent_name_len = strlen (parent_name);
   gint codec_name_len = strlen (codec_name);
+  gint mime_name_len = strlen (mime_name);
+  gint typified_name_len = 0;
   gboolean upper = TRUE;
 
-  typified_name = g_new0 (gchar, parent_name_len + 1 + strlen (codec_name) + 1);
+  /* Calculate total len skipping non-alnum */
+  typified_name_len =
+      parent_name_len + 1 + codec_name_len + 1 + mime_name_len + 1;
+
+  for (i = 0; i < codec_name_len; i++)
+    if (!g_ascii_isalnum (codec_name[i]))
+      typified_name_len--;
+
+  for (i = 0; i < mime_name_len; i++)
+    if (!g_ascii_isalnum (mime_name[i]))
+      typified_name_len--;
+
+  typified_name = g_new0 (gchar, typified_name_len);
   memcpy (typified_name, parent_name, parent_name_len);
   typified_name[parent_name_len] = '-';
 
-  for (i = 0, k = 0; i < codec_name_len; i++) {
+  for (i = 0, k = parent_name_len + 1; i < codec_name_len; i++) {
     if (g_ascii_isalnum (codec_name[i])) {
       if (upper)
-        typified_name[parent_name_len + 1 + k++] =
-            g_ascii_toupper (codec_name[i]);
+        typified_name[k++] = g_ascii_toupper (codec_name[i]);
       else
-        typified_name[parent_name_len + 1 + k++] =
-            g_ascii_tolower (codec_name[i]);
+        typified_name[k++] = g_ascii_tolower (codec_name[i]);
 
       upper = FALSE;
     } else {
@@ -2152,11 +2236,27 @@ create_type_name (const gchar * parent_name, const gchar * codec_name)
     }
   }
 
+  upper = TRUE;
+  typified_name[k++] = '-';
+  for (i = 0; i < mime_name_len; i++) {
+    if (g_ascii_isalnum (mime_name[i])) {
+      if (upper)
+        typified_name[k++] = g_ascii_toupper (mime_name[i]);
+      else
+        typified_name[k++] = g_ascii_tolower (mime_name[i]);
+
+      upper = FALSE;
+    } else {
+      upper = TRUE;
+    }
+  }
+
   return typified_name;
 }
 
 static gchar *
-create_element_name (gboolean video, gboolean encoder, const gchar * codec_name)
+create_element_name (gboolean video, gboolean encoder, const gchar * codec_name,
+    const gchar * mime_name)
 {
 #define PREFIX_LEN 10
   static const gchar *prefixes[] = {
@@ -2168,6 +2268,8 @@ create_element_name (gboolean video, gboolean encoder, const gchar * codec_name)
   gchar *element_name;
   gint i, k;
   gint codec_name_len = strlen (codec_name);
+  gint mime_name_len = strlen (mime_name);
+  gint element_name_len = 0;
   const gchar *prefix;
 
   if (video && !encoder)
@@ -2179,15 +2281,34 @@ create_element_name (gboolean video, gboolean encoder, const gchar * codec_name)
   else
     prefix = prefixes[3];
 
-  element_name = g_new0 (gchar, PREFIX_LEN + strlen (codec_name) + 1);
+  element_name_len = PREFIX_LEN + codec_name_len + mime_name_len + 2;
+
+  for (i = 0; i < codec_name_len; i++)
+    if (!g_ascii_isalnum (codec_name[i]))
+      element_name_len--;
+
+  for (i = 0; i < mime_name_len; i++)
+    if (!g_ascii_isalnum (mime_name[i]))
+      element_name_len--;
+
+  element_name = g_new0 (gchar, element_name_len);
   memcpy (element_name, prefix, PREFIX_LEN);
 
-  for (i = 0, k = 0; i < codec_name_len; i++) {
+  for (i = 0, k = PREFIX_LEN; i < codec_name_len; i++) {
     if (g_ascii_isalnum (codec_name[i])) {
-      element_name[PREFIX_LEN + k++] = g_ascii_tolower (codec_name[i]);
+      element_name[k++] = g_ascii_tolower (codec_name[i]);
     }
     /* Skip all non-alnum chars */
   }
+
+  element_name[k++] = '-';
+  for (i = 0; i < mime_name_len; i++) {
+    if (g_ascii_isalnum (mime_name[i])) {
+      element_name[k++] = g_ascii_tolower (mime_name[i]);
+    }
+  }
+
+  element_name[k] = '\0';
 
   return element_name;
 }
@@ -2199,38 +2320,32 @@ register_codecs (GstPlugin * plugin)
 {
   gboolean ret = TRUE;
   GList *l;
+  gint i;
 
   GST_DEBUG ("Registering plugins");
 
   for (l = codec_infos; l; l = l->next) {
     GstAmcCodecInfo *codec_info = l->data;
-    gboolean is_audio = FALSE;
-    gboolean is_video = FALSE;
-    gint i;
-    gint n_types;
 
-    GST_DEBUG ("Registering codec '%s'", codec_info->name);
     for (i = 0; i < codec_info->n_supported_types; i++) {
       GstAmcCodecType *codec_type = &codec_info->supported_types[i];
+      GstAmcRegisteredCodec *registered_codec;
+      gboolean is_audio = FALSE;
+      gboolean is_video = FALSE;
 
-      if (g_str_has_prefix (codec_type->mime, "audio/"))
-        is_audio = TRUE;
-      else if (g_str_has_prefix (codec_type->mime, "video/"))
-        is_video = TRUE;
-    }
-
-    n_types = 0;
-    if (is_audio)
-      n_types++;
-    if (is_video)
-      n_types++;
-
-    for (i = 0; i < n_types; i++) {
       GTypeQuery type_query;
       GTypeInfo type_info = { 0, };
       GType type, subtype;
       gchar *type_name, *element_name;
       guint rank;
+
+      GST_DEBUG ("Registering codec '%s' with mime type %s", codec_info->name,
+          codec_type->mime);
+
+      if (g_str_has_prefix (codec_type->mime, "audio/"))
+        is_audio = TRUE;
+      else if (g_str_has_prefix (codec_type->mime, "video/"))
+        is_video = TRUE;
 
       if (is_video && !codec_info->is_encoder) {
         type = gst_amc_video_dec_get_type ();
@@ -2245,23 +2360,39 @@ register_codecs (GstPlugin * plugin)
       memset (&type_info, 0, sizeof (type_info));
       type_info.class_size = type_query.class_size;
       type_info.instance_size = type_query.instance_size;
-      type_name = create_type_name (type_query.type_name, codec_info->name);
+      type_name =
+          create_type_name (type_query.type_name, codec_info->name,
+          codec_type->mime);
 
       if (g_type_from_name (type_name) != G_TYPE_INVALID) {
-        GST_ERROR ("Type '%s' already exists for codec '%s'", type_name,
-            codec_info->name);
+        GST_ERROR ("Type '%s' already exists for codec '%s' with mime %s",
+            type_name, codec_info->name, codec_type->mime);
         g_free (type_name);
         continue;
       }
 
-      subtype = g_type_register_static (type, type_name, &type_info, 0);
+      registered_codec = g_new0 (GstAmcRegisteredCodec, 1);
+      registered_codec->codec_info = codec_info;
+      registered_codec->codec_type = codec_type;
+      registered_codecs = g_list_append (registered_codecs, registered_codec);
+
+      if (is_video && !codec_info->is_encoder) {
+        /* subtype class_init will set the features in regsitered_codec properties */
+        subtype =
+            g_type_register_static_simple (type, type_name,
+            type_query.class_size, gst_amc_video_dec_dynamic_class_init,
+            type_query.instance_size, NULL, 0);
+      } else {
+        subtype = g_type_register_static (type, type_name, &type_info, 0);
+      }
+
       g_free (type_name);
 
-      g_type_set_qdata (subtype, gst_amc_codec_info_quark, codec_info);
+      g_type_set_qdata (subtype, gst_amc_codec_info_quark, registered_codec);
 
       element_name =
           create_element_name (is_video, codec_info->is_encoder,
-          codec_info->name);
+          codec_info->name, codec_type->mime);
 
       /* Give the Google software codec a secondary rank,
        * everything else is likely a hardware codec, except
@@ -2272,23 +2403,8 @@ register_codecs (GstPlugin * plugin)
       else
         rank = GST_RANK_PRIMARY;
 
-      /* FIXME: this should be done looking at the codec feature and it
-       * needs to create one element for each supported mime in the codec
-       * as each mime could support or not some features
-       * In the practice venders splits the codec in regular, tunneled and secure */
-      /* Give the tunneled decoder a rank lower than the non-tunneled */
-      if (g_str_has_suffix (codec_info->name, "tunneled")) {
-        rank = rank - 1;
-      }
-      /* Give the secure decoder a rank lower than the non-secure */
-      if (g_str_has_suffix (codec_info->name, "secure")) {
-        rank = rank - 2;
-      }
-
       ret |= gst_element_register (plugin, element_name, rank, subtype);
       g_free (element_name);
-
-      is_video = FALSE;
     }
   }
 

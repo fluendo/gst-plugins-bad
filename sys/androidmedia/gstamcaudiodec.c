@@ -79,175 +79,171 @@ GST_BOILERPLATE_FULL (GstAmcAudioDec, gst_amc_audio_dec, GstAudioDecoder,
     GST_TYPE_AUDIO_DECODER, DEBUG_INIT);
 
 static GstCaps *
-create_sink_caps (const GstAmcCodecInfo * codec_info)
+create_sink_caps (const GstAmcRegisteredCodec * registered_codec)
 {
   GstCaps *ret;
-  gint i;
+  const GstAmcCodecType *type = registered_codec->codec_type;
 
   ret = gst_caps_new_empty ();
 
-  for (i = 0; i < codec_info->n_supported_types; i++) {
-    const GstAmcCodecType *type = &codec_info->supported_types[i];
-    if (strcmp (type->mime, "audio/ac3") == 0) {
-      GstStructure *tmp;
+  if (strcmp (type->mime, "audio/ac3") == 0) {
+    GstStructure *tmp;
 
-      tmp = gst_structure_new ("audio/x-ac3",
-          "rate", GST_TYPE_INT_RANGE, 8000, 48000,
-          "channels", GST_TYPE_INT_RANGE, 1, 6,
-          "framed", G_TYPE_BOOLEAN, TRUE, NULL);
-      gst_caps_merge_structure (ret, tmp);
+    tmp = gst_structure_new ("audio/x-ac3",
+        "rate", GST_TYPE_INT_RANGE, 8000, 48000,
+        "channels", GST_TYPE_INT_RANGE, 1, 6,
+        "framed", G_TYPE_BOOLEAN, TRUE, NULL);
+    gst_caps_merge_structure (ret, tmp);
 
-      /* Add also audio/x-ac3-encrypted */
-      gst_caps_merge_structure (ret,
-          gst_structure_new ("audio/x-ac3-encrypted",
-              "rate", GST_TYPE_INT_RANGE, 8000, 48000,
-              "channels", GST_TYPE_INT_RANGE, 1, 6,
-              "framed", G_TYPE_BOOLEAN, TRUE, NULL));
-    } else if (strcmp (type->mime, "audio/eac3") == 0) {
-      GstStructure *tmp;
+    /* Add also audio/x-ac3-encrypted */
+    gst_caps_merge_structure (ret,
+        gst_structure_new ("audio/x-ac3-encrypted",
+            "rate", GST_TYPE_INT_RANGE, 8000, 48000,
+            "channels", GST_TYPE_INT_RANGE, 1, 6,
+            "framed", G_TYPE_BOOLEAN, TRUE, NULL));
+  } else if (strcmp (type->mime, "audio/eac3") == 0) {
+    GstStructure *tmp;
 
-      tmp = gst_structure_new ("audio/x-eac3",
-          "rate", GST_TYPE_INT_RANGE, 8000, 48000,
-          "channels", GST_TYPE_INT_RANGE, 1, 6,
-          "framed", G_TYPE_BOOLEAN, TRUE, NULL);
-      gst_caps_merge_structure (ret, tmp);
+    tmp = gst_structure_new ("audio/x-eac3",
+        "rate", GST_TYPE_INT_RANGE, 8000, 48000,
+        "channels", GST_TYPE_INT_RANGE, 1, 6,
+        "framed", G_TYPE_BOOLEAN, TRUE, NULL);
+    gst_caps_merge_structure (ret, tmp);
 
-      /* Add also audio/x-eac3-encrypted */
-      gst_caps_merge_structure (ret,
-          gst_structure_new ("audio/x-eac3-encrypted",
-              "rate", GST_TYPE_INT_RANGE, 8000, 48000,
-              "channels", GST_TYPE_INT_RANGE, 1, 6,
-              "framed", G_TYPE_BOOLEAN, TRUE, NULL));
-    } else
+    /* Add also audio/x-eac3-encrypted */
+    gst_caps_merge_structure (ret,
+        gst_structure_new ("audio/x-eac3-encrypted",
+            "rate", GST_TYPE_INT_RANGE, 8000, 48000,
+            "channels", GST_TYPE_INT_RANGE, 1, 6,
+            "framed", G_TYPE_BOOLEAN, TRUE, NULL));
+  } else
 #if 0                           /* decoding of mp3 is disabled due to GST-27. */
-    if (strcmp (type->mime, "audio/mpeg") == 0) {
-      GstStructure *tmp;
+  if (strcmp (type->mime, "audio/mpeg") == 0) {
+    GstStructure *tmp;
 
-      tmp = gst_structure_new ("audio/mpeg",
-          "mpegversion", G_TYPE_INT, 1,
-          "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
-          "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT,
-          "parsed", G_TYPE_BOOLEAN, TRUE, NULL);
-      gst_caps_merge_structure (ret, tmp);
-    } else
+    tmp = gst_structure_new ("audio/mpeg",
+        "mpegversion", G_TYPE_INT, 1,
+        "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
+        "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT,
+        "parsed", G_TYPE_BOOLEAN, TRUE, NULL);
+    gst_caps_merge_structure (ret, tmp);
+  } else
 #endif
-    if (strcmp (type->mime, "audio/3gpp") == 0) {
-      GstStructure *tmp;
+  if (strcmp (type->mime, "audio/3gpp") == 0) {
+    GstStructure *tmp;
 
-      tmp = gst_structure_new ("audio/AMR",
-          "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
-          "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT, NULL);
-      gst_caps_merge_structure (ret, tmp);
-    } else if (strcmp (type->mime, "audio/amr-wb") == 0) {
-      GstStructure *tmp;
+    tmp = gst_structure_new ("audio/AMR",
+        "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
+        "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT, NULL);
+    gst_caps_merge_structure (ret, tmp);
+  } else if (strcmp (type->mime, "audio/amr-wb") == 0) {
+    GstStructure *tmp;
 
-      tmp = gst_structure_new ("audio/AMR-WB",
-          "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
-          "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT, NULL);
-      gst_caps_merge_structure (ret, tmp);
-    } else if (strcmp (type->mime, "audio/mp4a-latm") == 0) {
-      gint j;
-      GstStructure *tmp, *tmp2;
-      gboolean have_profile = FALSE;
-      GValue va = { 0 };
-      GValue v = { 0 };
-      GValue mpegvers = { 0 };
-      GValue mpegver = { 0 };
+    tmp = gst_structure_new ("audio/AMR-WB",
+        "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
+        "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT, NULL);
+    gst_caps_merge_structure (ret, tmp);
+  } else if (strcmp (type->mime, "audio/mp4a-latm") == 0) {
+    gint j;
+    GstStructure *tmp, *tmp2;
+    gboolean have_profile = FALSE;
+    GValue va = { 0 };
+    GValue v = { 0 };
+    GValue mpegvers = { 0 };
+    GValue mpegver = { 0 };
 
-      g_value_init (&mpegvers, GST_TYPE_LIST);
-      g_value_init (&mpegver, G_TYPE_INT);
+    g_value_init (&mpegvers, GST_TYPE_LIST);
+    g_value_init (&mpegver, G_TYPE_INT);
 
-      g_value_init (&va, GST_TYPE_LIST);
-      g_value_init (&v, G_TYPE_STRING);
+    g_value_init (&va, GST_TYPE_LIST);
+    g_value_init (&v, G_TYPE_STRING);
 
-      g_value_set_string (&v, "raw");
-      gst_value_list_append_value (&va, &v);
-      g_value_set_string (&v, "adts");
-      gst_value_list_append_value (&va, &v);
-      g_value_unset (&v);
+    g_value_set_string (&v, "raw");
+    gst_value_list_append_value (&va, &v);
+    g_value_set_string (&v, "adts");
+    gst_value_list_append_value (&va, &v);
+    g_value_unset (&v);
 
-      g_value_set_int (&mpegver, 2);
-      gst_value_list_append_value (&mpegvers, &mpegver);
-      g_value_set_int (&mpegver, 4);
-      gst_value_list_append_value (&mpegvers, &mpegver);
+    g_value_set_int (&mpegver, 2);
+    gst_value_list_append_value (&mpegvers, &mpegver);
+    g_value_set_int (&mpegver, 4);
+    gst_value_list_append_value (&mpegvers, &mpegver);
 
-      tmp = gst_structure_new ("audio/mpeg",
-          "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
-          "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT,
-          "framed", G_TYPE_BOOLEAN, TRUE, NULL);
+    tmp = gst_structure_new ("audio/mpeg",
+        "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
+        "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT,
+        "framed", G_TYPE_BOOLEAN, TRUE, NULL);
 
-      gst_structure_set_value (tmp, "mpegversion", &mpegvers);
-      g_value_unset (&mpegvers);
+    gst_structure_set_value (tmp, "mpegversion", &mpegvers);
+    g_value_unset (&mpegvers);
 
-      gst_structure_set_value (tmp, "stream-format", &va);
-      g_value_unset (&va);
+    gst_structure_set_value (tmp, "stream-format", &va);
+    g_value_unset (&va);
 
-      for (j = 0; j < type->n_profile_levels; j++) {
-        const gchar *profile;
+    for (j = 0; j < type->n_profile_levels; j++) {
+      const gchar *profile;
 
-        profile =
-            gst_amc_aac_profile_to_string (type->profile_levels[j].profile);
+      profile = gst_amc_aac_profile_to_string (type->profile_levels[j].profile);
 
-        if (!profile) {
-          GST_ERROR ("Unable to map AAC profile 0x%08x",
-              type->profile_levels[j].profile);
-          continue;
-        }
-
-        tmp2 = gst_structure_copy (tmp);
-        gst_structure_set (tmp2, "profile", G_TYPE_STRING, profile, NULL);
-        gst_caps_merge_structure (ret, tmp2);
-
-        have_profile = TRUE;
+      if (!profile) {
+        GST_ERROR ("Unable to map AAC profile 0x%08x",
+            type->profile_levels[j].profile);
+        continue;
       }
 
-      if (!have_profile) {
-        gst_caps_merge_structure (ret, tmp);
-      } else {
-        gst_structure_free (tmp);
-      }
-    } else if (strcmp (type->mime, "audio/g711-alaw") == 0) {
-      GstStructure *tmp;
+      tmp2 = gst_structure_copy (tmp);
+      gst_structure_set (tmp2, "profile", G_TYPE_STRING, profile, NULL);
+      gst_caps_merge_structure (ret, tmp2);
 
-      tmp = gst_structure_new ("audio/x-alaw",
-          "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
-          "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT, NULL);
-      gst_caps_merge_structure (ret, tmp);
-    } else if (strcmp (type->mime, "audio/g711-mlaw") == 0) {
-      GstStructure *tmp;
+      have_profile = TRUE;
+    }
 
-      tmp = gst_structure_new ("audio/x-mulaw",
-          "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
-          "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT, NULL);
-      gst_caps_merge_structure (ret, tmp);
-    } else if (strcmp (type->mime, "audio/vorbis") == 0) {
-      GstStructure *tmp;
-
-      tmp = gst_structure_new ("audio/x-vorbis",
-          "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
-          "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT, NULL);
-      gst_caps_merge_structure (ret, tmp);
-    } else if (strcmp (type->mime, "audio/flac") == 0) {
-      GstStructure *tmp;
-
-      tmp = gst_structure_new ("audio/x-flac",
-          "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
-          "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT,
-          "framed", G_TYPE_BOOLEAN, TRUE, NULL);
-      gst_caps_merge_structure (ret, tmp);
-    } else if (strcmp (type->mime, "audio/mpeg-L2") == 0) {
-      GstStructure *tmp;
-
-      tmp = gst_structure_new ("audio/mpeg",
-          "mpegversion", G_TYPE_INT, 1,
-          "layer", G_TYPE_INT, 2,
-          "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
-          "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT,
-          "parsed", G_TYPE_BOOLEAN, TRUE, NULL);
+    if (!have_profile) {
       gst_caps_merge_structure (ret, tmp);
     } else {
-      GST_WARNING ("Unsupported mimetype '%s'", type->mime);
+      gst_structure_free (tmp);
     }
+  } else if (strcmp (type->mime, "audio/g711-alaw") == 0) {
+    GstStructure *tmp;
+
+    tmp = gst_structure_new ("audio/x-alaw",
+        "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
+        "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT, NULL);
+    gst_caps_merge_structure (ret, tmp);
+  } else if (strcmp (type->mime, "audio/g711-mlaw") == 0) {
+    GstStructure *tmp;
+
+    tmp = gst_structure_new ("audio/x-mulaw",
+        "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
+        "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT, NULL);
+    gst_caps_merge_structure (ret, tmp);
+  } else if (strcmp (type->mime, "audio/vorbis") == 0) {
+    GstStructure *tmp;
+
+    tmp = gst_structure_new ("audio/x-vorbis",
+        "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
+        "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT, NULL);
+    gst_caps_merge_structure (ret, tmp);
+  } else if (strcmp (type->mime, "audio/flac") == 0) {
+    GstStructure *tmp;
+
+    tmp = gst_structure_new ("audio/x-flac",
+        "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
+        "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT,
+        "framed", G_TYPE_BOOLEAN, TRUE, NULL);
+    gst_caps_merge_structure (ret, tmp);
+  } else if (strcmp (type->mime, "audio/mpeg-L2") == 0) {
+    GstStructure *tmp;
+
+    tmp = gst_structure_new ("audio/mpeg",
+        "mpegversion", G_TYPE_INT, 1,
+        "layer", G_TYPE_INT, 2,
+        "rate", GST_TYPE_INT_RANGE, 1, G_MAXINT,
+        "channels", GST_TYPE_INT_RANGE, 1, G_MAXINT,
+        "parsed", G_TYPE_BOOLEAN, TRUE, NULL);
+    gst_caps_merge_structure (ret, tmp);
+  } else {
+    GST_WARNING ("Unsupported mimetype '%s'", type->mime);
   }
 
   // Append the x-cenc caps
@@ -318,7 +314,7 @@ caps_to_mime (GstCaps * caps)
 }
 
 static GstCaps *
-create_src_caps (const GstAmcCodecInfo * codec_info)
+create_src_caps (const GstAmcRegisteredCodec * registered_codec)
 {
   GstCaps *ret;
 
@@ -338,35 +334,36 @@ gst_amc_audio_dec_base_init (gpointer g_class)
 {
   GstElementClass *element_class = GST_ELEMENT_CLASS (g_class);
   GstAmcAudioDecClass *audiodec_class = GST_AMC_AUDIO_DEC_CLASS (g_class);
-  const GstAmcCodecInfo *codec_info;
+  const GstAmcRegisteredCodec *registered_codec;
   GstPadTemplate *templ;
   GstCaps *caps;
   gchar *longname;
 
-  codec_info =
+  registered_codec =
       g_type_get_qdata (G_TYPE_FROM_CLASS (g_class), gst_amc_codec_info_quark);
   /* This happens for the base class and abstract subclasses */
-  if (!codec_info)
+  if (!registered_codec)
     return;
 
-  audiodec_class->codec_info = codec_info;
+  audiodec_class->registered_codec = registered_codec;
 
   /* Add pad templates */
-  caps = create_sink_caps (codec_info);
+  caps = create_sink_caps (registered_codec);
   templ = gst_pad_template_new ("sink", GST_PAD_SINK, GST_PAD_ALWAYS, caps);
   gst_element_class_add_pad_template (element_class, templ);
   gst_object_unref (templ);
 
-  caps = create_src_caps (codec_info);
+  caps = create_src_caps (registered_codec);
   templ = gst_pad_template_new ("src", GST_PAD_SRC, GST_PAD_ALWAYS, caps);
   gst_element_class_add_pad_template (element_class, templ);
   gst_object_unref (templ);
 
-  longname = g_strdup_printf ("Android MediaCodec %s", codec_info->name);
+  longname =
+      g_strdup_printf ("Android MediaCodec %s",
+      registered_codec->codec_info->name);
   gst_element_class_set_details_simple (element_class,
-      codec_info->name,
-      "Codec/Decoder/Audio",
-      longname, "Sebastian Dröge <sebastian.droege@collabora.co.uk>");
+      registered_codec->codec_info->name, "Codec/Decoder/Audio", longname,
+      "Sebastian Dröge <sebastian.droege@collabora.co.uk>");
   g_free (longname);
 }
 
@@ -494,9 +491,11 @@ gst_amc_audio_dec_init (GstAmcAudioDec * self, GstAmcAudioDecClass * klass)
   self->drain_cond = g_cond_new ();
   self->inband_drm_enabled = GST_AMC_DRM_DEFAULT_INBAND_DRM_ENABLED;
   self->sync_mode =
-      g_str_has_prefix (klass->codec_info->name, "OMX.MTK.AUDIO.DECODER");
+      g_str_has_prefix (klass->registered_codec->codec_info->name,
+      "OMX.MTK.AUDIO.DECODER");
   self->skip_first_out_buffer =
-      !g_strcmp0 (klass->codec_info->name, "OMX.google.mp3.decoder");
+      !g_strcmp0 (klass->registered_codec->codec_info->name,
+      "OMX.google.mp3.decoder");
 }
 
 static gboolean
@@ -507,7 +506,7 @@ gst_amc_audio_dec_open (GstAudioDecoder * decoder)
 
   GST_ERROR_OBJECT (self, "Occupying audio decoder");
 
-  self->codec = gst_amc_codec_new (klass->codec_info->name);
+  self->codec = gst_amc_codec_new (klass->registered_codec->codec_info->name);
   if (!self->codec)
     return FALSE;
   self->started = FALSE;

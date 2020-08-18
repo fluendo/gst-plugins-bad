@@ -107,11 +107,15 @@ struct _GstAmcVideoDecClass
 {
   GstVideoDecoderClass parent_class;
 
-  const GstAmcCodecInfo *codec_info;
+  const GstAmcRegisteredCodec *registered_codec;
+
   gboolean direct_rendering;
 };
 
 GType gst_amc_video_dec_get_type (void);
+
+/* Allows types derived from AMCVideoDec to have specific Android feature props*/
+void gst_amc_video_dec_dynamic_class_init (gpointer klass, gpointer class_data);
 
 G_END_DECLS
 #endif /* __GST_AMC_VIDEO_DEC_H__ */
