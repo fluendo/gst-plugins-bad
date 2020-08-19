@@ -558,6 +558,9 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
     case PROP_AUDIO_SESSION_ID:
       thiz->audio_session_id = g_value_get_int (value);
       break;
+    case PROP_ADAPTIVE_PLAYBACK:
+      thiz->enable_adaptive_playback = g_value_get_boolean (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
