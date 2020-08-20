@@ -383,8 +383,8 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
       J_DELETE_LOCAL_REF (codec_info);
     }
 
-    gst_amc_format_set_int (format, "max-height", max_height);
-    gst_amc_format_set_int (format, "max-width", max_width);
+    gst_amc_format_set_int (format, "max-height", 1080);
+    gst_amc_format_set_int (format, "max-width", 1920);
     gst_amc_format_set_int (format, "adaptive-playback", 1);
     enabled = TRUE;
   }
