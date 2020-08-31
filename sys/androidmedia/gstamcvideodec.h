@@ -52,6 +52,7 @@ struct _GstAmcVideoDec
 
   /* Properties */
   gint audio_session_id;
+  gboolean enable_adaptive_playback;
 
   /* < private > */
   GstAmcCodec *codec;
