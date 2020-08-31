@@ -51,6 +51,7 @@
 G_BEGIN_DECLS
 
 #define GST_AMC_DRM_DEFAULT_INBAND_DRM_ENABLED TRUE
+#define GST_AMC_DEFAULT_ADAPTIVE_PLAYBACK_ENABLED TRUE
 
 /* Opaque class */
 typedef struct _GstAmcCrypto GstAmcCrypto;

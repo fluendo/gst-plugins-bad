@@ -556,6 +556,9 @@ gst_amc_video_dec_get_property (GObject * object, guint prop_id, GValue * value,
        * and for now we can only achieve it in android using GST_ERROR */
       GST_ERROR_OBJECT (object, "audio_session_id=%d", thiz->audio_session_id);
       break;
+    case PROP_ADAPTIVE_PLAYBACK:
+      g_value_set_boolean (value, thiz->enable_adaptive_playback);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -584,8 +587,7 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
       thiz->audio_session_id = g_value_get_int (value);
       break;
     case PROP_ADAPTIVE_PLAYBACK:
-    case PROP_SECURE_PLAYBACK:
-      GST_ERROR_OBJECT (object, "property not implemented prop_id=%d", prop_id);
+      thiz->enable_adaptive_playback = g_value_get_boolean (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -675,6 +677,13 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
           "Audio Session ID for tunneled video playback",
           0, G_MAXINT, 0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  g_object_class_install_property (gobject_class, PROP_ADAPTIVE_PLAYBACK,
+      g_param_spec_boolean ("adaptive-playback",
+          "adaptive-playack Enable/Disable",
+          "Enables or disables video decoding adaptive-playback",
+          GST_AMC_DEFAULT_ADAPTIVE_PLAYBACK_ENABLED,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
   g_object_class_install_property (gobject_class, PROP_ENABLE_INBAND_DRM,
       g_param_spec_boolean ("enable-inband-drm", "Enable inband DRM",
           "Allow or not inband proccessing of DRM event",
@@ -734,6 +743,7 @@ gst_amc_video_dec_init (GstAmcVideoDec * self, GstAmcVideoDecClass * klass)
   self->drain_cond = g_cond_new ();
 
   self->inband_drm_enabled = GST_AMC_DRM_DEFAULT_INBAND_DRM_ENABLED;
+  self->enable_adaptive_playback = GST_AMC_DEFAULT_ADAPTIVE_PLAYBACK_ENABLED;
 }
 
 static gboolean
@@ -1732,7 +1742,8 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
         "audio session id:%d", format_string, jsurface, self->audio_session_id);
     g_free (format_string);
     if (!gst_amc_codec_configure (self->codec, format, jsurface,
-            self->drm_ctx, 0, self->audio_session_id)) {
+            self->drm_ctx, 0, self->audio_session_id,
+            self->enable_adaptive_playback)) {
       GST_ERROR_OBJECT (self, "Failed to configure codec");
       gst_amc_format_free (format);
       return FALSE;

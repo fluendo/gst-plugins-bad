@@ -433,7 +433,8 @@ gst_amc_codec_enable_tunneled_video_playback (GstAmcCodec * codec,
 
 gboolean
 gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
-    guint8 * surface, GstAmcCrypto * drm_ctx, gint flags, gint audio_session_id)
+    guint8 * surface, GstAmcCrypto * drm_ctx, gint flags,
+    gint audio_session_id, gboolean enable_adaptive_playback)
 {
   gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
@@ -446,7 +447,9 @@ gst_amc_codec_configure (GstAmcCodec * codec, GstAmcFormat * format,
     gst_amc_format_set_int (format, "secure-playback", 1);
   }
 
-  gst_amc_codec_enable_adaptive_playback (codec, format);
+  if (enable_adaptive_playback)
+    gst_amc_codec_enable_adaptive_playback (codec, format);
+
   if (audio_session_id) {
     GST_DEBUG ("Enabling tunneled playback with session id %d",
         audio_session_id);
