@@ -102,6 +102,7 @@ struct _GstAmcVideoDec
   gint cached_input_buffer;
 
   GstCaps *x_amc_empty_caps;
+  gboolean tunneled_mode_force_preroll;
 };
 
 struct _GstAmcVideoDecClass
@@ -110,6 +111,7 @@ struct _GstAmcVideoDecClass
 
   const GstAmcRegisteredCodec *registered_codec;
 
+  void (*tunneled_mode_force_preroll) (GstAmcVideoDec * demux);
   gboolean direct_rendering;
 };
 

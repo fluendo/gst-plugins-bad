@@ -82,6 +82,14 @@ enum
   PROP_ENABLE_INBAND_DRM
 };
 
+enum
+{
+  SIGNAL_TUNNELED_MODE_FORCE_PREROLL,
+  LAST_SIGNAL
+};
+
+static guint gst_amcvideodec_signals[LAST_SIGNAL] = { 0 };
+
 /* class initialization */
 
 #define DEBUG_INIT(bla) \
@@ -633,6 +641,15 @@ gst_amc_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
 }
 
 static void
+gst_amcvideodec_tunneled_mode_force_preroll (GstAmcVideoDec * self)
+{
+  GST_INFO_OBJECT (self, "Tunneled: signalled to force preroll");
+
+  self->tunneled_mode_force_preroll = TRUE;
+}
+
+
+static void
 gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
@@ -720,8 +737,18 @@ gst_amc_video_dec_class_init (GstAmcVideoDecClass * klass)
               features[FEATURE_TUNNELED_PLAYBACK].required ? G_PARAM_READABLE :
               G_PARAM_READWRITE));
     }
-
   }
+
+  /* FIXME: this should be under features[FEATURE_TUNNELED_PLAYBACK].available , but
+   * on some boards this code does not enter where it should */
+  klass->tunneled_mode_force_preroll =
+      gst_amcvideodec_tunneled_mode_force_preroll;
+
+  gst_amcvideodec_signals[SIGNAL_TUNNELED_MODE_FORCE_PREROLL] =
+      g_signal_new ("tunneled-mode-force-preroll",
+      G_TYPE_FROM_CLASS (klass), G_SIGNAL_RUN_LAST | G_SIGNAL_ACTION,
+      G_STRUCT_OFFSET (GstAmcVideoDecClass, tunneled_mode_force_preroll),
+      NULL, NULL, gst_marshal_VOID__VOID, G_TYPE_NONE, 0, G_TYPE_NONE);
 
   if (klass->registered_codec) {
     gchar *longname = g_strdup_printf ("Android MediaCodec %s",
@@ -1881,6 +1908,19 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
       switch (idx) {
         case INFO_TRY_AGAIN_LATER:
           GST_DEBUG_OBJECT (self, "Dequeueing input buffer timed out");
+
+          if (self->codec->tunneled_playback_enabled &&
+              self->tunneled_mode_force_preroll) {
+            GST_INFO_OBJECT (self, "Tunneled: sending one more dummy buffer"
+                " to guarantee preroll");
+            self->downstream_flow_ret =
+                gst_amc_video_dec_push_dummy (self, FALSE);
+            gst_video_decoder_release_frame (GST_VIDEO_DECODER (self),
+                gst_video_codec_frame_ref (frame));
+
+            self->tunneled_mode_force_preroll = FALSE;
+          }
+
           continue;             /* next try */
           break;
         case G_MININT:
