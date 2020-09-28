@@ -445,24 +445,6 @@ create_src_caps (const GstAmcRegisteredCodec * registered_codec,
   return ret;
 }
 
-static GstFlowReturn
-gst_amc_video_dec_push_dummy (GstAmcVideoDec * self, gboolean set_caps)
-{
-  GstBuffer *buf = gst_buffer_new ();
-  GstCaps *caps;
-
-  if (G_UNLIKELY (!self->x_amc_empty_caps)) {
-    self->x_amc_empty_caps = gst_caps_new_simple ("video/x-amc", NULL);
-  }
-
-  caps = self->x_amc_empty_caps;
-
-  if (set_caps)
-    gst_pad_set_caps (GST_VIDEO_DECODER (self)->srcpad, caps);
-  gst_buffer_set_caps (buf, caps);
-  GST_BUFFER_DATA (buf) = NULL;
-  return gst_pad_push (GST_VIDEO_DECODER (self)->srcpad, buf);
-}
 
 static void
 gst_amc_video_dec_base_init (gpointer g_class)
@@ -792,10 +774,6 @@ static void
 gst_amc_video_dec_finalize (GObject * object)
 {
   GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (object);
-  if (self->x_amc_empty_caps) {
-    gst_caps_unref (self->x_amc_empty_caps);
-    self->x_amc_empty_caps = NULL;
-  }
 
   gst_amc_drm_ctx_free (self->drm_ctx);
   self->drm_ctx = NULL;
@@ -1697,10 +1675,20 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
 
 #if USE_AMCVIDEOSINK
     if (klass->direct_rendering && self->surface == NULL) {
+      GstCaps *caps;
+      GstBuffer *buf;
+
       /* Exposes pads with decodebin with a dummy buffer to link with the sink
        * and get the surface */
       GST_INFO_OBJECT (self, "Sending a dummy buffer");
-      gst_amc_video_dec_push_dummy (self, TRUE);
+
+      buf = gst_buffer_new ();
+      caps = gst_caps_new_simple ("video/x-amc", NULL);
+      gst_pad_set_caps (GST_VIDEO_DECODER (self)->srcpad, caps);
+      gst_buffer_set_caps (buf, caps);
+      GST_BUFFER_DATA (buf) = NULL;
+      gst_pad_push (GST_VIDEO_DECODER (self)->srcpad, buf);
+
 
       if (self->surface == NULL) {
         GstQuery *query = gst_amc_query_new_surface ();
@@ -1836,12 +1824,6 @@ gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     GST_ERROR_OBJECT (self, "Got frame after EOS");
     gst_video_codec_frame_unref (frame);
     return GST_FLOW_UNEXPECTED;
-  }
-
-  if (self->codec->tunneled_playback_enabled) {
-    self->downstream_flow_ret = gst_amc_video_dec_push_dummy (self, FALSE);
-    gst_video_decoder_release_frame (GST_VIDEO_DECODER (self),
-        gst_video_codec_frame_ref (frame));
   }
 
   timestamp = frame->pts;
