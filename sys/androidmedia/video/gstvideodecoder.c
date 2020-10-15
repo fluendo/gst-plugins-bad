@@ -782,7 +782,8 @@ gst_video_decoder_finalize (GObject * object)
 
 /* hard == FLUSH, otherwise discont */
 static GstFlowReturn
-gst_video_decoder_flush (GstVideoDecoder * dec, gboolean hard)
+gst_video_decoder_flush (GstVideoDecoder * dec, gboolean hard,
+    gboolean reset_subclass)
 {
   GstVideoDecoderClass *klass;
   GstVideoDecoderPrivate *priv = dec->priv;
@@ -793,7 +794,7 @@ gst_video_decoder_flush (GstVideoDecoder * dec, gboolean hard)
   GST_LOG_OBJECT (dec, "flush hard %d", hard);
 
   /* Inform subclass */
-  if (klass->reset)
+  if (reset_subclass && klass->reset)
     klass->reset (dec, hard);
 
   /* FIXME make some more distinction between hard and soft,
@@ -924,7 +925,7 @@ gst_video_decoder_sink_eventfunc (GstVideoDecoder * decoder, GstEvent * event)
       }
 
       if (!update) {
-        gst_video_decoder_flush (decoder, FALSE);
+        gst_video_decoder_flush (decoder, FALSE, FALSE);
       }
 
       priv->base_timestamp = GST_CLOCK_TIME_NONE;
@@ -940,7 +941,7 @@ gst_video_decoder_sink_eventfunc (GstVideoDecoder * decoder, GstEvent * event)
     {
       GST_VIDEO_DECODER_STREAM_LOCK (decoder);
       /* well, this is kind of worse than a DISCONT */
-      gst_video_decoder_flush (decoder, TRUE);
+      gst_video_decoder_flush (decoder, TRUE, FALSE);
       GST_VIDEO_DECODER_STREAM_UNLOCK (decoder);
     }
     default:
@@ -1664,7 +1665,7 @@ gst_video_decoder_flush_decode (GstVideoDecoder * dec)
   GST_DEBUG_OBJECT (dec, "flushing buffers to decode");
 
   /* clear buffer and decoder state */
-  gst_video_decoder_flush (dec, FALSE);
+  gst_video_decoder_flush (dec, FALSE, FALSE);
 
   walk = priv->decode;
   while (walk) {
@@ -1713,7 +1714,7 @@ gst_video_decoder_flush_parse (GstVideoDecoder * dec, gboolean at_eos)
   priv->gather = NULL;
 
   /* clear buffer and decoder state */
-  gst_video_decoder_flush (dec, FALSE);
+  gst_video_decoder_flush (dec, FALSE, FALSE);
 
   walk = priv->parse;
   while (walk) {
