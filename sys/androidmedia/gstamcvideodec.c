@@ -62,7 +62,7 @@ static gboolean gst_amc_video_dec_stop (GstVideoDecoder * decoder);
 static gboolean gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     GstVideoCodecState * state);
 static gboolean gst_amc_video_dec_reset (GstVideoDecoder * decoder,
-    gboolean hard);
+    gboolean hard, gboolean flush);
 static GstFlowReturn gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     GstVideoCodecFrame * frame);
 static GstFlowReturn gst_amc_video_dec_finish (GstVideoDecoder * decoder);
@@ -1760,7 +1760,8 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
 }
 
 static gboolean
-gst_amc_video_dec_reset (GstVideoDecoder * decoder, gboolean hard)
+gst_amc_video_dec_reset (GstVideoDecoder * decoder, gboolean hard,
+    gboolean flush)
 {
   GstAmcVideoDec *self;
   (void) hard;
@@ -1778,7 +1779,8 @@ gst_amc_video_dec_reset (GstVideoDecoder * decoder, gboolean hard)
   GST_VIDEO_DECODER_STREAM_LOCK (self);
 
   /* Flush the decoder */
-  gst_amc_codec_flush (self->codec);
+  if (flush)
+    gst_amc_codec_flush (self->codec);
 
   /* Start the srcpad loop again */
   self->last_upstream_ts = 0;

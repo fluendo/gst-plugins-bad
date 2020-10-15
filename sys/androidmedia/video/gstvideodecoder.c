@@ -783,7 +783,7 @@ gst_video_decoder_finalize (GObject * object)
 /* hard == FLUSH, otherwise discont */
 static GstFlowReturn
 gst_video_decoder_flush (GstVideoDecoder * dec, gboolean hard,
-    gboolean reset_subclass)
+    gboolean flush_subclass)
 {
   GstVideoDecoderClass *klass;
   GstVideoDecoderPrivate *priv = dec->priv;
@@ -794,8 +794,8 @@ gst_video_decoder_flush (GstVideoDecoder * dec, gboolean hard,
   GST_LOG_OBJECT (dec, "flush hard %d", hard);
 
   /* Inform subclass */
-  if (reset_subclass && klass->reset)
-    klass->reset (dec, hard);
+  if (klass->reset)
+    klass->reset (dec, hard, flush_subclass);
 
   /* FIXME make some more distinction between hard and soft,
    * but subclass may not be prepared for that */
