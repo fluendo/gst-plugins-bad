@@ -148,7 +148,7 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
      * we want to show picture on the screen as soon as possible, so the timestamp
      * we attach will be = "now". */
     GstClockTime render_ts = wakeup;
-    if (G_LIKELY (avs->playing)) {
+    if (G_LIKELY (avs->playing && 0)) {
       GstClockTime buffer_ts =
           gst_segment_to_running_time (&GST_BASE_SINK (avs)->segment,
           GST_FORMAT_TIME, GST_BUFFER_TIMESTAMP (buf));
