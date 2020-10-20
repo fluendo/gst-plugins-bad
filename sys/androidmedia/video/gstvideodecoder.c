@@ -1660,6 +1660,7 @@ gst_video_decoder_flush_decode (GstVideoDecoder * dec)
 {
   GstVideoDecoderPrivate *priv = dec->priv;
   GstFlowReturn res = GST_FLOW_OK;
+  GstVideoDecoderClass *decoder_class = GST_VIDEO_DECODER_GET_CLASS (dec);
   GList *walk;
 
   GST_DEBUG_OBJECT (dec, "flushing buffers to decode");
@@ -1687,6 +1688,10 @@ gst_video_decoder_flush_decode (GstVideoDecoder * dec)
 
     walk = next;
   }
+
+  /* Drain decoder + sync. */
+  if (res == GST_FLOW_OK && decoder_class->finish)
+    res = decoder_class->finish (dec);
 
   return res;
 }
