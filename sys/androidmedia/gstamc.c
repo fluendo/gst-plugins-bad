@@ -193,6 +193,7 @@ gst_amc_codec_new (const gchar * name)
   AMC_CHK (codec->object);
 
   g_mutex_init (&codec->buffers_lock);
+  g_cond_init (&codec->buffers_cond);
   codec->ref_count = 1;
 done:
   J_DELETE_LOCAL_REF (object);
@@ -213,6 +214,7 @@ gst_amc_codec_free (GstAmcCodec * codec)
 
   J_DELETE_GLOBAL_REF (codec->object);
   g_mutex_clear (&codec->buffers_lock);
+  g_cond_clear (&codec->buffers_cond);
   g_slice_free (GstAmcCodec, codec);
 }
 
@@ -524,16 +526,32 @@ gst_amc_codec_flush (GstAmcCodec * codec)
 {
   gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
+  gint64 timeout;
   /* !! be careful with AMC_CHK and J_CALL macros here: they may jump
    * to "error" label */
   if (G_UNLIKELY (!codec))
     return FALSE;
 
+  g_mutex_lock (&codec->buffers_lock);
+
+  timeout = g_get_monotonic_time () + 5 * G_TIME_SPAN_SECOND;
+  /* Before flushing we wait until all the pushed buffers will be
+   * either freed either rendered */
+  while (codec->dr_buffers) {
+    if (!g_cond_wait_until (&codec->buffers_cond,
+            &codec->buffers_lock, timeout)) {
+      GST_ERROR ("Timeout on waiting for drbuffers "
+          "to be released: %d are still there", codec->dr_buffers);
+      break;
+    }
+  }
+
   /* Before we flush, we "invalidate all previously pushed buffers,
    * because it's incorrect to call releaseOutputBuffer after flush. */
-  g_mutex_lock (&codec->buffers_lock);
+
   /* Now buffers with previous flush-id won't be ever released */
   codec->flush_id++;
+  codec->dr_buffers = 0;
   J_CALL_VOID (codec->object, media_codec.flush);
   ret = TRUE;
 error:
@@ -2468,14 +2486,32 @@ gst_amc_dr_buffer_new (GstAmcCodec * codec, guint idx)
 
   buf = g_new0 (GstAmcDRBuffer, 1);
   buf->codec = gst_amc_codec_ref (codec);
-  /* No need to lock because we are sure we don't flush at this moment. */
+
+  g_mutex_lock (&buf->codec->buffers_lock);
+
   buf->flush_id = codec->flush_id;
   buf->idx = idx;
   buf->released = FALSE;
+  buf->codec->dr_buffers++;
+
+  g_mutex_unlock (&buf->codec->buffers_lock);
 
   GST_ERROR ("created buffer %p idx %d", buf, buf->idx);
 
   return buf;
+}
+
+/* Requires codec->buffers_lock to be locked */
+static void
+gst_amc_codec_update_drbuffers (GstAmcCodec * codec)
+{
+  /* This really should never happen.
+   * Otherwise there's an error in the implementation */
+  if (G_UNLIKELY (codec->dr_buffers == 0))
+    g_abort ();
+
+  if (--codec->dr_buffers == 0)
+    g_cond_signal (&codec->buffers_cond);
 }
 
 gboolean
@@ -2485,8 +2521,10 @@ gst_amc_dr_buffer_render (GstAmcDRBuffer * buf, GstClockTime ts)
 
   if (!buf->released) {
     g_mutex_lock (&buf->codec->buffers_lock);
-    if (buf->codec->flush_id == buf->flush_id)
+    if (buf->codec->flush_id == buf->flush_id) {
       ret = gst_amc_codec_render_output_buffer (buf->codec, buf->idx, ts);
+      gst_amc_codec_update_drbuffers (buf->codec);
+    }
     g_mutex_unlock (&buf->codec->buffers_lock);
     buf->released = TRUE;
   }
@@ -2501,8 +2539,10 @@ gst_amc_dr_buffer_free (GstAmcDRBuffer * buf)
   GST_ERROR ("freeing buffer %p idx %d", buf, buf->idx);
   if (!buf->released) {
     g_mutex_lock (&buf->codec->buffers_lock);
-    if (buf->codec->flush_id == buf->flush_id)
+    if (buf->codec->flush_id == buf->flush_id) {
       gst_amc_codec_release_output_buffer (buf->codec, buf->idx);
+      gst_amc_codec_update_drbuffers (buf->codec);
+    }
     g_mutex_unlock (&buf->codec->buffers_lock);
   }
 
