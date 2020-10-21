@@ -2473,6 +2473,8 @@ gst_amc_dr_buffer_new (GstAmcCodec * codec, guint idx)
   buf->idx = idx;
   buf->released = FALSE;
 
+  GST_ERROR ("created buffer %p idx %d", buf, buf->idx);
+
   return buf;
 }
 
@@ -2489,13 +2491,14 @@ gst_amc_dr_buffer_render (GstAmcDRBuffer * buf, GstClockTime ts)
     buf->released = TRUE;
   }
 
+  GST_ERROR ("drbuf %p, idx = %d. Rendered = %d", buf, buf->idx, ret);
   return ret;
 }
 
 void
 gst_amc_dr_buffer_free (GstAmcDRBuffer * buf)
 {
-  GST_TRACE ("freeing buffer idx %d of codec %p", buf->idx, buf->codec);
+  GST_ERROR ("freeing buffer %p idx %d", buf, buf->idx);
   if (!buf->released) {
     g_mutex_lock (&buf->codec->buffers_lock);
     if (buf->codec->flush_id == buf->flush_id)
