@@ -795,7 +795,7 @@ gst_video_decoder_flush (GstVideoDecoder * dec, gboolean hard,
 
   /* Inform subclass */
   if (klass->reset)
-    klass->reset (dec, hard, flush_subclass);
+    klass->reset (dec, hard, TRUE);
 
   /* FIXME make some more distinction between hard and soft,
    * but subclass may not be prepared for that */
