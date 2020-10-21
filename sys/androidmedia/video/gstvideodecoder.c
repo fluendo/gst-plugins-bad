@@ -941,7 +941,7 @@ gst_video_decoder_sink_eventfunc (GstVideoDecoder * decoder, GstEvent * event)
     {
       GST_VIDEO_DECODER_STREAM_LOCK (decoder);
       /* well, this is kind of worse than a DISCONT */
-      gst_video_decoder_flush (decoder, TRUE, FALSE);
+      gst_video_decoder_flush (decoder, TRUE, TRUE);
       GST_VIDEO_DECODER_STREAM_UNLOCK (decoder);
     }
     default:
