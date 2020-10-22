@@ -1655,6 +1655,20 @@ beach:
   return ret;
 }
 
+static gint
+_sort_by_buffer_pts (gconstpointer a, gconstpointer b)
+{
+  GstClockTime timestamp_a;
+  GstClockTime timestamp_b;
+  GstVideoCodecFrame *frame_a = (GstVideoCodecFrame *) a;
+  GstVideoCodecFrame *frame_b = (GstVideoCodecFrame *) b;
+
+  timestamp_a = GST_BUFFER_TIMESTAMP (frame_a->input_buffer);
+  timestamp_b = GST_BUFFER_TIMESTAMP (frame_b->input_buffer);
+
+  return timestamp_a - timestamp_b;
+}
+
 static GstFlowReturn
 gst_video_decoder_flush_decode (GstVideoDecoder * dec)
 {
@@ -1667,6 +1681,50 @@ gst_video_decoder_flush_decode (GstVideoDecoder * dec)
 
   /* clear buffer and decoder state */
   gst_video_decoder_flush (dec, FALSE, FALSE);
+
+  /* Retimestamp if input timestamps are going backwards */
+  if (priv->decode) {
+    GstVideoCodecFrame *frame_first;
+    GstVideoCodecFrame *frame_last;
+
+    frame_first = (GstVideoCodecFrame *) g_list_nth_data (priv->decode, 0);
+    frame_last =
+        (GstVideoCodecFrame *) g_list_nth_data (priv->decode,
+        g_list_length (priv->decode) - 1);
+
+    if (GST_BUFFER_TIMESTAMP (frame_last->input_buffer) <
+        GST_BUFFER_TIMESTAMP (frame_first->input_buffer)) {
+      /* We need to keep buffers order the same, but just change timestamps,
+       * so all the reordering would also be kept the same. To do this we will
+       * create a list of buffers ordered by timestamps, then reverse it, and then
+       * apply new timestamps to this list */
+      gint i = 0;
+      GList *timestamps_list;
+      GList *timestamps_list2;
+
+      timestamps_list = g_list_copy (priv->decode);
+      timestamps_list = g_list_sort (timestamps_list, _sort_by_buffer_pts);
+      timestamps_list2 = g_list_copy (timestamps_list);
+      timestamps_list = g_list_reverse (timestamps_list);
+
+
+      for (walk = timestamps_list2; walk; walk = walk->next) {
+        GstVideoCodecFrame *frame;
+        GstVideoCodecFrame *frame2;
+
+        frame = (GstVideoCodecFrame *) (walk->data);
+        frame2 = (GstVideoCodecFrame *) g_list_nth_data (timestamps_list, i++);
+
+        GST_BUFFER_TIMESTAMP (frame->input_buffer) =
+            GST_BUFFER_TIMESTAMP (frame2->input_buffer);
+
+        frame->pts = frame2->pts;
+      }
+
+      g_list_free (timestamps_list);
+      g_list_free (timestamps_list2);
+    }
+  }
 
   walk = priv->decode;
   while (walk) {
