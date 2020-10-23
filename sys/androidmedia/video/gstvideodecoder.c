@@ -2398,7 +2398,7 @@ gst_video_decoder_finish_frame (GstVideoDecoder * decoder,
     priv->discont = FALSE;
   }
 
-  if (decoder->output_segment.rate < 0.0) {
+  if (0 && decoder->output_segment.rate < 0.0) {
     GST_LOG_OBJECT (decoder, "queued frame");
     priv->output_queued = g_list_prepend (priv->output_queued, output_buffer);
   } else {
