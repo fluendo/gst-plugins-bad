@@ -1658,15 +1658,16 @@ beach:
 static gint
 _sort_by_buffer_pts (gconstpointer a, gconstpointer b)
 {
-  GstClockTime timestamp_a;
-  GstClockTime timestamp_b;
+//  GstClockTime timestamp_a;
+//  GstClockTime timestamp_b;
   GstVideoCodecFrame *frame_a = (GstVideoCodecFrame *) a;
   GstVideoCodecFrame *frame_b = (GstVideoCodecFrame *) b;
 
-  timestamp_a = GST_BUFFER_TIMESTAMP (frame_a->input_buffer);
-  timestamp_b = GST_BUFFER_TIMESTAMP (frame_b->input_buffer);
+//  timestamp_a = GST_BUFFER_TIMESTAMP (frame_a->input_buffer);
+//  timestamp_b = GST_BUFFER_TIMESTAMP (frame_b->input_buffer);
 
-  return timestamp_b - timestamp_a;
+  return frame_a->pts - frame_b->pts;
+  //timestamp_b - timestamp_a;
 }
 
 static GstFlowReturn
@@ -1692,8 +1693,7 @@ gst_video_decoder_flush_decode (GstVideoDecoder * dec)
         (GstVideoCodecFrame *) g_list_nth_data (priv->decode,
         g_list_length (priv->decode) - 1);
 
-    if (GST_BUFFER_TIMESTAMP (frame_last->input_buffer) <
-        GST_BUFFER_TIMESTAMP (frame_first->input_buffer)) {
+    if (frame_last->pts < frame_first->pts) {
       /* We need to keep buffers order the same, but just change timestamps,
        * so all the reordering would also be kept the same. To do this we will
        * create a list of buffers ordered by timestamps, then reverse it, and then
@@ -1714,6 +1714,16 @@ gst_video_decoder_flush_decode (GstVideoDecoder * dec)
 
         frame = (GstVideoCodecFrame *) (walk->data);
         frame2 = (GstVideoCodecFrame *) g_list_nth_data (timestamps_list, i++);
+
+        GST_DEBUG_OBJECT (dec,
+            "ts1 = %" GST_TIME_FORMAT "ts2 = %" GST_TIME_FORMAT,
+            GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (frame->input_buffer)),
+            GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (frame2->input_buffer)));
+
+        GST_DEBUG_OBJECT (dec,
+            "pts1 = %" GST_TIME_FORMAT "pts2 = %" GST_TIME_FORMAT,
+            GST_TIME_ARGS (frame->pts), GST_TIME_ARGS (frame2->pts));
+
 
         GST_BUFFER_TIMESTAMP (frame->input_buffer) =
             GST_BUFFER_TIMESTAMP (frame2->input_buffer);
