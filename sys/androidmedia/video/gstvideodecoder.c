@@ -1666,7 +1666,7 @@ _sort_by_buffer_pts (gconstpointer a, gconstpointer b)
   timestamp_a = GST_BUFFER_TIMESTAMP (frame_a->input_buffer);
   timestamp_b = GST_BUFFER_TIMESTAMP (frame_b->input_buffer);
 
-  return timestamp_a - timestamp_b;
+  return timestamp_b - timestamp_a;
 }
 
 static GstFlowReturn
