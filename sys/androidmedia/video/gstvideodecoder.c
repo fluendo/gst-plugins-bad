@@ -2402,7 +2402,29 @@ gst_video_decoder_finish_frame (GstVideoDecoder * decoder,
     GST_LOG_OBJECT (decoder, "queued frame");
     priv->output_queued = g_list_prepend (priv->output_queued, output_buffer);
   } else {
-    ret = gst_video_decoder_clip_and_push_buf (decoder, output_buffer);
+    GstBuffer *buf = output_buffer;
+
+    /* avoid stray DISCONT from forward processing,
+     * which have no meaning in reverse pushing */
+    GST_BUFFER_FLAG_UNSET (buf, GST_BUFFER_FLAG_DISCONT);
+
+    /* Last chance to calculate a timestamp as we loop backwards
+     * through the list */
+    if (GST_BUFFER_TIMESTAMP (buf) != GST_CLOCK_TIME_NONE)
+      priv->last_timestamp_out = GST_BUFFER_TIMESTAMP (buf);
+    else if (priv->last_timestamp_out != GST_CLOCK_TIME_NONE &&
+        GST_BUFFER_DURATION (buf) != GST_CLOCK_TIME_NONE) {
+      GST_BUFFER_TIMESTAMP (buf) =
+          priv->last_timestamp_out - GST_BUFFER_DURATION (buf);
+      priv->last_timestamp_out = GST_BUFFER_TIMESTAMP (buf);
+      GST_LOG_OBJECT (decoder,
+          "Calculated TS %" GST_TIME_FORMAT " working backwards. Duration %"
+          GST_TIME_FORMAT, GST_TIME_ARGS (priv->last_timestamp_out),
+          GST_TIME_ARGS (GST_BUFFER_DURATION (buf)));
+    }
+
+    ret = gst_video_decoder_clip_and_push_buf (decoder, buf);
+    //    ret = gst_video_decoder_clip_and_push_buf (decoder, output_buffer);
   }
 
 done:
