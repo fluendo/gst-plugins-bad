@@ -406,6 +406,10 @@ struct _GstVideoDecoderPrivate
   GstClockTime incoming_timestamps[MAX_DTS_PTS_REORDER_DEPTH];
   guint reorder_idx_in;
   guint reorder_idx_out;
+
+  gint reverse_gop_start;
+  gint reverse_gop_stop;
+  gint reverse_gop_iter;
 };
 
 static void gst_video_decoder_finalize (GObject * object);
@@ -1681,7 +1685,8 @@ gst_video_decoder_flush_decode (GstVideoDecoder * dec)
   GST_DEBUG_OBJECT (dec, "flushing buffers to decode");
 
   /* clear buffer and decoder state */
-  gst_video_decoder_flush (dec, FALSE, FALSE);
+  /* it also waits until pushed frames are being rendered */
+  gst_video_decoder_flush (dec, FALSE, TRUE);
 
   /* Retimestamp if input timestamps are going backwards */
   if (priv->decode) {
@@ -1817,62 +1822,111 @@ gst_video_decoder_flush_parse (GstVideoDecoder * dec, gboolean at_eos)
    * to the decode list, reverse the order as we go, and stopping when/if we
    * copy a keyframe. */
   GST_DEBUG_OBJECT (dec, "checking parsed frames for a keyframe to decode");
-  walk = priv->parse_gather;
-  while (walk) {
-    GstVideoCodecFrame *frame = (GstVideoCodecFrame *) (walk->data);
 
-    /* remove from the gather list */
-    priv->parse_gather = g_list_remove_link (priv->parse_gather, walk);
+  priv->reverse_gop_stop = g_list_length (priv->parse_gather);
+  priv->reverse_gop_start = priv->reverse_gop_stop;
 
-    /* move it to the front of the decode queue */
-    priv->decode = g_list_concat (walk, priv->decode);
-
-    /* if we copied a keyframe, flush and decode the decode queue */
-    if (GST_VIDEO_CODEC_FRAME_IS_SYNC_POINT (frame)) {
-      GST_DEBUG_OBJECT (dec, "found keyframe %p with PTS %" GST_TIME_FORMAT,
-          frame, GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (frame->input_buffer)));
-      res = gst_video_decoder_flush_decode (dec);
-      if (res != GST_FLOW_OK)
-        goto done;
-    }
-
-    walk = priv->parse_gather;
+  /* ref all the frames gathered, we'll need this ref */
+  for (walk = priv->parse_gather; walk; walk = walk->next) {
+    gst_video_codec_frame_ref ((GstVideoCodecFrame *) walk->data);
   }
 
-  /* now send queued data downstream */
-  walk = priv->output_queued;
-  while (walk) {
-    GstBuffer *buf = GST_BUFFER_CAST (walk->data);
+  do {
+    /* This flush/decode/push proccess is looped to decode same priv->parse_gather list
+     * several times, if it's size is more then max_render_window. Reason for that is
+     * that decoder on Android doesn't allow to output and store more then ~8 frames
+     * without releasing. So it will decode the whole GOP, output 8 frames from it, and
+     * drop everything else. Then it will decode the whole GOP again, output another 8
+     * frames, drop everything else, and so on. 
+     * FIXME: this decreases the performance of the decoder by GOP/max_render_window ,
+     * that can mean decreasing the performance by 2-4 times. But there's no other solution
+     * invented yet. */
 
-    if (G_LIKELY (res == GST_FLOW_OK)) {
-      /* avoid stray DISCONT from forward processing,
-       * which have no meaning in reverse pushing */
-      GST_BUFFER_FLAG_UNSET (buf, GST_BUFFER_FLAG_DISCONT);
+    GList *pgather_copy;
+    const gint max_render_window = 4;
+    priv->reverse_gop_iter = 0;
 
-      /* Last chance to calculate a timestamp as we loop backwards
-       * through the list */
-      if (GST_BUFFER_TIMESTAMP (buf) != GST_CLOCK_TIME_NONE)
-        priv->last_timestamp_out = GST_BUFFER_TIMESTAMP (buf);
-      else if (priv->last_timestamp_out != GST_CLOCK_TIME_NONE &&
-          GST_BUFFER_DURATION (buf) != GST_CLOCK_TIME_NONE) {
-        GST_BUFFER_TIMESTAMP (buf) =
-            priv->last_timestamp_out - GST_BUFFER_DURATION (buf);
-        priv->last_timestamp_out = GST_BUFFER_TIMESTAMP (buf);
-        GST_LOG_OBJECT (dec,
-            "Calculated TS %" GST_TIME_FORMAT " working backwards. Duration %"
-            GST_TIME_FORMAT, GST_TIME_ARGS (priv->last_timestamp_out),
-            GST_TIME_ARGS (GST_BUFFER_DURATION (buf)));
+    GST_LOG_OBJECT (dec, "reverse_gop_start = %d, reverse_gop_stop = %d",
+        priv->reverse_gop_start, priv->reverse_gop_stop);
+
+    pgather_copy = g_list_copy (priv->parse_gather);
+    walk = pgather_copy;
+    while (walk) {
+      GstVideoCodecFrame *frame = (GstVideoCodecFrame *) (walk->data);
+
+      /* remove from the gather list */
+      pgather_copy = g_list_remove_link (pgather_copy, walk);
+
+      /* move it to the front of the decode queue */
+      gst_video_codec_frame_ref ((GstVideoCodecFrame *) walk->data);
+      priv->decode = g_list_concat (walk, priv->decode);
+
+      if (priv->reverse_gop_start > 0 &&
+          priv->reverse_gop_stop - priv->reverse_gop_start < max_render_window)
+        priv->reverse_gop_start--;
+
+      /* if we copied a keyframe, flush and decode the decode queue */
+      if (GST_VIDEO_CODEC_FRAME_IS_SYNC_POINT (frame)) {
+        GST_DEBUG_OBJECT (dec, "found keyframe %p with PTS %" GST_TIME_FORMAT,
+            frame, GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (frame->input_buffer)));
+        res = gst_video_decoder_flush_decode (dec);
+        if (res != GST_FLOW_OK)
+          goto done;
+
+        /* FIXME: can be refactored to proccess by GOPs, not by priv->parse_gather */
       }
 
-      res = gst_video_decoder_clip_and_push_buf (dec, buf);
-    } else {
-      gst_buffer_unref (buf);
+      walk = pgather_copy;
     }
 
-    priv->output_queued =
-        g_list_delete_link (priv->output_queued, priv->output_queued);
+    g_list_free (pgather_copy);
+    pgather_copy = NULL;
+
+    /* At this moment all the buffers are already output from the decoder,
+     * and being proccessed by gst_video_decoder_finish_frame,
+     * because gst_video_decoder_flush_decode is waiting for decoder to be
+     * drained. */
+    priv->reverse_gop_stop = priv->reverse_gop_start;
+
+    /* now send queued data downstream */
     walk = priv->output_queued;
-  }
+    while (walk) {
+      GstBuffer *buf = GST_BUFFER_CAST (walk->data);
+
+      if (G_LIKELY (res == GST_FLOW_OK)) {
+        /* avoid stray DISCONT from forward processing,
+         * which have no meaning in reverse pushing */
+        GST_BUFFER_FLAG_UNSET (buf, GST_BUFFER_FLAG_DISCONT);
+
+        /* Last chance to calculate a timestamp as we loop backwards
+         * through the list */
+        if (GST_BUFFER_TIMESTAMP (buf) != GST_CLOCK_TIME_NONE)
+          priv->last_timestamp_out = GST_BUFFER_TIMESTAMP (buf);
+        else if (priv->last_timestamp_out != GST_CLOCK_TIME_NONE &&
+            GST_BUFFER_DURATION (buf) != GST_CLOCK_TIME_NONE) {
+          GST_BUFFER_TIMESTAMP (buf) =
+              priv->last_timestamp_out - GST_BUFFER_DURATION (buf);
+          priv->last_timestamp_out = GST_BUFFER_TIMESTAMP (buf);
+          GST_LOG_OBJECT (dec,
+              "Calculated TS %" GST_TIME_FORMAT " working backwards. Duration %"
+              GST_TIME_FORMAT, GST_TIME_ARGS (priv->last_timestamp_out),
+              GST_TIME_ARGS (GST_BUFFER_DURATION (buf)));
+        }
+
+        res = gst_video_decoder_clip_and_push_buf (dec, buf);
+      } else {
+        gst_buffer_unref (buf);
+      }
+
+      priv->output_queued =
+          g_list_delete_link (priv->output_queued, priv->output_queued);
+      walk = priv->output_queued;
+    }
+  } while (priv->reverse_gop_start > 0);
+
+  g_list_free_full (priv->parse_gather,
+      (GDestroyNotify) gst_video_codec_frame_unref);
+  priv->parse_gather = NULL;
 
 done:
   return res;
@@ -2409,8 +2463,22 @@ gst_video_decoder_finish_frame (GstVideoDecoder * decoder,
   }
 
   if (decoder->output_segment.rate < 0.0) {
-    GST_LOG_OBJECT (decoder, "queued frame");
-    priv->output_queued = g_list_prepend (priv->output_queued, output_buffer);
+    /* Drop all the buffers except priv->reverse_gop_start ... priv->reverse_gop_stop */
+    /* The idea is to push only 8 buffers at maximum, and then
+     * wait until they're rendered. After this we decode same GOP again,
+     * and this repeats until all the frames of the GOP are being rendered. */
+    if (priv->reverse_gop_iter < priv->reverse_gop_start ||
+        priv->reverse_gop_iter >= priv->reverse_gop_stop) {
+
+      GST_LOG_OBJECT (decoder, "dropping frame %d outside of "
+          "render window %d...%d", priv->reverse_gop_iter,
+          priv->reverse_gop_start, priv->reverse_gop_stop);
+      gst_buffer_unref (output_buffer);
+    } else {
+      GST_LOG_OBJECT (decoder, "queued frame");
+      priv->output_queued = g_list_prepend (priv->output_queued, output_buffer);
+    }
+    priv->reverse_gop_iter++;
   } else {
 #if 0
     GstBuffer *buf = output_buffer;
