@@ -1693,7 +1693,7 @@ gst_video_decoder_flush_decode (GstVideoDecoder * dec)
         (GstVideoCodecFrame *) g_list_nth_data (priv->decode,
         g_list_length (priv->decode) - 1);
 
-    if (frame_last->pts < frame_first->pts) {
+    if (0 && frame_last->pts < frame_first->pts) {
       /* We need to keep buffers order the same, but just change timestamps,
        * so all the reordering would also be kept the same. To do this we will
        * create a list of buffers ordered by timestamps, then reverse it, and then
@@ -2408,10 +2408,11 @@ gst_video_decoder_finish_frame (GstVideoDecoder * decoder,
     priv->discont = FALSE;
   }
 
-  if (0 && decoder->output_segment.rate < 0.0) {
+  if (decoder->output_segment.rate < 0.0) {
     GST_LOG_OBJECT (decoder, "queued frame");
     priv->output_queued = g_list_prepend (priv->output_queued, output_buffer);
   } else {
+#if 0
     GstBuffer *buf = output_buffer;
 
     /* avoid stray DISCONT from forward processing,
@@ -2434,7 +2435,8 @@ gst_video_decoder_finish_frame (GstVideoDecoder * decoder,
     }
 
     ret = gst_video_decoder_clip_and_push_buf (decoder, buf);
-    //    ret = gst_video_decoder_clip_and_push_buf (decoder, output_buffer);
+#endif
+    ret = gst_video_decoder_clip_and_push_buf (decoder, output_buffer);
   }
 
 done:
