@@ -410,6 +410,7 @@ struct _GstVideoDecoderPrivate
   gint reverse_gop_start;
   gint reverse_gop_stop;
   gint reverse_gop_iter;
+  gboolean reverse_gop_done;
 };
 
 static void gst_video_decoder_finalize (GObject * object);
@@ -1754,10 +1755,14 @@ gst_video_decoder_flush_decode (GstVideoDecoder * dec)
 
     priv->decode = g_list_delete_link (priv->decode, walk);
 
-    /* decode buffer, resulting data prepended to queue */
-    res = gst_video_decoder_decode_frame (dec, frame);
-    if (res != GST_FLOW_OK)
-      break;
+    if (priv->reverse_gop_done) {
+      gst_video_codec_frame_unref (frame);
+    } else {
+      /* decode buffer, resulting data prepended to queue */
+      res = gst_video_decoder_decode_frame (dec, frame);
+      if (res != GST_FLOW_OK)
+        break;
+    }
 
     walk = next;
   }
@@ -1845,6 +1850,7 @@ gst_video_decoder_flush_parse (GstVideoDecoder * dec, gboolean at_eos)
     GList *pgather_copy;
     const gint max_render_window = 4;
     priv->reverse_gop_iter = 0;
+    priv->reverse_gop_done = FALSE;
 
     GST_LOG_OBJECT (dec, "reverse_gop_start = %d, reverse_gop_stop = %d",
         priv->reverse_gop_start, priv->reverse_gop_stop);
@@ -2468,7 +2474,7 @@ gst_video_decoder_finish_frame (GstVideoDecoder * decoder,
      * wait until they're rendered. After this we decode same GOP again,
      * and this repeats until all the frames of the GOP are being rendered. */
     if (priv->reverse_gop_iter < priv->reverse_gop_start ||
-        priv->reverse_gop_iter >= priv->reverse_gop_stop) {
+        priv->reverse_gop_iter > priv->reverse_gop_stop) {
 
       GST_LOG_OBJECT (decoder, "dropping frame %d outside of "
           "render window %d...%d", priv->reverse_gop_iter,
@@ -2477,6 +2483,12 @@ gst_video_decoder_finish_frame (GstVideoDecoder * decoder,
     } else {
       GST_LOG_OBJECT (decoder, "queued frame");
       priv->output_queued = g_list_prepend (priv->output_queued, output_buffer);
+
+      /* If we have output the last frame needed, we inform other thread that it can
+       * stop pushing buffers from the GOP */
+      if (priv->reverse_gop_iter == priv->reverse_gop_stop) {
+        priv->reverse_gop_done = TRUE;
+      }
     }
     priv->reverse_gop_iter++;
   } else {
