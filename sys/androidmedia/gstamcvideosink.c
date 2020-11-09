@@ -129,6 +129,7 @@ gst_amc_video_sink_query (GstBaseSink * bsink, GstQuery * query)
   return gst_amc_query_set_surface (query, avs->surface);
 }
 
+#if 0
 static gint64
 gst_amc_segment_to_running_time (GstSegment * segment, GstFormat format,
     gint64 position)
@@ -187,7 +188,7 @@ gst_amc_segment_to_running_time (GstSegment * segment, GstFormat format,
 
   return result;
 }
-
+#endif
 
 static GstFlowReturn
 gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
@@ -210,9 +211,11 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
     GstClockTime render_ts = wakeup;
     if (G_LIKELY (avs->playing)) {
       GstClockTime buffer_ts =
-          gst_amc_segment_to_running_time (&GST_BASE_SINK (avs)->segment,
+          gst_segment_to_running_time (&GST_BASE_SINK (avs)->segment,
           GST_FORMAT_TIME, GST_BUFFER_TIMESTAMP (buf));
-      render_ts = buffer_ts;    // + base_time;
+      render_ts = buffer_ts;
+
+      //+ base_time;
     }
 
     GST_ERROR_OBJECT (avs, "Rendering buffer (%s). Woke up at %" G_GINT64_FORMAT

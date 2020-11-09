@@ -2530,7 +2530,7 @@ gst_video_decoder_finish_frame (GstVideoDecoder * decoder,
 
     ret = gst_video_decoder_clip_and_push_buf (decoder, buf);
 #else
-    if (decoder->output_segment.rate < 0.0) {
+    if (0 && decoder->output_segment.rate < 0.0) {
 
       GST_BUFFER_TIMESTAMP (output_buffer) =
           priv->reverse_last_timestamp_out -
