@@ -212,7 +212,7 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
       GstClockTime buffer_ts =
           gst_amc_segment_to_running_time (&GST_BASE_SINK (avs)->segment,
           GST_FORMAT_TIME, GST_BUFFER_TIMESTAMP (buf));
-      render_ts = buffer_ts + base_time;
+      render_ts = buffer_ts;    // + base_time;
     }
 
     GST_ERROR_OBJECT (avs, "Rendering buffer (%s). Woke up at %" G_GINT64_FORMAT
