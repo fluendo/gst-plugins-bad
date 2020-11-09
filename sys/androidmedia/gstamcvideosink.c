@@ -129,6 +129,66 @@ gst_amc_video_sink_query (GstBaseSink * bsink, GstQuery * query)
   return gst_amc_query_set_surface (query, avs->surface);
 }
 
+static gint64
+gst_amc_segment_to_running_time (GstSegment * segment, GstFormat format,
+    gint64 position)
+{
+  gint64 result;
+  gint64 start, stop, accum;
+
+  if (G_UNLIKELY (position == -1))
+    return -1;
+
+  g_return_val_if_fail (segment != NULL, -1);
+
+  if (G_UNLIKELY (segment->format == GST_FORMAT_UNDEFINED))
+    segment->format = format;
+
+  /* if we have the position for the same format as the segment, we can compare
+   * the start and stop values, otherwise we assume 0 and -1 */
+  if (G_LIKELY (segment->format == format)) {
+    start = segment->start;
+    stop = segment->stop;
+    accum = segment->accum;
+  } else {
+    start = 0;
+    stop = -1;
+    accum = 0;
+  }
+
+  /* before the segment boundary */
+  if (G_UNLIKELY (position < start))
+    return -1;
+
+  if (1 || G_LIKELY (segment->rate > 0.0)) {
+    /* outside of the segment boundary stop */
+    if (G_UNLIKELY (stop != -1 && position > stop))
+      return -1;
+
+    /* bring to uncorrected position in segment */
+    result = position - start;
+  } else {
+    /* cannot continue if no stop position set or outside of
+     * the segment. */
+    if (G_UNLIKELY (stop == -1 || position > stop))
+      return -1;
+
+    /* bring to uncorrected position in segment */
+    result = stop - position;
+  }
+
+  /* scale based on the rate, avoid division by and conversion to 
+   * float when not needed */
+  if (G_UNLIKELY (segment->abs_rate != 1.0))
+    result /= segment->abs_rate;
+
+  /* correct for accumulated segments */
+  result += accum;
+
+  return result;
+}
+
+
 static GstFlowReturn
 gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
 {
@@ -148,14 +208,14 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
      * we want to show picture on the screen as soon as possible, so the timestamp
      * we attach will be = "now". */
     GstClockTime render_ts = wakeup;
-    if (G_LIKELY (avs->playing && 0)) {
+    if (G_LIKELY (avs->playing)) {
       GstClockTime buffer_ts =
-          gst_segment_to_running_time (&GST_BASE_SINK (avs)->segment,
+          gst_amc_segment_to_running_time (&GST_BASE_SINK (avs)->segment,
           GST_FORMAT_TIME, GST_BUFFER_TIMESTAMP (buf));
       render_ts = buffer_ts + base_time;
     }
 
-    GST_LOG_OBJECT (avs, "Rendering buffer (%s). Woke up at %" G_GINT64_FORMAT
+    GST_ERROR_OBJECT (avs, "Rendering buffer (%s). Woke up at %" G_GINT64_FORMAT
         " , render ts = %" G_GUINT64_FORMAT " , base_time = %" G_GUINT64_FORMAT,
         avs->playing ? "playing" : "not playing", wakeup, render_ts, base_time);
 
@@ -212,8 +272,7 @@ gst_amc_video_sink_init (GstAmcVideoSink * amc_video_sink,
    * earlier then it's planned by the basesink. It's needed to */
   /* FIXME: this shouldn't be just a magic number, but something
    * being calculated based on a frame rate. */
-  gst_base_sink_set_ts_offset (GST_BASE_SINK (amc_video_sink),
-      G_GINT64_CONSTANT (-50000000));
+  gst_base_sink_set_ts_offset (GST_BASE_SINK (amc_video_sink), -GST_SECOND * 2);
 }
 
 static void

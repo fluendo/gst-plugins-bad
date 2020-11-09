@@ -346,6 +346,7 @@ struct _GstVideoDecoderPrivate
   /* last incoming and outgoing ts */
   GstClockTime last_timestamp_in;
   GstClockTime last_timestamp_out;
+  GstClockTime reverse_last_timestamp_out;
 
   /* last outgoing system frame number (used to detect reordering) */
   guint last_out_frame_number;
@@ -1663,16 +1664,16 @@ beach:
 static gint
 _sort_by_buffer_pts (gconstpointer a, gconstpointer b)
 {
-//  GstClockTime timestamp_a;
-//  GstClockTime timestamp_b;
+  GstClockTime timestamp_a;
+  GstClockTime timestamp_b;
   GstVideoCodecFrame *frame_a = (GstVideoCodecFrame *) a;
   GstVideoCodecFrame *frame_b = (GstVideoCodecFrame *) b;
 
-//  timestamp_a = GST_BUFFER_TIMESTAMP (frame_a->input_buffer);
-//  timestamp_b = GST_BUFFER_TIMESTAMP (frame_b->input_buffer);
+  timestamp_a = GST_BUFFER_TIMESTAMP (frame_a->input_buffer);
+  timestamp_b = GST_BUFFER_TIMESTAMP (frame_b->input_buffer);
 
-  return frame_a->pts - frame_b->pts;
-  //timestamp_b - timestamp_a;
+  return                        //frame_a->pts - frame_b->pts;
+      timestamp_b - timestamp_a;
 }
 
 static GstFlowReturn
@@ -1698,6 +1699,18 @@ gst_video_decoder_flush_decode (GstVideoDecoder * dec)
     frame_last =
         (GstVideoCodecFrame *) g_list_nth_data (priv->decode,
         g_list_length (priv->decode) - 1);
+
+    for (walk = priv->decode; walk; walk = walk->next) {
+      GstVideoCodecFrame *frame;
+
+      frame = (GstVideoCodecFrame *) (walk->data);
+
+      if (GST_BUFFER_TIMESTAMP (frame->input_buffer) != GST_CLOCK_TIME_NONE) {
+        priv->reverse_last_timestamp_out =
+            MAX (priv->reverse_last_timestamp_out,
+            GST_BUFFER_TIMESTAMP (frame->input_buffer));
+      }
+    }
 
     if (0 && frame_last->pts < frame_first->pts) {
       /* We need to keep buffers order the same, but just change timestamps,
@@ -1899,6 +1912,7 @@ gst_video_decoder_flush_parse (GstVideoDecoder * dec, gboolean at_eos)
     while (walk) {
       GstBuffer *buf = GST_BUFFER_CAST (walk->data);
 
+      g_abort ();
       if (G_LIKELY (res == GST_FLOW_OK)) {
         /* avoid stray DISCONT from forward processing,
          * which have no meaning in reverse pushing */
@@ -1928,7 +1942,7 @@ gst_video_decoder_flush_parse (GstVideoDecoder * dec, gboolean at_eos)
           g_list_delete_link (priv->output_queued, priv->output_queued);
       walk = priv->output_queued;
     }
-  } while (priv->reverse_gop_start > 0);
+  } while (0 && priv->reverse_gop_start > 0);
 
   g_list_free_full (priv->parse_gather,
       (GDestroyNotify) gst_video_codec_frame_unref);
@@ -2468,7 +2482,7 @@ gst_video_decoder_finish_frame (GstVideoDecoder * decoder,
     priv->discont = FALSE;
   }
 
-  if (decoder->output_segment.rate < 0.0) {
+  if (0 && decoder->output_segment.rate < 0.0) {
     /* Drop all the buffers except priv->reverse_gop_start ... priv->reverse_gop_stop */
     /* The idea is to push only 8 buffers at maximum, and then
      * wait until they're rendered. After this we decode same GOP again,
@@ -2515,8 +2529,21 @@ gst_video_decoder_finish_frame (GstVideoDecoder * decoder,
     }
 
     ret = gst_video_decoder_clip_and_push_buf (decoder, buf);
-#endif
+#else
+    if (decoder->output_segment.rate < 0.0) {
+
+      GST_BUFFER_TIMESTAMP (output_buffer) =
+          priv->reverse_last_timestamp_out -
+          GST_BUFFER_DURATION (output_buffer);
+      priv->reverse_last_timestamp_out = GST_BUFFER_TIMESTAMP (output_buffer);
+      GST_LOG_OBJECT (decoder,
+          "Calculated TS %" GST_TIME_FORMAT " working backwards. Duration %"
+          GST_TIME_FORMAT, GST_TIME_ARGS (priv->reverse_last_timestamp_out),
+          GST_TIME_ARGS (GST_BUFFER_DURATION (output_buffer)));
+    }
+
     ret = gst_video_decoder_clip_and_push_buf (decoder, output_buffer);
+#endif
   }
 
 done:
