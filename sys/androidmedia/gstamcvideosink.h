@@ -74,6 +74,7 @@ struct _GstAmcVideoSink
 
   guint * surface;              /* Pointer the java Surface object */
   volatile gboolean playing;
+  GstPadChainFunction base_chain;
 };
 
 struct _GstAmcVideoSinkClass

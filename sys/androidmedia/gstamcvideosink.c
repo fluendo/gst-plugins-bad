@@ -130,6 +130,28 @@ gst_amc_video_sink_query (GstBaseSink * bsink, GstQuery * query)
 }
 
 static GstFlowReturn
+gst_amc_video_sink_dummy_chain (GstPad * pad, GstBuffer * buffer)
+{
+  /* This chain function is executed only once per sink's existance
+   * and then disconnects itself. Needed to drop the dummy buffer.
+   * See comments to gst_amc_video_sink_init () for more info. */
+
+  GstFlowReturn ret = GST_FLOW_OK;
+  GstAmcVideoSink *avs = GST_AMC_VIDEO_SINK (GST_PAD_PARENT (pad));
+
+  if (GST_BUFFER_DATA (buffer) == NULL &&
+      GST_BUFFER_TIMESTAMP (buffer) == GST_CLOCK_TIME_NONE) {
+    GST_DEBUG_OBJECT (avs, "Dropping dummy buffer: %p", buffer);
+    gst_buffer_unref (buffer);
+  } else {
+    ret = avs->base_chain (pad, buffer);
+  }
+
+  gst_pad_set_chain_function (pad, avs->base_chain);
+  return ret;
+}
+
+static GstFlowReturn
 gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
 {
   GstAmcVideoSink *avs;
@@ -212,6 +234,25 @@ gst_amc_video_sink_init (GstAmcVideoSink * amc_video_sink,
    * being calculated based on a frame rate. */
   gst_base_sink_set_ts_offset (GST_BASE_SINK (amc_video_sink),
       G_GINT64_CONSTANT (-50000000));
+
+  /* First buffer amcvideosink receives is usually a dummy buffer, that has
+   * NULL data and no timestamp: amcvideodec during it's configure proccess
+   * needs amcvideosink to be created, so it's pushing a dummy buffer with
+   * video/x-amc caps, to force continue pipeline's build.
+   *
+   * This has side effects:
+   * - basesink is emits a warning message, because it receives a buffer before
+   * newsegment event
+   * - basesink prerolls with this dummy buffer, and switches the state to PAUSED,
+   * so no picture is rendered on the first preroll.
+   *
+   * To fix this side effects amcvideosink checks the very first buffer that
+   * arrives to it, and if it's dummy - just drops it.
+   **/
+  amc_video_sink->base_chain =
+      GST_PAD_CHAINFUNC (GST_BASE_SINK_PAD (amc_video_sink));
+  gst_pad_set_chain_function (GST_BASE_SINK_PAD (amc_video_sink),
+      gst_amc_video_sink_dummy_chain);
 }
 
 static void
