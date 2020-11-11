@@ -83,7 +83,9 @@ struct _GstAmcBuffer
 struct _GstAmcCodec
 {
   guint flush_id;
+  guint dr_buffers;
   GMutex buffers_lock;
+  GCond buffers_cond;
   gboolean tunneled_playback_enabled;
   gboolean adaptive_enabled;
   /* < private > */
