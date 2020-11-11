@@ -406,6 +406,11 @@ struct _GstVideoDecoderPrivate
   GstClockTime incoming_timestamps[MAX_DTS_PTS_REORDER_DEPTH];
   guint reorder_idx_in;
   guint reorder_idx_out;
+
+  GstClockTime reverse_gop_frame_out_ts_border;
+  GstClockTime reverse_gop_frame_out_ts_border_step;
+  gint reverse_gop_frames_out;
+  guint reverse_gop_max_storage;
 };
 
 static void gst_video_decoder_finalize (GObject * object);
@@ -512,6 +517,8 @@ gst_video_decoder_init (GstVideoDecoder * decoder, GstVideoDecoderClass * klass)
   decoder->priv->input_adapter = gst_adapter_new ();
   decoder->priv->output_adapter = gst_adapter_new ();
   decoder->priv->packetized = TRUE;
+  /* FIXME: Should be set by the child class */
+  decoder->priv->reverse_gop_max_storage = 4;
 
   gst_video_decoder_reset (decoder, TRUE);
 }
@@ -1655,38 +1662,87 @@ beach:
   return ret;
 }
 
+
 static GstFlowReturn
 gst_video_decoder_flush_decode (GstVideoDecoder * dec)
 {
   GstVideoDecoderPrivate *priv = dec->priv;
   GstFlowReturn res = GST_FLOW_OK;
+  GstVideoDecoderClass *decoder_class = GST_VIDEO_DECODER_GET_CLASS (dec);
+  GstClockTime gop_last_pts = 0;
   GList *walk;
 
   GST_DEBUG_OBJECT (dec, "flushing buffers to decode");
 
   /* clear buffer and decoder state */
-  gst_video_decoder_flush (dec, FALSE);
+  /* it also waits until pushed frames are being rendered */
+  gst_video_decoder_flush (dec, FALSE, TRUE);
 
-  walk = priv->decode;
-  while (walk) {
-    GList *next;
-    GstVideoCodecFrame *frame = (GstVideoCodecFrame *) (walk->data);
+  priv->reverse_gop_frame_out_ts_border = G_MAXINT64;
+  priv->reverse_gop_frames_out = 0;
 
-    GST_DEBUG_OBJECT (dec, "decoding frame %p buffer %p, ts %" GST_TIME_FORMAT,
-        frame, frame->input_buffer,
-        GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (frame->input_buffer)));
+  /* Retimestamp if input timestamps are going backwards */
+  if (priv->decode) {
+    /* Get first and last pts of GOP */
+    for (walk = priv->decode; walk; walk = walk->next) {
+      GstVideoCodecFrame *frame = (GstVideoCodecFrame *) (walk->data);
+      priv->reverse_gop_frame_out_ts_border =
+          MIN (priv->reverse_gop_frame_out_ts_border, frame->pts);
+      gop_last_pts = MAX (gop_last_pts, frame->pts + frame->duration);
+    }
 
-    next = walk->next;
+    /* Divide GOP duration by gop_reorder_limit.
+     * For example, we have gop of 12 frames, but we can store for reordering only 4.
+     * 
+     * Then we will have output:
+     * frame 0 ------> store (1)
+     * frame 1..2 ---> drop
+     * frame 3 ------> store (2)
+     * frame 4..5 ---> drop
+     * frame 6 ------> store (3)
+     * frame 7..8 ---> drop
+     * frame 9 ------> store (4)
+     * frame 10..11 -> drop
+     *
+     * first pts = 0
+     * last pts + duration = 12
+     *
+     * We divide overall GOP duration, which is 12 by 4 parts and say:
+     * first buffer in a part will be rendered, and others - dropped.
+     *
+     * we do it by timestamps, not by numbers of buffers, because we don't
+     * know if output from the decoder will have same frame number as input.
+     * For example, in case of interlaced video it's not so.
+     */
+    priv->reverse_gop_frame_out_ts_border_step =
+        (gop_last_pts -
+        priv->reverse_gop_frame_out_ts_border) / priv->reverse_gop_max_storage;
 
-    priv->decode = g_list_delete_link (priv->decode, walk);
+    walk = priv->decode;
+    while (walk) {
+      GList *next;
+      GstVideoCodecFrame *frame = (GstVideoCodecFrame *) (walk->data);
 
-    /* decode buffer, resulting data prepended to queue */
-    res = gst_video_decoder_decode_frame (dec, frame);
-    if (res != GST_FLOW_OK)
-      break;
+      GST_DEBUG_OBJECT (dec,
+          "decoding frame %p buffer %p, ts %" GST_TIME_FORMAT, frame,
+          frame->input_buffer,
+          GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (frame->input_buffer)));
 
-    walk = next;
+      next = walk->next;
+
+      priv->decode = g_list_delete_link (priv->decode, walk);
+
+      /* decode buffer, resulting data prepended to queue */
+      res = gst_video_decoder_decode_frame (dec, frame);
+      if (res != GST_FLOW_OK)
+        break;
+
+      walk = next;
+    }
   }
+  /* Drain decoder + sync. */
+  if (res == GST_FLOW_OK && decoder_class->finish)
+    res = decoder_class->finish (dec);
 
   return res;
 }
@@ -1989,8 +2045,8 @@ gst_video_decoder_new_frame (GstVideoDecoder * decoder)
 
 
 GstVideoCodecFrame *
-gst_video_decoder_get_output_frame (GstVideoDecoder * decoder,
-    GstClockTime reference_timestamp)
+gst_video_decoder_get_output_frame (GstVideoDecoder *
+    decoder, GstClockTime reference_timestamp)
 {
   GList *frames, *l;
   gint64 min_ts = G_MAXINT64;
@@ -2336,8 +2392,32 @@ gst_video_decoder_finish_frame (GstVideoDecoder * decoder,
   }
 
   if (decoder->output_segment.rate < 0.0) {
-    GST_LOG_OBJECT (decoder, "queued frame");
-    priv->output_queued = g_list_prepend (priv->output_queued, output_buffer);
+
+    if ((priv->reverse_gop_frames_out > priv->reverse_gop_max_storage) ||
+        (priv->reverse_gop_frames_out != 0 &&
+            GST_BUFFER_TIMESTAMP (output_buffer) <
+            priv->reverse_gop_frame_out_ts_border)) {
+
+      GST_LOG_OBJECT (decoder, "dropping frame with ts %" GST_TIME_FORMAT
+          " < %" GST_TIME_FORMAT,
+          GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (output_buffer)),
+          GST_TIME_ARGS (priv->reverse_gop_frame_out_ts_border));
+      gst_buffer_unref (output_buffer);
+    } else {
+      GST_LOG_OBJECT (decoder, "queued frame %d", priv->reverse_gop_frames_out);
+      priv->output_queued = g_list_prepend (priv->output_queued, output_buffer);
+
+      if (priv->reverse_gop_frames_out == 0) {
+        /* Set ts of the first buffer as a start point. We know timestamps of the input,
+         * but prefer not to rely on decoder's implementation: it may output something else. */
+        priv->reverse_gop_frame_out_ts_border =
+            GST_BUFFER_TIMESTAMP (output_buffer);
+      }
+
+      priv->reverse_gop_frame_out_ts_border +=
+          priv->reverse_gop_frame_out_ts_border_step;
+      priv->reverse_gop_frames_out++;
+    }
   } else {
     ret = gst_video_decoder_clip_and_push_buf (decoder, output_buffer);
   }
