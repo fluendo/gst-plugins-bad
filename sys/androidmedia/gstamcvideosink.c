@@ -159,6 +159,8 @@ gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
         " , render ts = %" G_GUINT64_FORMAT " , base_time = %" G_GUINT64_FORMAT,
         avs->playing ? "playing" : "not playing", wakeup, render_ts, base_time);
 
+    GST_ERROR_OBJECT (avs, "Going to render gst buffer %p (drbuffer %p)", buf,
+        drbuf);
     if (!gst_amc_dr_buffer_render (drbuf, render_ts)) {
       GST_ERROR_OBJECT (avs, "Could not render buffer %p", buf);
     }
