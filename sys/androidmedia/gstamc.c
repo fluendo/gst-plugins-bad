@@ -522,11 +522,10 @@ error:
 }
 
 gboolean
-gst_amc_codec_flush (GstAmcCodec * codec)
+gst_amc_codec_flush (GstAmcCodec * codec, gboolean wait_for_buffers)
 {
   gboolean ret = FALSE;
   JNIEnv *env = gst_jni_get_env ();
-  gint64 timeout;
   /* !! be careful with AMC_CHK and J_CALL macros here: they may jump
    * to "error" label */
   if (G_UNLIKELY (!codec))
@@ -534,15 +533,17 @@ gst_amc_codec_flush (GstAmcCodec * codec)
 
   g_mutex_lock (&codec->buffers_lock);
 
-  timeout = g_get_monotonic_time () + 5 * G_TIME_SPAN_SECOND;
-  /* Before flushing we wait until all the pushed buffers will be
-   * either freed either rendered */
-  while (codec->dr_buffers) {
-    if (!g_cond_wait_until (&codec->buffers_cond,
-            &codec->buffers_lock, timeout)) {
-      GST_ERROR ("Timeout on waiting for drbuffers "
-          "to be released: %d are still there", codec->dr_buffers);
-      break;
+  if (wait_for_buffers) {
+    gint64 timeout = g_get_monotonic_time () + 5 * G_TIME_SPAN_SECOND;
+    /* Before flushing we wait until all the pushed buffers will be
+     * either freed either rendered */
+    while (codec->dr_buffers) {
+      if (!g_cond_wait_until (&codec->buffers_cond,
+              &codec->buffers_lock, timeout)) {
+        GST_ERROR ("Timeout on waiting for drbuffers "
+            "to be released: %d are still there", codec->dr_buffers);
+        break;
+      }
     }
   }
 

@@ -58,11 +58,12 @@ gst_amc_video_dec_change_state (GstElement * element,
 static gboolean gst_amc_video_dec_open (GstVideoDecoder * decoder);
 static gboolean gst_amc_video_dec_close (GstVideoDecoder * decoder);
 static gboolean gst_amc_video_dec_start (GstVideoDecoder * decoder);
-static gboolean gst_amc_video_dec_stop (GstVideoDecoder * decoder);
+static gboolean gst_amc_video_dec_stop (GstVideoDecoder * decoder,
+    gboolean wait_for_buffers);
 static gboolean gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     GstVideoCodecState * state);
 static gboolean gst_amc_video_dec_reset (GstVideoDecoder * decoder,
-    gboolean hard, gboolean flush);
+    gboolean hard, gboolean flush, gboolean wait_for_buffers);
 static GstFlowReturn gst_amc_video_dec_handle_frame (GstVideoDecoder * decoder,
     GstVideoCodecFrame * frame);
 static GstFlowReturn gst_amc_video_dec_finish (GstVideoDecoder * decoder);
@@ -1573,7 +1574,7 @@ gst_amc_video_dec_start (GstVideoDecoder * decoder)
 }
 
 static gboolean
-gst_amc_video_dec_stop (GstVideoDecoder * decoder)
+gst_amc_video_dec_stop (GstVideoDecoder * decoder, gboolean wait_for_buffers)
 {
   GstAmcVideoDec *self = GST_AMC_VIDEO_DEC (decoder);
 
@@ -1583,7 +1584,7 @@ gst_amc_video_dec_stop (GstVideoDecoder * decoder)
     /* Stop srcpad loop until we'll receive a buffer on sinkpad again */
     gst_amc_video_dec_stop_srcpad_loop (self);
 
-    gst_amc_codec_flush (self->codec);
+    gst_amc_codec_flush (self->codec, wait_for_buffers);
     gst_amc_codec_stop (self->codec);
     self->started = FALSE;
     if (self->input_buffers)
@@ -1654,7 +1655,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
     /* Completely reinit decoder */
     GST_INFO_OBJECT (self, "reinitializing decoder");
     GST_VIDEO_DECODER_STREAM_UNLOCK (self);
-    gst_amc_video_dec_stop (GST_VIDEO_DECODER (self));
+    gst_amc_video_dec_stop (GST_VIDEO_DECODER (self), TRUE);
     GST_VIDEO_DECODER_STREAM_LOCK (self);
     gst_amc_video_dec_close (GST_VIDEO_DECODER (self));
     if (!gst_amc_video_dec_open (GST_VIDEO_DECODER (self))) {
@@ -1761,7 +1762,7 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
 
 static gboolean
 gst_amc_video_dec_reset (GstVideoDecoder * decoder, gboolean hard,
-    gboolean flush)
+    gboolean flush, gboolean wait_for_buffers)
 {
   GstAmcVideoDec *self;
   (void) hard;
@@ -1780,7 +1781,7 @@ gst_amc_video_dec_reset (GstVideoDecoder * decoder, gboolean hard,
 
   /* Flush the decoder */
   if (flush)
-    gst_amc_codec_flush (self->codec);
+    gst_amc_codec_flush (self->codec, wait_for_buffers);
 
   /* Start the srcpad loop again */
   self->last_upstream_ts = 0;

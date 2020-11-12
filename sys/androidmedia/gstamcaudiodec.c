@@ -577,7 +577,7 @@ gst_amc_audio_dec_change_state (GstElement * element, GstStateChange transition)
       break;
     case GST_STATE_CHANGE_PAUSED_TO_READY:
       self->flushing = TRUE;
-      gst_amc_codec_flush (self->codec);
+      gst_amc_codec_flush (self->codec, FALSE);
       g_mutex_lock (self->drain_lock);
       self->draining = FALSE;
       g_cond_broadcast (self->drain_cond);
@@ -976,7 +976,7 @@ gst_amc_audio_dec_stop (GstAudioDecoder * decoder)
   GST_DEBUG_OBJECT (self, "Stopping decoder");
   self->flushing = TRUE;
   if (self->started) {
-    gst_amc_codec_flush (self->codec);
+    gst_amc_codec_flush (self->codec, FALSE);
     gst_amc_codec_stop (self->codec);
     self->started = FALSE;
     if (self->input_buffers)
@@ -1197,7 +1197,7 @@ gst_amc_audio_dec_flush (GstAudioDecoder * decoder, gboolean hard)
   GST_PAD_STREAM_LOCK (GST_AUDIO_DECODER_SRC_PAD (self));
   GST_PAD_STREAM_UNLOCK (GST_AUDIO_DECODER_SRC_PAD (self));
   GST_AUDIO_DECODER_STREAM_LOCK (self);
-  gst_amc_codec_flush (self->codec);
+  gst_amc_codec_flush (self->codec, FALSE);
   self->flushing = FALSE;
 
   /* Start the srcpad loop again */

@@ -130,7 +130,7 @@ GstAmcFormat *gst_amc_codec_get_output_format (GstAmcCodec * codec);
 
 gboolean gst_amc_codec_start (GstAmcCodec * codec);
 gboolean gst_amc_codec_stop (GstAmcCodec * codec);
-gboolean gst_amc_codec_flush (GstAmcCodec * codec);
+gboolean gst_amc_codec_flush (GstAmcCodec * codec, gboolean wait_for_buffers);
 gboolean gst_amc_codec_release (GstAmcCodec * codec);
 
 GstAmcBuffer *gst_amc_codec_get_output_buffers (GstAmcCodec * codec,

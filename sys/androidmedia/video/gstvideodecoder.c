@@ -790,7 +790,7 @@ gst_video_decoder_finalize (GObject * object)
 /* hard == FLUSH, otherwise discont */
 static GstFlowReturn
 gst_video_decoder_flush (GstVideoDecoder * dec, gboolean hard,
-    gboolean flush_subclass)
+    gboolean flush_subclass, gboolean wait_for_buffers)
 {
   GstVideoDecoderClass *klass;
   GstVideoDecoderPrivate *priv = dec->priv;
@@ -802,7 +802,7 @@ gst_video_decoder_flush (GstVideoDecoder * dec, gboolean hard,
 
   /* Inform subclass */
   if (klass->reset)
-    klass->reset (dec, hard, TRUE);
+    klass->reset (dec, hard, TRUE, wait_for_buffers);
 
   /* FIXME make some more distinction between hard and soft,
    * but subclass may not be prepared for that */
@@ -932,7 +932,7 @@ gst_video_decoder_sink_eventfunc (GstVideoDecoder * decoder, GstEvent * event)
       }
 
       if (!update) {
-        gst_video_decoder_flush (decoder, FALSE, FALSE);
+        gst_video_decoder_flush (decoder, FALSE, TRUE, FALSE);
       }
 
       priv->base_timestamp = GST_CLOCK_TIME_NONE;
@@ -948,7 +948,7 @@ gst_video_decoder_sink_eventfunc (GstVideoDecoder * decoder, GstEvent * event)
     {
       GST_VIDEO_DECODER_STREAM_LOCK (decoder);
       /* well, this is kind of worse than a DISCONT */
-      gst_video_decoder_flush (decoder, TRUE, TRUE);
+      gst_video_decoder_flush (decoder, TRUE, TRUE, FALSE);
       GST_VIDEO_DECODER_STREAM_UNLOCK (decoder);
     }
     default:
@@ -1676,7 +1676,7 @@ gst_video_decoder_flush_decode (GstVideoDecoder * dec)
 
   /* clear buffer and decoder state */
   /* it also waits until pushed frames are being rendered */
-  gst_video_decoder_flush (dec, FALSE, TRUE);
+  gst_video_decoder_flush (dec, FALSE, TRUE, TRUE);
 
   priv->reverse_gop_frame_out_ts_border = G_MAXINT64;
   priv->reverse_gop_frames_out = 0;
@@ -1770,7 +1770,7 @@ gst_video_decoder_flush_parse (GstVideoDecoder * dec, gboolean at_eos)
   priv->gather = NULL;
 
   /* clear buffer and decoder state */
-  gst_video_decoder_flush (dec, FALSE, FALSE);
+  gst_video_decoder_flush (dec, FALSE, FALSE, TRUE);
 
   walk = priv->parse;
   while (walk) {
@@ -1962,7 +1962,7 @@ gst_video_decoder_change_state (GstElement * element, GstStateChange transition)
 
   switch (transition) {
     case GST_STATE_CHANGE_PAUSED_TO_READY:
-      if (decoder_class->stop && !decoder_class->stop (decoder))
+      if (decoder_class->stop && !decoder_class->stop (decoder, FALSE))
         goto stop_failed;
 
       GST_VIDEO_DECODER_STREAM_LOCK (decoder);

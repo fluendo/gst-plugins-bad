@@ -277,7 +277,7 @@ struct _GstVideoDecoderClass
 
   gboolean      (*start)          (GstVideoDecoder *decoder);
 
-  gboolean      (*stop)           (GstVideoDecoder *decoder);
+  gboolean      (*stop)           (GstVideoDecoder *decoder, gboolean wait_for_buffers);
 
   GstFlowReturn (*parse)          (GstVideoDecoder *decoder,
 				   GstVideoCodecFrame *frame,
@@ -288,7 +288,7 @@ struct _GstVideoDecoderClass
 				   GstVideoCodecState * state);
 
   gboolean      (*reset)          (GstVideoDecoder *decoder,
-      gboolean hard, gboolean flush);
+      gboolean hard, gboolean flush, gboolean wait_for_buffers);
 
   GstFlowReturn (*finish)         (GstVideoDecoder *decoder);
 
