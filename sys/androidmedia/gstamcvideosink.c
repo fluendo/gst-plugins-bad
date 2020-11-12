@@ -140,7 +140,7 @@ gst_amc_video_sink_event (GstBaseSink * sink, GstEvent * event)
       gst_event_parse_seek (event, &rate, NULL, NULL, NULL, NULL, NULL, NULL);
 
       if (rate < 0.0) {
-        GST_ERROR ("HELLO");
+        GST_ERROR ("HELLO abc");
         gst_base_sink_set_ts_offset (sink, G_GINT64_CONSTANT (-300000000));
       } else {
         gst_base_sink_set_ts_offset (sink, G_GINT64_CONSTANT (-50000000));
@@ -151,7 +151,7 @@ gst_amc_video_sink_event (GstBaseSink * sink, GstEvent * event)
       break;
   }
 
-  return FALSE;
+  return TRUE;
 }
 
 static GstFlowReturn
