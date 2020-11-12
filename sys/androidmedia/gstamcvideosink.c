@@ -129,6 +129,24 @@ gst_amc_video_sink_query (GstBaseSink * bsink, GstQuery * query)
   return gst_amc_query_set_surface (query, avs->surface);
 }
 
+static gboolean
+gst_amc_video_sink_event (GstBaseSink * sink, GstEvent * event)
+{
+  switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_FLUSH_STOP:
+      if (sink->segment.rate < 0.0) {
+        gst_base_sink_set_ts_offset (sink, G_GINT64_CONSTANT (-300000000));
+      } else {
+        gst_base_sink_set_ts_offset (sink, G_GINT64_CONSTANT (-50000000));
+      }
+      break;
+    default:
+      break;
+  }
+
+  return FALSE;
+}
+
 static GstFlowReturn
 gst_amc_video_sink_show_frame (GstVideoSink * vsink, GstBuffer * buf)
 {
@@ -197,6 +215,7 @@ gst_amc_video_sink_class_init (GstAmcVideoSinkClass * klass)
       GST_DEBUG_FUNCPTR (gst_amc_video_sink_change_state);
 
   gstbasesink_class->query = GST_DEBUG_FUNCPTR (gst_amc_video_sink_query);
+  gstbasesink_class->event = GST_DEBUG_FUNCPTR (gst_amc_video_sink_event);
 
   gstvideosink_class->show_frame =
       GST_DEBUG_FUNCPTR (gst_amc_video_sink_show_frame);
@@ -213,7 +232,7 @@ gst_amc_video_sink_init (GstAmcVideoSink * amc_video_sink,
   /* FIXME: this shouldn't be just a magic number, but something
    * being calculated based on a frame rate. */
   gst_base_sink_set_ts_offset (GST_BASE_SINK (amc_video_sink),
-      G_GINT64_CONSTANT (-500000000));
+      G_GINT64_CONSTANT (-50000000));
 }
 
 static void
