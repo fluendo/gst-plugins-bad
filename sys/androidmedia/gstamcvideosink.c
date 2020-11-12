@@ -141,7 +141,7 @@ gst_amc_video_sink_event (GstBaseSink * sink, GstEvent * event)
 
       if (rate < 0.0) {
         GST_ERROR ("HELLO abc");
-        gst_base_sink_set_ts_offset (sink, G_GINT64_CONSTANT (-300000000));
+        gst_base_sink_set_ts_offset (sink, G_GINT64_CONSTANT (-500000000));
       } else {
         gst_base_sink_set_ts_offset (sink, G_GINT64_CONSTANT (-50000000));
       }
