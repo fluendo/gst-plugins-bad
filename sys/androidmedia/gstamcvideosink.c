@@ -133,9 +133,9 @@ static gboolean
 gst_amc_video_sink_event (GstBaseSink * sink, GstEvent * event)
 {
   switch (GST_EVENT_TYPE (event)) {
-    case GST_EVENT_FLUSH_STOP:
+    case GST_EVENT_FLUSH_START:
       if (sink->segment.rate < 0.0) {
-        gst_base_sink_set_ts_offset (sink, G_GINT64_CONSTANT (-300000000));
+        gst_base_sink_set_ts_offset (sink, G_GINT64_CONSTANT (-500000000));
       } else {
         gst_base_sink_set_ts_offset (sink, G_GINT64_CONSTANT (-50000000));
       }
