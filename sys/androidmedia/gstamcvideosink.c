@@ -133,13 +133,20 @@ static gboolean
 gst_amc_video_sink_event (GstBaseSink * sink, GstEvent * event)
 {
   switch (GST_EVENT_TYPE (event)) {
-    case GST_EVENT_FLUSH_START:
-      if (sink->segment.rate < 0.0) {
-        gst_base_sink_set_ts_offset (sink, G_GINT64_CONSTANT (-500000000));
+    case GST_EVENT_SEEK:
+    {
+      gdouble rate;
+
+      gst_event_parse_seek (event, &rate, NULL, NULL, NULL, NULL, NULL, NULL);
+
+      if (rate < 0.0) {
+        GST_ERROR ("HELLO");
+        gst_base_sink_set_ts_offset (sink, G_GINT64_CONSTANT (-300000000));
       } else {
         gst_base_sink_set_ts_offset (sink, G_GINT64_CONSTANT (-50000000));
       }
       break;
+    }
     default:
       break;
   }
