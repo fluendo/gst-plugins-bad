@@ -133,11 +133,11 @@ static gboolean
 gst_amc_video_sink_event (GstBaseSink * sink, GstEvent * event)
 {
   switch (GST_EVENT_TYPE (event)) {
-    case GST_EVENT_SEEK:
+    case GST_EVENT_NEWSEGMENT:
     {
       gdouble rate;
 
-      gst_event_parse_seek (event, &rate, NULL, NULL, NULL, NULL, NULL, NULL);
+      gst_event_parse_new_segment (event, NULL, &rate, NULL, NULL, NULL, NULL);
 
       if (rate < 0.0) {
         GST_ERROR ("HELLO abc");
