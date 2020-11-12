@@ -518,7 +518,7 @@ gst_video_decoder_init (GstVideoDecoder * decoder, GstVideoDecoderClass * klass)
   decoder->priv->output_adapter = gst_adapter_new ();
   decoder->priv->packetized = TRUE;
   /* FIXME: Should be set by the child class */
-  decoder->priv->reverse_gop_max_storage = 5;
+  decoder->priv->reverse_gop_max_storage = 4;
 
   gst_video_decoder_reset (decoder, TRUE);
 }
