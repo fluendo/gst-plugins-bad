@@ -1687,8 +1687,12 @@ gst_video_decoder_flush_decode (GstVideoDecoder * dec)
     for (walk = priv->decode; walk; walk = walk->next) {
       GstVideoCodecFrame *frame = (GstVideoCodecFrame *) (walk->data);
       priv->reverse_gop_frame_out_ts_border =
-          MIN (priv->reverse_gop_frame_out_ts_border, frame->pts);
-      gop_last_pts = MAX (gop_last_pts, frame->pts + frame->duration);
+          MIN (priv->reverse_gop_frame_out_ts_border,
+          GST_BUFFER_TIMESTAMP (frame->input_buffer));
+      gop_last_pts =
+          MAX (gop_last_pts,
+          GST_BUFFER_TIMESTAMP (frame->input_buffer) +
+          GST_BUFFER_DURATION (frame->input_buffer));
     }
 
     /* Divide GOP duration by gop_reorder_limit.
