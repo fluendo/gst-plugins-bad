@@ -213,7 +213,7 @@ gst_amc_video_sink_init (GstAmcVideoSink * amc_video_sink,
   /* FIXME: this shouldn't be just a magic number, but something
    * being calculated based on a frame rate. */
   gst_base_sink_set_ts_offset (GST_BASE_SINK (amc_video_sink),
-      G_GINT64_CONSTANT (-50000000));
+      G_GINT64_CONSTANT (-500000000));
 }
 
 static void
