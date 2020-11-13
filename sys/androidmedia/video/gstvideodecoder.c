@@ -411,6 +411,7 @@ struct _GstVideoDecoderPrivate
   GstClockTime reverse_gop_frame_out_ts_border_step;
   gint reverse_gop_frames_out;
   guint reverse_gop_max_storage;
+  gboolean flushing;
 };
 
 static void gst_video_decoder_finalize (GObject * object);
@@ -890,6 +891,7 @@ gst_video_decoder_sink_eventfunc (GstVideoDecoder * decoder, GstEvent * event)
       GstSegment *segment = &decoder->input_segment;
 
       GST_VIDEO_DECODER_STREAM_LOCK (decoder);
+      priv->flushing = FALSE;
       gst_event_parse_new_segment_full (event, &update, &rate,
           &arate, &format, &start, &stop, &pos);
 
@@ -944,6 +946,19 @@ gst_video_decoder_sink_eventfunc (GstVideoDecoder * decoder, GstEvent * event)
       GST_VIDEO_DECODER_STREAM_UNLOCK (decoder);
       break;
     }
+    case GST_EVENT_FLUSH_START:
+      priv->flushing = TRUE;
+      if (decoder->input_segment.rate < 0.0) {
+        GstVideoDecoderClass *klass;
+
+        klass = GST_VIDEO_DECODER_GET_CLASS (decoder);
+        GST_VIDEO_DECODER_STREAM_LOCK (decoder);
+        /* Unblock negative rate wait */
+        if (klass->reset)
+          klass->reset (decoder, FALSE, TRUE, FALSE);
+        GST_VIDEO_DECODER_STREAM_UNLOCK (decoder);
+      }
+      break;
     case GST_EVENT_FLUSH_STOP:
     {
       GST_VIDEO_DECODER_STREAM_LOCK (decoder);
@@ -1736,16 +1751,28 @@ gst_video_decoder_flush_decode (GstVideoDecoder * dec)
 
       priv->decode = g_list_delete_link (priv->decode, walk);
 
+      if (priv->reverse_gop_frames_out >= priv->reverse_gop_max_storage ||
+          priv->flushing) {
+        /* Stop decoding and drop the rest of gathered input if:
+         * - output storage limit is reached (so we'll drop the rest the output anyway)
+         * - if we're proccessing the FLUSH_START event, and our task is to unblock
+         *   the streaming thread ASAP, and all the output also will be dropped */
+        g_list_free_full (priv->decode,
+            (GDestroyNotify) gst_video_codec_frame_unref);
+        priv->decode = NULL;
+        return GST_FLOW_OK;
+      }
+
       /* decode buffer, resulting data prepended to queue */
       res = gst_video_decoder_decode_frame (dec, frame);
       if (res != GST_FLOW_OK)
         break;
-
       walk = next;
     }
   }
   /* Drain decoder + sync. */
-  if (res == GST_FLOW_OK && decoder_class->finish)
+  if (res == GST_FLOW_OK && decoder_class->finish &&
+      priv->reverse_gop_frames_out < priv->reverse_gop_max_storage)
     res = decoder_class->finish (dec);
 
   return res;
@@ -1871,6 +1898,11 @@ gst_video_decoder_chain_reverse (GstVideoDecoder * dec, GstBuffer * buf)
   GstVideoDecoderPrivate *priv = dec->priv;
   GstFlowReturn result = GST_FLOW_OK;
 
+  if (priv->flushing) {
+    gst_buffer_unref (buf);
+    GST_DEBUG_OBJECT (dec, "return GST_FLOW_WRONG_STATE");
+    return GST_FLOW_WRONG_STATE;
+  }
   /* if we have a discont, move buffers to the decode list */
   if (!buf || GST_BUFFER_IS_DISCONT (buf)) {
     GST_DEBUG_OBJECT (dec, "received discont");
@@ -2397,7 +2429,7 @@ gst_video_decoder_finish_frame (GstVideoDecoder * decoder,
 
   if (decoder->output_segment.rate < 0.0) {
 
-    if ((priv->reverse_gop_frames_out > priv->reverse_gop_max_storage) ||
+    if ((priv->reverse_gop_frames_out >= priv->reverse_gop_max_storage) ||
         (priv->reverse_gop_frames_out != 0 &&
             GST_BUFFER_TIMESTAMP (output_buffer) <
             priv->reverse_gop_frame_out_ts_border)) {
