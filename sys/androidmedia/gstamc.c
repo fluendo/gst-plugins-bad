@@ -545,6 +545,11 @@ gst_amc_codec_flush (GstAmcCodec * codec, gboolean wait_for_buffers)
         break;
       }
     }
+  } else {
+    /* If we're flushing without waiting for buffers, such as in case of
+     * seeking, at this moment there might be other thread waiting on
+     * this cond. */
+    g_cond_signal (&codec->buffers_cond);
   }
 
   /* Before we flush, we "invalidate all previously pushed buffers,
