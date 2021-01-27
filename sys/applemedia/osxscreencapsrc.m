@@ -790,7 +790,7 @@ gst_osx_screen_cap_src_set_property (GObject*object,guint prop_id,
       src->displayName,
       src->m_displayCount);
     for(CGDirectDisplayID i=0; i<src->m_displayCount; i++) {
-      if(strcmp( src->displayName,[src->m_dispArrayNames[i]UTF8String])==0) {
+      if(g_strcmp0( src->displayName,[src->m_dispArrayNames[i]UTF8String])==0) {
         src->displayId=src->m_dispArray[i];
         GST_DEBUG_OBJECT (object,"Selected [%s] id: %u",
             [src->m_dispArrayNames[i]UTF8String],
