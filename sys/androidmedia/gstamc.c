@@ -1294,7 +1294,12 @@ scan_codecs (GstPlugin * plugin)
       goto next_codec;
     }
 
-    if (g_str_has_prefix (name_str, "OMX.ARICENT.")) {
+    if (g_str_has_prefix (name_str, "OMX.ARICENT.") ||
+        /* OMX.MTK.AUDIO.DECODER.DSPAAC doesn't work fine on some boards,
+         * whether on others doesn't seem to fail.
+         * In any case it's behaviour is very different from other decoders:
+         * it outputs big chunks of raw data and works only in sync mode. */
+        g_str_has_prefix (name_str, "OMX.MTK.AUDIO.DECODER.DSPAAC")) {
       GST_INFO ("Skipping possible broken codec '%s'", name_str);
       valid_codec = FALSE;
       goto next_codec;
