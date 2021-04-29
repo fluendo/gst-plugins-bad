@@ -596,7 +596,7 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
     case PROP_HARDWARE_IS_MTK_2K:
       /* Special case reported from outside of the plugin:
        * hardware is based Mediatek's 2k SoC. In adaptive mode
-       * we need to apply some workarounds, otherwise decoder will
+       * we need to apply a workaround, otherwise decoder may
        * fail on buffers allocation. */
       thiz->hardware_is_mtk_2k = g_value_get_boolean (value);
       break;
@@ -761,6 +761,7 @@ gst_amc_video_dec_init (GstAmcVideoDec * self, GstAmcVideoDecClass * klass)
 
   self->inband_drm_enabled = GST_AMC_DRM_DEFAULT_INBAND_DRM_ENABLED;
   self->enable_adaptive_playback = GST_AMC_DEFAULT_ADAPTIVE_PLAYBACK_ENABLED;
+  self->hardware_is_mtk_2k = FALSE;
 }
 
 static gboolean
@@ -774,6 +775,8 @@ gst_amc_video_dec_open (GstVideoDecoder * decoder)
   self->codec = gst_amc_codec_new (klass->registered_codec->codec_info->name);
   if (!self->codec)
     return FALSE;
+
+  self->codec->hardware_is_mtk_2k = self->hardware_is_mtk_2k;
   self->started = FALSE;
   GST_DEBUG_OBJECT (self, "Opened decoder");
 
@@ -1688,23 +1691,6 @@ gst_amc_video_dec_set_format (GstVideoDecoder * decoder,
 
   GST_INFO_OBJECT (self, "needs_disable=%d needs_config=%d", needs_disable,
       needs_config);
-
-  if (self->hardware_is_mtk_2k) {
-    /* MTK 2k SoC can support adaptive mode, but on fps higher then 30 it
-     * fails to pre-allocate buffers, so in this case we force it to pre-allocate
-     * only for 2k dimensions. */
-    float fps, fps_n, fps_d;
-
-    fps_n = GST_VIDEO_INFO_FPS_N (&state->info);
-    fps_d = GST_VIDEO_INFO_FPS_D (&state->info);
-    fps = fps_n / fps_d;
-
-    if (fps > 30.0) {
-      GST_INFO_OBJECT (self, "fps is %f, will restrict dimensions"
-          " for adaptive mode", fps);
-      self->codec->adaptive_force_2k = TRUE;
-    }
-  }
 
   if (needs_disable) {
     /* Completely reinit decoder */

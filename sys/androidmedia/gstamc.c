@@ -297,13 +297,13 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   if (supported) {
     JNIEnv *env = gst_jni_get_env ();
 
-    /* This is a workaround for a special case: when decoder is reporting
-     * it supports max width/height, but fails on allocation of
-     * input buffers with specific streams, such as 50 fps video.
-     * It's not related to special OMX decoder but to a combination of this
-     * decoder with particular hardware, so this option is set from outside of
-     * the plugin. */
-    if (codec->adaptive_force_2k) {
+    /* This is a workaround for OMX.MTK.DECODER.VIDEO:
+     * decoder reports it supports max width/height, but then
+     * fails on allocation of input buffers with specific streams,
+     * such as 50 fps video. It happens only on 2k SoC hardware, and
+     * obviously should be fixed on OMX decoder's side, but until it's
+     * fixed we have to deal with it. */
+    if (codec->hardware_is_mtk_2k) {
       max_height = 1080;
       max_width = 1920;
       GST_ERROR ("Forcing 1920x1080 max dimensions"

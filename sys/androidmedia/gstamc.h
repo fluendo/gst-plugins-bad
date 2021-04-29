@@ -86,7 +86,7 @@ struct _GstAmcCodec
   GMutex buffers_lock;
   gboolean tunneled_playback_enabled;
   gboolean adaptive_enabled;
-  gboolean adaptive_force_2k;
+  gboolean hardware_is_mtk_2k;
   /* < private > */
   jobject object;               /* global reference */
   gint ref_count;
