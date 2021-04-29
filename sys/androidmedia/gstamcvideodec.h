@@ -102,6 +102,8 @@ struct _GstAmcVideoDec
   gint cached_input_buffer;
 
   GstCaps *x_amc_empty_caps;
+
+  gboolean hardware_is_mtk_2k;
 };
 
 struct _GstAmcVideoDecClass

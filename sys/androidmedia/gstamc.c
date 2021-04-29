@@ -297,7 +297,18 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   if (supported) {
     JNIEnv *env = gst_jni_get_env ();
 
-    if (!media_codec_info.video_caps.klass) {
+    /* This is a workaround for a special case: when decoder is reporting
+     * it supports max width/height, but fails on allocation of
+     * input buffers with specific streams, such as 50 fps video.
+     * It's not related to special OMX decoder but to a combination of this
+     * decoder with particular hardware, so this option is set from outside of
+     * the plugin. */
+    if (codec->adaptive_force_2k) {
+      max_height = 1080;
+      max_width = 1920;
+      GST_ERROR ("Forcing 1920x1080 max dimensions"
+          " to avoid platform specific bug");
+    } else if (!media_codec_info.video_caps.klass) {
       GST_ERROR ("Video caps not supported, requires API 21");
     } else {
       jobject codec_info = NULL;
