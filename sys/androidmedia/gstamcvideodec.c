@@ -598,6 +598,7 @@ gst_amc_video_dec_set_property (GObject * object, guint prop_id,
        * hardware is based Mediatek's 2k SoC. In adaptive mode
        * we need to apply a workaround, otherwise decoder may
        * fail on buffers allocation. */
+      GST_ERROR_OBJECT (object, "Hardware is mtk 2k");
       thiz->hardware_is_mtk_2k = g_value_get_boolean (value);
       break;
     default:
