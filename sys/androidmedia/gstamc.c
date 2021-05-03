@@ -139,6 +139,7 @@ static const gchar *features_to_check[] = {
   NULL
 };
 
+static gboolean gst_amc_hardware_is_mtk_2k;
 
 jbyteArray
 jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size)
@@ -954,6 +955,36 @@ get_java_classes (void)
 
   J_INIT_STATIC_METHOD_ID (uuid, from_string, "fromString",
       "(Ljava/lang/String;)Ljava/util/UUID;");
+
+  {
+    /* Get Build.HARDWARE to know the CPU model. */
+    jclass build_klass;
+    jfieldID build_hw_id;
+    jobject build_hw_obj = NULL;
+    const gchar *hw_str = NULL;
+
+    build_klass = gst_jni_get_class (env, "android/os/Build");
+    AMC_CHK (build_klass);
+
+    build_hw_id = (*env)->GetStaticFieldID (env, build_klass, "HARDWARE",
+        "Ljava/lang/String;");
+    AMC_CHK (build_hw_id);
+
+    build_hw_obj =
+        (*env)->GetStaticObjectField (env, build.klass, build.HARDWARE_id);
+    AMC_CHK (build_hw_obj);
+
+    hw_str = (*env)->GetStringUTFChars (env, build_hw_obj, NULL);
+    AMC_CHK (hw_str);
+
+    /* FIXME: change to GST_INFO and set threshold of "amc" debug category to INFO */
+    GST_ERROR ("Build.HARDWARE = %s", hw_str);
+
+    /* Finally, here we can compare the string of Build.HARDWARE to some models we know */
+    gst_amc_hardware_is_mtk_2k = !g_strcmp0 (hw_str, "mt5863");
+
+    (*env)->ReleaseStringUTFChars (env, build_hw_obj, hw_str);
+  }
 
   ret = TRUE;
 error:
