@@ -139,6 +139,7 @@ static const gchar *features_to_check[] = {
   NULL
 };
 
+static gboolean gst_amc_hardware_is_mtk_2k;
 
 jbyteArray
 jbyte_arr_from_data (JNIEnv * env, const guchar * data, gsize size)
@@ -297,7 +298,17 @@ gst_amc_codec_enable_adaptive_playback (GstAmcCodec * codec,
   if (supported) {
     JNIEnv *env = gst_jni_get_env ();
 
-    if (!media_codec_info.video_caps.klass) {
+    if (gst_amc_hardware_is_mtk_2k) {
+      /* Work around the bug of OMX.MTK.VIDEO.DECODER that on
+       * SoC MT5510 responds it supports 4k dimensions for
+       * adaptive mode, and then fails on allocation of
+       * buffers if source video is of 50 fps. */
+      max_height = 1080;
+      max_width = 1920;
+      /* FIXME: change to GST_INFO */
+      GST_ERROR ("SoC supposedly supports only 2k video -"
+          " forcing 1920x1080 max dimensions for adaptive mode");
+    } else if (!media_codec_info.video_caps.klass) {
       GST_ERROR ("Video caps not supported, requires API 21");
     } else {
       jobject codec_info = NULL;
@@ -943,6 +954,35 @@ get_java_classes (void)
 
   J_INIT_STATIC_METHOD_ID (uuid, from_string, "fromString",
       "(Ljava/lang/String;)Ljava/util/UUID;");
+
+  {
+    /* Get Build.HARDWARE to know the CPU model. */
+    jclass build_klass;
+    jfieldID build_hw_id;
+    jobject build_hw_obj = NULL;
+    const gchar *hw_str = NULL;
+
+    build_klass = gst_jni_get_class (env, "android/os/Build");
+    AMC_CHK (build_klass);
+
+    build_hw_id = (*env)->GetStaticFieldID (env, build_klass, "HARDWARE",
+        "Ljava/lang/String;");
+    AMC_CHK (build_hw_id);
+
+    build_hw_obj = (*env)->GetStaticObjectField (env, build_klass, build_hw_id);
+    AMC_CHK (build_hw_obj);
+
+    hw_str = (*env)->GetStringUTFChars (env, build_hw_obj, NULL);
+    AMC_CHK (hw_str);
+
+    /* FIXME: change to GST_INFO and set threshold of "amc" debug category to INFO */
+    GST_ERROR ("Build.HARDWARE = %s", hw_str);
+
+    /* Finally, here we can compare the string of Build.HARDWARE to some models we know */
+    gst_amc_hardware_is_mtk_2k = (g_strcmp0 (hw_str, "mt5863") == 0);
+
+    (*env)->ReleaseStringUTFChars (env, build_hw_obj, hw_str);
+  }
 
   ret = TRUE;
 error:
