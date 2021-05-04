@@ -470,7 +470,9 @@ double_from_string (gchar * ptr, gchar ** endptr, gdouble * val)
 static gboolean
 parse_attributes (gchar ** ptr, gchar ** a, gchar ** v)
 {
-  gchar *end, *p, *w;
+  gchar *end, *p;
+  gboolean quote = FALSE;
+  glong idx;
 
   g_return_val_if_fail (ptr != NULL, FALSE);
   g_return_val_if_fail (*ptr != NULL, FALSE);
@@ -479,36 +481,62 @@ parse_attributes (gchar ** ptr, gchar ** a, gchar ** v)
 
   /* [attribute=value,]* */
 
-  *a = *ptr;
-  *v = p = g_utf8_strchr (*ptr, -1, '=');
-  end = w = g_utf8_strchr (*ptr, -1, ',');
+  GST_DEBUG ("Parse = '%s'", *ptr ? *ptr : "");
 
-  if (end) {
-    if (p[0] == '=' && p[1] == '"') {
-      /* value can be "codec1, codec2" so we need to jump the closing quotes */
-      w = g_utf8_next_char (p);
-      w = g_utf8_next_char (w);
-      w = g_utf8_strchr (w, -1, '"');
-      w = g_utf8_strchr (w, -1, ',');
+  /* Search for a ',' separating the next attribute or the end */
+  *a = *ptr;
+  end = *ptr;
+  do {
+    if (*end == '"') {
+      quote = !quote;
     }
-    end = w;
-    if (end) {
-      do {
-        end = g_utf8_next_char (end);
-      } while (end && *end == ' ');
-      *w = '\0';
-    }
+    end = g_utf8_next_char(end);
+  } while (*end && (quote || (!quote && *end != ',')));
+
+  if (*end == '\0') {
+    end = NULL;
+  }
+  else {
+    p = end;
+    /* Skip past any whitespace until start of the next attribute */
+    do {
+      end = g_utf8_next_char (end);
+    } while (*end && *end == ' ');
+    /* If there are no additional attributes */
+    if ( *end == '\0' ) end = NULL;
+    /* Place a terminator at the ',' */
+    *p = '\0';
   }
 
+  *v = p = g_utf8_strchr (*ptr, -1, '=');
   if (*v) {
     *v = g_utf8_next_char (*v);
+    /* Replace '=' with a NULL */
     *p = '\0';
+    
+    /* Strip off any whitespace at the end of the value */
+    idx = g_utf8_strlen(*v, -1);
+    if ( idx > 0 ) {
+      p = g_utf8_offset_to_pointer(*v, idx - 1);    
+      while ( *p && g_unichar_isspace(g_utf8_get_char(p)) ) {
+        p = g_utf8_prev_char(p);
+      }
+      if ( *p ) {
+        p = g_utf8_next_char(p);
+       *p = '\0';
+      }
+    }
   } else {
     GST_WARNING ("missing = after attribute");
     return FALSE;
   }
 
   *ptr = end;
+
+  GST_DEBUG ("Attribute = '%s'", *a ? *a : "");
+  GST_DEBUG ("Value = '%s'", *v ? *v : "");
+  GST_DEBUG ("Remaining = '%s'", *ptr ? *ptr : "");
+
   return TRUE;
 }
 

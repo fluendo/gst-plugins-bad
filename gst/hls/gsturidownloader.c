@@ -281,10 +281,20 @@ done:
 static void
 gst_uri_downloader_stop (GstUriDownloader * downloader)
 {
+  GstPad *pad;
+
   GST_DEBUG_OBJECT (downloader, "Stopping source element");
 
+  /* remove the bus' sync handler */
+  gst_bus_set_sync_handler (downloader->priv->bus, NULL, NULL);
+  /* unlink the source element from the internal pad */
+  pad = gst_pad_get_peer (downloader->priv->pad);
+  if (pad) {
+    gst_pad_unlink (pad, downloader->priv->pad);
+    gst_object_unref (pad);
+  }
   /* set the element state to NULL */
-  gst_element_set_state (downloader->priv->urisrc, GST_STATE_READY);
+  gst_element_set_state (downloader->priv->urisrc, GST_STATE_NULL);
   gst_element_get_state (downloader->priv->urisrc, NULL, NULL,
       GST_CLOCK_TIME_NONE);
 }
@@ -351,13 +361,14 @@ gst_uri_downloader_set_uri (GstUriDownloader * downloader, const gchar * uri)
     /* add a sync handler for the bus messages to detect errors in the download */
     gst_element_set_bus (GST_ELEMENT (downloader->priv->urisrc),
         downloader->priv->bus);
-
-    pad = gst_element_get_static_pad (downloader->priv->urisrc, "src");
-    if (!pad)
-      return FALSE;
-    gst_pad_link (pad, downloader->priv->pad);
-    gst_object_unref (pad);
   }
+
+  pad = gst_element_get_static_pad (downloader->priv->urisrc, "src");
+  if (!pad)
+    return FALSE;
+  gst_pad_link (pad, downloader->priv->pad);
+  gst_object_unref (pad);
+
   gst_bus_set_sync_handler (downloader->priv->bus,
       gst_uri_downloader_bus_handler, downloader);
   gst_uri_handler_set_uri (GST_URI_HANDLER (downloader->priv->urisrc), uri);
@@ -388,8 +399,14 @@ gst_uri_downloader_fetch_fragment (GstUriDownloader * downloader,
   downloader->priv->length = length = fragment->length;
   downloader->priv->offset = offset = fragment->offset;
 
+  /* Have to lock it *before* setting the URI in case the result
+   * is returned before we're ready to wait on it.
+  */
+  g_mutex_lock (downloader->priv->lock);
+
   if (!gst_uri_downloader_set_uri (downloader, fragment->name)) {
     GST_OBJECT_UNLOCK (downloader);
+    g_mutex_unlock (downloader->priv->lock);
     goto quit;
   }
   GST_OBJECT_UNLOCK (downloader);
@@ -400,10 +417,9 @@ gst_uri_downloader_fetch_fragment (GstUriDownloader * downloader,
     if (downloader->priv->download != NULL)
       g_object_unref (downloader->priv->download);
     downloader->priv->download = NULL;
+    g_mutex_unlock (downloader->priv->lock);
     goto quit;
   }
-
-  g_mutex_lock (downloader->priv->lock);
 
   /* Check if we were cancelled while setting the URI */
   if (downloader->priv->download == NULL) {
