@@ -1802,6 +1802,7 @@ static const struct
 static gboolean
 accepted_color_formats (GstAmcCodecType * type, gboolean is_encoder)
 {
+#ifdef SUPPORT_ONLY_KNOWN_COLOR_FORMATS
   gint i, j;
   gint accepted = 0, all = type->n_color_formats;
 
@@ -1829,6 +1830,9 @@ accepted_color_formats (GstAmcCodecType * type, gboolean is_encoder)
     return accepted > 0;
   else
     return accepted == all && all > 0;
+#else
+  return TRUE;
+#endif
 }
 
 GstVideoFormat
@@ -1841,7 +1845,11 @@ gst_amc_color_format_to_video_format (gint color_format)
       return color_format_mapping_table[i].video_format;
   }
 
+#ifdef SUPPORT_ONLY_KNOWN_COLOR_FORMATS
   return GST_VIDEO_FORMAT_UNKNOWN;
+#else
+  return GST_VIDEO_FORMAT_ENCODED;
+#endif
 }
 
 
