@@ -2496,8 +2496,7 @@ ext/gsettings/org.freedesktop.gstreamer.default-elements.gschema.xml
 ext/spc/Makefile
 ext/swfdec/Makefile
 ext/timidity/Makefile
-ext/vp8/Makefile
-ext/vp9/Makefile
+ext/vpx/Makefile
 ext/xvid/Makefile
 ext/zbar/Makefile
 po/Makefile.in

@@ -1,4 +1,4 @@
-/* VP9
+/* VP8
  * Copyright (C) 2006 David Schleef <ds@schleef.org>
  * Copyright (C) 2010 Entropy Wave Inc
  *
@@ -25,11 +25,29 @@
 
 #include <gst/gst.h>
 
+#include "gstvp8dec.h"
+#include "gstvp8enc.h"
 #include "gstvp9dec.h"
 
 static gboolean
 plugin_init (GstPlugin * plugin)
 {
+#ifdef HAVE_VP8_DECODER
+#ifdef __BIONIC__
+  /* On Android prefer the android.media.MediaCodec decoder */
+  gst_element_register (plugin, "vp8dec", GST_RANK_MARGINAL,
+      gst_vp8_dec_get_type ());
+#else
+  gst_element_register (plugin, "vp8dec", GST_RANK_PRIMARY,
+      gst_vp8_dec_get_type ());
+#endif
+#endif
+
+#ifdef HAVE_VP8_ENCODER
+  gst_element_register (plugin, "vp8enc", GST_RANK_PRIMARY,
+      gst_vp8_enc_get_type ());
+#endif
+
 #ifdef HAVE_VP9_DECODER
 #ifdef __BIONIC__
   /* On Android prefer the android.media.MediaCodec decoder */
@@ -46,6 +64,6 @@ plugin_init (GstPlugin * plugin)
 
 GST_PLUGIN_DEFINE2 (GST_VERSION_MAJOR,
     GST_VERSION_MINOR,
-    vp9,
-    "VP9 plugin",
+    vp8,
+    "VP8 plugin",
     plugin_init, VERSION, "LGPL", GST_PACKAGE_NAME, GST_PACKAGE_ORIGIN)
